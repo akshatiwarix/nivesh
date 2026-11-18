@@ -10,6 +10,8 @@ const COMMANDS: &[&str] = &[
     "get_dma_breadth",
     "get_history",
     "get_movers",
+    "get_news",
+    "open_news_link",
     "get_sectors",
     "get_quote",
     "index_snapshot",

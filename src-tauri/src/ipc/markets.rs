@@ -1,7 +1,7 @@
 //! Wire types for the market views: movers, breadth, sectors and news.
 
 use nivesh_core::Sourced;
-use nivesh_data::{DmaBreadth, IndexBreadth, Movers, SectorPerformance};
+use nivesh_data::{DmaBreadth, IndexBreadth, Movers, NewsItem, SectorPerformance};
 use serde::Serialize;
 use ts_rs::TS;
 
@@ -227,5 +227,49 @@ mod tests {
         );
         let json = serde_json::to_value(&dto).unwrap();
         assert!(json["rows"][0]["w1"].is_null() && json["rows"][0]["d1"] == 1.5);
+    }
+}
+
+/// A headline. Text and a link only: no bodies, no HTML.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct NewsItemDto {
+    pub title: String,
+    pub source: String,
+    /// Always http or https (checked when the feed is parsed).
+    pub url: String,
+    pub published_ms: i64,
+    /// NSE symbols of companies the headline mentions.
+    pub tags: Vec<String>,
+}
+
+impl From<&NewsItem> for NewsItemDto {
+    fn from(n: &NewsItem) -> Self {
+        Self {
+            title: n.title.clone(),
+            source: n.source.clone(),
+            url: n.url.clone(),
+            published_ms: n.published.timestamp_millis(),
+            tags: n.tags.clone(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct NewsDto {
+    /// The symbol filter that was applied, if any.
+    pub query: Option<String>,
+    pub items: Vec<NewsItemDto>,
+    pub provenance: ProvenanceDto,
+}
+
+impl NewsDto {
+    pub fn new(query: Option<String>, news: &Sourced<Vec<NewsItem>>) -> Self {
+        Self {
+            query,
+            items: news.data.iter().map(Into::into).collect(),
+            provenance: (&news.provenance).into(),
+        }
     }
 }

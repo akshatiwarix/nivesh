@@ -52,6 +52,9 @@ function openInstrument(
       ws.open({ kind: "chart", exchange, symbol, ...chart });
       return undefined;
     }
+    case "news":
+      ws.open({ kind: "news", symbol });
+      return undefined;
     default:
       return `${fn.toUpperCase()} is not available yet.`;
   }
@@ -84,6 +87,14 @@ export function runCommand(
       return undefined;
     case "wl":
       return runWatchlist(ws, args, watchlists);
+    case "news": {
+      const symbol = args[0]?.toUpperCase().replace(/^(NSE|BSE):/, "");
+      if (symbol !== undefined && !/^[A-Z0-9][A-Z0-9&\-_.]*$/.test(symbol)) {
+        return `Invalid symbol "${args[0]}".`;
+      }
+      ws.open(symbol === undefined ? { kind: "news" } : { kind: "news", symbol });
+      return undefined;
+    }
     case "sec":
       if (ws.currentView(ws.state.focused).kind !== "sec") ws.open({ kind: "sec" });
       return undefined;

@@ -18,7 +18,7 @@ use crate::ipc::dto::{
     HubUpdateDto, IndexSnapshotDto, InstrumentDto, ProviderStatusDto, SourcedIndexQuoteDto,
     SourcedQuoteDto, TopicDto,
 };
-use crate::ipc::markets::{BreadthDto, DmaBreadthDto, MoversDto, ProgressDto, SectorsDto};
+use crate::ipc::markets::{BreadthDto, DmaBreadthDto, MoversDto, NewsDto, ProgressDto, SectorsDto};
 
 /// The committed bindings directory.
 pub fn committed_dir() -> PathBuf {
@@ -52,5 +52,6 @@ pub fn export(dir: &Path) -> Result<(), ExportError> {
     DmaBreadthDto::export_all(&cfg)?;
     ProgressDto::export_all(&cfg)?;
     SectorsDto::export_all(&cfg)?;
+    NewsDto::export_all(&cfg)?;
     Ok(())
 }

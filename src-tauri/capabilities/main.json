@@ -12,6 +12,8 @@
     "allow-get-dma-breadth",
     "allow-get-history",
     "allow-get-movers",
+    "allow-get-news",
+    "allow-open-news-link",
     "allow-get-sectors",
     "allow-get-quote",
     "allow-index-snapshot",

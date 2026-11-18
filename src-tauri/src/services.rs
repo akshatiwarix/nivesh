@@ -10,6 +10,7 @@ use nivesh_core::{MarketCalendar, ProviderId, Session};
 use nivesh_data::bse::BseListProvider;
 use nivesh_data::constituents::{self, ConstituentsList};
 use nivesh_data::http::{HostLimits, HttpClient, HttpConfig};
+use nivesh_data::news::{RssProvider, default_feeds};
 use nivesh_data::nse::{NseConfig, NseProvider};
 use nivesh_data::yahoo::YahooProvider;
 use nivesh_data::{
@@ -132,6 +133,14 @@ pub fn build(store: Arc<Store>, overrides: &Overrides) -> anyhow::Result<Service
     };
     let nse: Arc<dyn DataProvider> = Arc::new(nse);
     let yahoo: Arc<dyn DataProvider> = Arc::new(yahoo);
+    // Public news feeds. Fixture mode (a local NSE URL) stays offline.
+    let rss: Option<Arc<dyn DataProvider>> = match &overrides.nse_url {
+        Some(_) => None,
+        None => Some(Arc::new(RssProvider::new(
+            list_download.http.clone(),
+            default_feeds(),
+        ))),
+    };
     // BSE's list is a plain download, used only for the instrument master (BSE
     // quotes come from Yahoo). Fixture mode (a local NSE URL) stays offline.
     let list_only: Vec<Arc<dyn DataProvider>> = match &overrides.nse_url {
@@ -140,7 +149,7 @@ pub fn build(store: Arc<Store>, overrides: &Overrides) -> anyhow::Result<Service
     };
     assemble(
         store,
-        vec![nse, yahoo],
+        [nse, yahoo].into_iter().chain(rss).collect(),
         list_only,
         &overrides.force_fail,
         Some(list_download),
@@ -171,8 +180,13 @@ fn assemble(
     let constituents = Arc::new(
         ConstituentsList::open(Arc::clone(&store)).context("opening the constituent lists")?,
     );
+    let instruments = Arc::new(
+        InstrumentMaster::open_ranked(Arc::clone(&store), constituents.popularity())
+            .context("opening the instrument master")?,
+    );
     let mut builder = MarketData::builder()
         .constituents(Arc::clone(&constituents))
+        .tagger(Arc::new(instruments.tagger()))
         .cache(CacheConfig {
             persistent: Some(Arc::clone(&store) as Arc<dyn nivesh_data::PersistentCache>),
             ..CacheConfig::default()
@@ -186,10 +200,6 @@ fn assemble(
         market.force_failure(*provider, Some(DataError::Blocked));
     }
 
-    let instruments = Arc::new(
-        InstrumentMaster::open_ranked(store, constituents.popularity())
-            .context("opening the instrument master")?,
-    );
     let calendar = Arc::new(MarketCalendar::bundled());
     let hub = QuoteHub::spawn(market.clone(), HubConfig::default(), move || {
         calendar.status_at(now_secs()).session != Session::Closed

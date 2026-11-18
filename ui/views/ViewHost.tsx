@@ -6,6 +6,7 @@ import { HelpView } from "./help/HelpView";
 import { IndexView } from "./index/IndexView";
 import { MktView } from "./mkt/MktView";
 import { MoversView } from "./movers/MoversView";
+import { NewsView } from "./news/NewsView";
 import { EmptyView } from "./PlaceholderViews";
 import { QuoteView } from "./quote/QuoteView";
 import { SectorsView } from "./sectors/SectorsView";
@@ -31,6 +32,8 @@ function renderView(view: View): JSX.Element {
       return <BreadthView view={view} />;
     case "sec":
       return <SectorsView />;
+    case "news":
+      return <NewsView view={view} />;
     case "wl":
       return <WatchlistView />;
     case "help":

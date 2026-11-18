@@ -107,6 +107,21 @@ describe("dispatch", () => {
     });
   });
 
+  describe("news", () => {
+    it("NEWS opens all headlines and NEWS SYMBOL or SYMBOL NEWS filter them", () => {
+      const ws = createWorkspace();
+      expect(dispatch(parse("news"), ws)).toBeUndefined();
+      expect(ws.currentView(0)).toEqual({ kind: "news" });
+      dispatch(parse("news reliance"), ws);
+      expect(ws.currentView(0)).toEqual({ kind: "news", symbol: "RELIANCE" });
+      dispatch(parse("tcs news"), ws);
+      expect(ws.currentView(0)).toEqual({ kind: "news", symbol: "TCS" });
+      dispatch(parse("news nse:infy"), ws);
+      expect(ws.currentView(0)).toEqual({ kind: "news", symbol: "INFY" });
+      expect(dispatch(parse("news bad!"), ws)).toMatch(/Invalid symbol/);
+    });
+  });
+
   describe("indicators", () => {
     it("ADD and RM need a chart in the focused panel", () => {
       const ws = createWorkspace();

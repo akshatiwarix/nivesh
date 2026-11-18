@@ -3,6 +3,7 @@ import { Channel } from "@tauri-apps/api/core";
 import type { BreadthDto } from "./bindings/BreadthDto";
 import type { DmaBreadthDto } from "./bindings/DmaBreadthDto";
 import type { MoversDto } from "./bindings/MoversDto";
+import type { NewsDto } from "./bindings/NewsDto";
 import type { ProgressDto } from "./bindings/ProgressDto";
 import type { SectorsDto } from "./bindings/SectorsDto";
 import { call } from "./core";
@@ -33,4 +34,20 @@ export function getDmaBreadth(
 /** Returns of every index over 1D, 1W, 1M and year to date. */
 export function getSectors(): Promise<SectorsDto> {
   return call<SectorsDto>("get_sectors");
+}
+
+/**
+ * Recent market headlines, newest first. `query` is a symbol or a word to find
+ * in the headline. Text and links only; no remote HTML ever reaches the UI.
+ */
+export function getNews(query?: string, limit?: number): Promise<NewsDto> {
+  return call<NewsDto>("get_news", { query, limit });
+}
+
+/**
+ * Opens a headline's link in the system browser. The backend refuses anything
+ * that is not an http(s) link from the news feed.
+ */
+export function openNewsLink(url: string): Promise<void> {
+  return call<void>("open_news_link", { url });
 }

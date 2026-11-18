@@ -19,6 +19,8 @@ export type { InstrumentDto } from "./bindings/InstrumentDto";
 export type { IpcError } from "./bindings/IpcError";
 export type { MarketStatusDto } from "./bindings/MarketStatusDto";
 export type { MoversDto } from "./bindings/MoversDto";
+export type { NewsDto } from "./bindings/NewsDto";
+export type { NewsItemDto } from "./bindings/NewsItemDto";
 export type { ProgressDto } from "./bindings/ProgressDto";
 export type { ProvenanceDto } from "./bindings/ProvenanceDto";
 export type { ProviderStatusDto } from "./bindings/ProviderStatusDto";
@@ -52,7 +54,14 @@ export {
 } from "./data";
 export { onMarketSession, onProviderStatus } from "./events";
 export { marketStatus } from "./market";
-export { getBreadth, getDmaBreadth, getMovers, getSectors } from "./markets";
+export {
+  getBreadth,
+  getDmaBreadth,
+  getMovers,
+  getNews,
+  getSectors,
+  openNewsLink,
+} from "./markets";
 export { loadUiState, saveCommandHistory, saveLayout } from "./uiState";
 export {
   watchlistActivate,

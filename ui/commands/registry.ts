@@ -83,6 +83,13 @@ export const COMMANDS: readonly CommandDef[] = [
     usage: "BRD [INDEX]",
   },
   {
+    id: "news",
+    names: ["NEWS"],
+    summary: "Market headlines from public RSS feeds. NEWS RELIANCE filters; Enter opens the link",
+    usage: "NEWS [SYMBOL]",
+    fkey: 7,
+  },
+  {
     id: "add",
     names: ["ADD"],
     summary:
@@ -105,6 +112,12 @@ export const FUNCTIONS: readonly FunctionDef[] = [
     summary:
       "Candlestick chart. INTERVAL: 1M 5M 15M 30M 1H 4H 1D 1W 1MO. RANGE: 1D 5D 1MO 3MO 6MO 1Y 5Y MAX",
     usage: "<SYMBOL> CH [INTERVAL] [RANGE]",
+  },
+  {
+    id: "news",
+    names: ["NEWS"],
+    summary: "Headlines that mention the company",
+    usage: "<SYMBOL> NEWS",
   },
 ];
 
