@@ -10,6 +10,7 @@ pub mod clock;
 mod error;
 pub mod health;
 pub mod http;
+pub mod hub;
 pub mod instruments;
 pub mod mock;
 pub mod nse;
@@ -22,6 +23,7 @@ pub use cache::{CacheConfig, CachePolicy, PersistentCache, Ttl, daily_fresh_for}
 pub use chain::{MarketData, MarketDataBuilder, Routing};
 pub use error::DataError;
 pub use health::{HealthConfig, HealthState, ProviderStatus};
+pub use hub::{HubConfig, HubUpdate, QuoteHub, SubscriptionId, Topic};
 pub use instruments::{InstrumentIndex, InstrumentMaster, parse_equity_csv};
 pub use provider::{
     Capabilities, DataProvider, HistoryRange, HistoryRequest, Mover, Movers, MoversRequest,
