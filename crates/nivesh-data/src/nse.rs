@@ -19,8 +19,8 @@ use std::time::{Duration, Instant};
 use async_trait::async_trait;
 use chrono::{DateTime, FixedOffset, NaiveDateTime, TimeZone as _, Utc};
 use nivesh_core::{
-    CandleSeries, Exchange, FeedKind, IndexId, IndexQuote, IndexSnapshot, InstrumentId, Provenance,
-    ProviderId, Quote, Sourced,
+    CandleSeries, Exchange, FeedKind, IndexId, IndexQuote, IndexSnapshot, Instrument, InstrumentId,
+    Provenance, ProviderId, Quote, Sourced,
 };
 use serde_json::Value;
 use tokio::sync::Mutex;
@@ -30,6 +30,8 @@ use crate::util::{percent_encode, settle};
 use crate::{Capabilities, DataError, DataProvider, HistoryRequest};
 
 pub const DEFAULT_BASE_URL: &str = "https://www.nseindia.com";
+/// Static files (equity list) live on a separate archive host.
+pub const DEFAULT_ARCHIVE_URL: &str = "https://nsearchives.nseindia.com";
 
 /// NSE has no batch quote endpoint, so each symbol costs a request against a
 /// roughly 1 request/second budget. Larger batches are declined (`Unsupported`)
@@ -77,6 +79,7 @@ fn endpoint_of(path: &str) -> &str {
 pub struct NseProvider {
     http: HttpClient,
     base_url: String,
+    archive_url: String,
     config: NseConfig,
     session: Mutex<Session>,
 }
@@ -99,9 +102,16 @@ impl NseProvider {
         Self {
             http,
             base_url: base_url.trim_end_matches('/').to_owned(),
+            archive_url: DEFAULT_ARCHIVE_URL.to_owned(),
             config,
             session: Mutex::new(Session::default()),
         }
+    }
+
+    /// Points the equity-list download at another host (tests, local servers).
+    pub fn with_archive_url(mut self, archive_url: &str) -> Self {
+        self.archive_url = archive_url.trim_end_matches('/').to_owned();
+        self
     }
 
     /// Warms the session by loading the home page, as a browser would. A
@@ -221,7 +231,7 @@ impl DataProvider for NseProvider {
     }
 
     fn capabilities(&self) -> Capabilities {
-        Capabilities::QUOTE | Capabilities::INDEX
+        Capabilities::QUOTE | Capabilities::INDEX | Capabilities::INSTRUMENTS
     }
 
     fn feed_kind(&self) -> FeedKind {
@@ -265,6 +275,17 @@ impl DataProvider for NseProvider {
 
     async fn all_indices(&self) -> Result<Vec<Sourced<IndexQuote>>, DataError> {
         parse_all_indices(&self.api_get("allIndices").await?)
+    }
+
+    /// NSE's list of equities. A static file on the archive host: it needs no
+    /// session, and is fetched at most once a day.
+    async fn instruments(&self, exchange: Exchange) -> Result<Vec<Instrument>, DataError> {
+        if exchange != Exchange::Nse {
+            return Err(DataError::Unsupported);
+        }
+        let url = format!("{}/content/equities/EQUITY_L.csv", self.archive_url);
+        let response = self.http.get(&url, &[("Accept", "text/csv,*/*")]).await?;
+        crate::instruments::parse_equity_csv(&response.text())
     }
 }
 
@@ -922,6 +943,27 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn downloads_and_parses_the_equity_list_from_the_archive_host() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/content/equities/EQUITY_L.csv"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_string(include_str!("../tests/fixtures/nse/equity_list.csv")),
+            )
+            .expect(1)
+            .mount(&server)
+            .await;
+        let nse = provider_for(&server, Duration::from_secs(60)).with_archive_url(&server.uri());
+        let list = nse.instruments(Exchange::Nse).await.unwrap();
+        assert_eq!(list.len(), 9);
+        assert_eq!(
+            nse.instruments(Exchange::Bse).await.unwrap_err(),
+            DataError::Unsupported
+        );
+    }
+
+    #[tokio::test]
     async fn an_html_page_with_status_200_is_a_parse_error() {
         let server = MockServer::start().await;
         Mock::given(method("GET"))
@@ -990,6 +1032,13 @@ mod tests {
                 )
             }
             Err(e) => println!("quote RELIANCE: FAIL {e}"),
+        }
+        match nse.instruments(Exchange::Nse).await {
+            Ok(list) => {
+                ok += 1;
+                println!("equity list: {} instruments", list.len())
+            }
+            Err(e) => println!("equity list: FAIL {e}"),
         }
         match nse.index_snapshot(IndexId::Nifty50).await {
             Ok(s) => {

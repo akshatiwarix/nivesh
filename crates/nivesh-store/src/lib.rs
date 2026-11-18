@@ -13,10 +13,12 @@
 
 mod cache;
 mod error;
+mod instruments;
 mod migrations;
 mod store;
 
 pub use cache::CacheRow;
 pub use error::StoreError;
+pub use instruments::InstrumentRow;
 pub use migrations::LATEST_VERSION;
 pub use store::{Store, WindowState};

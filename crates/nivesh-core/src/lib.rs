@@ -13,7 +13,7 @@ pub mod provenance;
 pub use calendar::{CalendarError, Date, MarketCalendar, MarketStatus, Session};
 
 pub use index::{CATALOGUE as INDEX_CATALOGUE, IndexId, IndexInfo};
-pub use instrument::{Exchange, InstrumentId, InstrumentIdError};
+pub use instrument::{Exchange, Instrument, InstrumentId, InstrumentIdError};
 pub use market::{
     Candle, CandleSeries, IndexQuote, IndexSnapshot, Interval, Price, Quote, change_from,
 };

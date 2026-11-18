@@ -5,8 +5,8 @@ use std::ops::BitOr;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use nivesh_core::{
-    CandleSeries, Exchange, FeedKind, IndexId, IndexQuote, IndexSnapshot, InstrumentId, Interval,
-    ProviderId, Quote, Sourced,
+    CandleSeries, Exchange, FeedKind, IndexId, IndexQuote, IndexSnapshot, Instrument, InstrumentId,
+    Interval, ProviderId, Quote, Sourced,
 };
 use serde::{Deserialize, Serialize};
 
@@ -154,10 +154,8 @@ pub trait DataProvider: Send + Sync + 'static {
         Err(DataError::Unsupported)
     }
 
-    async fn instruments(
-        &self,
-        _exchange: Exchange,
-    ) -> Result<Vec<nivesh_core::InstrumentId>, DataError> {
+    /// The listed equities of `exchange`, for the local instrument master.
+    async fn instruments(&self, _exchange: Exchange) -> Result<Vec<Instrument>, DataError> {
         Err(DataError::Unsupported)
     }
 }

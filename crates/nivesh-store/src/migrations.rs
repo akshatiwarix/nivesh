@@ -45,6 +45,17 @@ const MIGRATIONS: &[&str] = &[
 
     CREATE INDEX data_cache_kind_fetched ON data_cache (kind, fetched_at);
     ",
+    // v3: the instrument master (listed equities), refreshed daily.
+    "
+    CREATE TABLE instruments (
+        exchange TEXT NOT NULL,
+        symbol   TEXT NOT NULL,
+        name     TEXT NOT NULL,
+        isin     TEXT,
+        series   TEXT,
+        PRIMARY KEY (exchange, symbol)
+    ) STRICT, WITHOUT ROWID;
+    ",
 ];
 
 /// The schema version a fully migrated database has.
@@ -101,7 +112,13 @@ mod tests {
         assert_eq!(current_version(&conn).unwrap(), LATEST_VERSION);
         assert_eq!(
             tables(&conn),
-            ["command_history", "data_cache", "settings", "window_state"]
+            [
+                "command_history",
+                "data_cache",
+                "instruments",
+                "settings",
+                "window_state"
+            ]
         );
     }
 

@@ -191,6 +191,16 @@ impl From<InstrumentId> for String {
     }
 }
 
+/// A listed security: its id plus the descriptive fields search shows.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Instrument {
+    pub id: InstrumentId,
+    pub name: String,
+    pub isin: Option<String>,
+    /// Trading series, e.g. `EQ`.
+    pub series: Option<String>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
