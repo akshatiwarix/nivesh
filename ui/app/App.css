@@ -57,8 +57,3 @@
 .shell__grid[data-layout="4"] {
   grid-template: 1fr 1fr / 1fr 1fr;
 }
-
-.shell__welcome {
-  padding: var(--pad-y) var(--pad-x);
-  color: var(--c-fg-dim);
-}

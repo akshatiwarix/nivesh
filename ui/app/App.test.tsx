@@ -36,4 +36,20 @@ describe("App shell", () => {
     key({ key: "2", altKey: true });
     expect(panels()).toBe(2);
   });
+
+  it("typing RELIANCE + Enter opens the quote view, Esc goes back", () => {
+    mount();
+    const input = root.querySelector("input") as HTMLInputElement;
+    const press = (k: string) =>
+      input.dispatchEvent(
+        new KeyboardEvent("keydown", { key: k, bubbles: true, cancelable: true }),
+      );
+    input.value = "reliance";
+    input.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    press("Enter");
+    expect(root.querySelector(".panel__name")?.textContent).toBe("RELIANCE · NSE");
+    expect(root.querySelector("[data-view=quote]")).not.toBeNull();
+    press("Escape");
+    expect(root.querySelector("[data-view=empty]")).not.toBeNull();
+  });
 });

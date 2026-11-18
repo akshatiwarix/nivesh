@@ -5,8 +5,11 @@ import { Badge } from "../components/Badge";
 import { CommandBar } from "../components/CommandBar";
 import { Panel } from "../components/Panel";
 import { appInfo, inTauri } from "../ipc";
+import { viewTitle } from "../views/types";
+import { ViewHost } from "../views/ViewHost";
 import "./App.css";
 import { createClock } from "./clock";
+import { dispatch } from "./dispatch";
 import { Header } from "./Header";
 import { StatusBar } from "./StatusBar";
 import { createWorkspace, PANEL_COUNT } from "./workspace";
@@ -21,10 +24,7 @@ export const App: Component = () => {
   const history = createHistory();
   const words = completionWords();
 
-  const run = (line: string): string | undefined => {
-    const parsed = parse(line);
-    return parsed.kind === "error" ? parsed.message : undefined;
-  };
+  const run = (line: string) => dispatch(parse(line), ws);
 
   // Interim layout/focus keys; replaced by the table-driven keymap later.
   const onKey = (e: KeyboardEvent) => {
@@ -48,18 +48,18 @@ export const App: Component = () => {
           {(i) => (
             <Show when={i < ws.state.layout}>
               <Panel
-                title="Empty"
+                title={viewTitle(ws.currentView(i))}
                 index={i + 1}
                 focused={ws.state.focused === i}
                 onMouseDown={() => ws.focus(i)}
               >
-                <p class="shell__welcome">Type a command. F1 for help.</p>
+                <ViewHost view={ws.currentView(i)} />
               </Panel>
             </Show>
           )}
         </For>
       </main>
-      <CommandBar history={history} words={words} onSubmit={run} onBack={() => {}} />
+      <CommandBar history={history} words={words} onSubmit={run} onBack={() => ws.back()} />
       <StatusBar
         layout={ws.state.layout}
         focused={ws.state.focused}
