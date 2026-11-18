@@ -177,8 +177,10 @@ fn assemble(
         market.force_failure(*provider, Some(DataError::Blocked));
     }
 
-    let instruments =
-        Arc::new(InstrumentMaster::open(store).context("opening the instrument master")?);
+    let instruments = Arc::new(
+        InstrumentMaster::open_ranked(store, constituents.popularity())
+            .context("opening the instrument master")?,
+    );
     let calendar = Arc::new(MarketCalendar::bundled());
     let hub = QuoteHub::spawn(market.clone(), HubConfig::default(), move || {
         calendar.status_at(now_secs()).session != Session::Closed
@@ -206,10 +208,17 @@ impl Services {
                     .refresh_if_due(&services.list_sources, now_ms)
                     .await;
                 if let Some(download) = &services.list_download {
-                    services
+                    let changed = services
                         .constituents
                         .refresh_if_due(&download.http, &download.bases, now_ms)
                         .await;
+                    if changed
+                        && let Err(err) = services
+                            .instruments
+                            .set_popularity(services.constituents.popularity())
+                    {
+                        tracing::warn!(%err, "re-ranking search after a constituent refresh failed");
+                    }
                 }
                 tokio::time::sleep(LIST_CHECK_EVERY).await;
             }

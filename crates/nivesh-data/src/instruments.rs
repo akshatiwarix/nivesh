@@ -5,11 +5,13 @@
 //! in-memory index, so it never waits on the network or the disk: typing in
 //! the command bar stays well inside the 16 ms keystroke budget.
 
+use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
 use nivesh_core::{Exchange, Instrument, InstrumentId};
 use nivesh_store::{InstrumentRow, Store};
 
+use crate::constituents::ConstituentSet;
 use crate::{DataError, DataProvider};
 
 /// NSE's equity list as shipped with the app (symbol, name, series, ISIN).
@@ -100,15 +102,22 @@ struct Entry {
     /// The name without spaces, for fuzzy matching ("tatamot" ~ "TATA MOTORS").
     name_packed: String,
     words: Vec<String>,
+    /// How well known the stock is: 0 = NIFTY 50, 1 = NIFTY NEXT 50,
+    /// 2 = rest of NIFTY 500, [`UNRANKED`] = none of them. Lower sorts first.
+    popularity: u32,
 }
+
+/// The popularity of a stock in no bundled index.
+const UNRANKED: u32 = 3;
 
 /// An immutable, ranked in-memory index. Rebuilt (not mutated) on refresh.
 pub struct InstrumentIndex {
     entries: Vec<Entry>,
 }
 
-/// Lower is better. Compared lexicographically.
-type Rank = (u8, u32, u8, usize);
+/// Lower is better. Compared lexicographically: match tier first, then the
+/// tier's own keys (popularity breaks ties between matches of equal quality).
+type Rank = (u8, u32, u32, usize);
 
 impl InstrumentIndex {
     pub fn new(instruments: Vec<Instrument>) -> Self {
@@ -126,10 +135,26 @@ impl InstrumentIndex {
                         .collect(),
                     name,
                     instrument,
+                    popularity: UNRANKED,
                 }
             })
             .collect();
         Self { entries }
+    }
+
+    /// Ranks well-known stocks first among equally good matches. `tiers` maps
+    /// upper-case symbols to 0 (NIFTY 50), 1 (NIFTY NEXT 50) or 2 (NIFTY 500).
+    /// Only NSE symbols are ranked: a BSE-only ticker that happens to spell a
+    /// NIFTY symbol is a different company.
+    pub fn with_popularity(mut self, tiers: &HashMap<String, u8>) -> Self {
+        for e in &mut self.entries {
+            if e.instrument.id.exchange() == Exchange::Nse {
+                e.popularity = tiers
+                    .get(&e.sym)
+                    .map_or(UNRANKED, |t| u32::from(*t).min(UNRANKED));
+            }
+        }
+        self
     }
 
     pub fn len(&self) -> usize {
@@ -147,9 +172,11 @@ impl InstrumentIndex {
             .map(|e| &e.instrument)
     }
 
-    /// The best `limit` matches, best first: exact symbol, then symbol prefix,
-    /// then name word-prefix, then substring, then fuzzy (subsequence) matches
-    /// on symbol and name.
+    /// The best `limit` matches, best first: exact symbol, then symbol prefix
+    /// (well-known stocks first, then shorter symbols), then name word-prefix,
+    /// then substring, then fuzzy (subsequence) matches on symbol and name.
+    /// Popularity only ever breaks ties inside a tier: a popular name match
+    /// never outranks a symbol match.
     pub fn search(&self, query: &str, limit: usize) -> Vec<Instrument> {
         let q = query.trim().to_ascii_uppercase();
         let packed: String = q.chars().filter(|c| !c.is_whitespace()).collect();
@@ -187,32 +214,34 @@ fn rank(e: &Entry, q: &str, packed: &str, tokens: &[&str]) -> Option<Rank> {
     if e.sym == packed {
         return Some((0, 0, 0, 0));
     }
-    // Tier 1: symbol prefix; shorter symbols (closer to exact) first.
+    // Tier 1: symbol prefix. Well-known stocks first ("relia" is RELIANCE, not
+    // RELIABLE), then shorter symbols (closer to exact).
     if e.sym.starts_with(packed) {
-        return Some((1, e.sym.len() as u32, 0, 0));
+        return Some((1, e.popularity, e.sym.len() as u32, 0));
     }
     // Tier 2: every query word starts some word of the name.
     if tokens
         .iter()
         .all(|t| e.words.iter().any(|w| w.starts_with(t)))
     {
-        let starts = u8::from(!e.name.starts_with(q));
-        return Some((2, 0, starts, e.name.len()));
+        let starts = u32::from(!e.name.starts_with(q));
+        return Some((2, e.popularity, starts, e.name.len()));
     }
     // One- and two-letter queries only match prefixes: anything looser is noise.
     if packed.len() < 3 {
         return None;
     }
     if e.sym.contains(packed) {
-        return Some((3, 0, 0, e.sym.len()));
+        return Some((3, e.popularity, 0, e.sym.len()));
     }
     if e.name.contains(q) {
-        return Some((4, 0, 0, e.name.len()));
+        return Some((4, e.popularity, 0, e.name.len()));
     }
+    // Fuzzy matches: a tighter match beats a popular loose one.
     if let Some(gaps) = subsequence_gaps(&e.sym, packed) {
-        return Some((5, gaps, 0, e.sym.len()));
+        return Some((5, gaps, e.popularity, e.sym.len()));
     }
-    subsequence_gaps(&e.name_packed, packed).map(|gaps| (6, gaps, 0, e.name.len()))
+    subsequence_gaps(&e.name_packed, packed).map(|gaps| (6, gaps, e.popularity, e.name.len()))
 }
 
 /// If `needle` is a subsequence of `haystack`, the number of skipped
@@ -272,12 +301,20 @@ pub struct InstrumentMaster {
     store: Arc<Store>,
     index: RwLock<Arc<InstrumentIndex>>,
     min_rows: usize,
+    popularity: RwLock<Arc<HashMap<String, u8>>>,
 }
 
 impl InstrumentMaster {
     /// Loads the stored list, seeding NSE from the bundled list when the store
     /// has none (first run, possibly offline).
     pub fn open(store: Arc<Store>) -> Result<Self, DataError> {
+        let tiers = ConstituentSet::bundled()?.popularity();
+        Self::open_ranked(store, tiers)
+    }
+
+    /// Like [`open`](Self::open), ranking search results by `tiers` (see
+    /// [`InstrumentIndex::with_popularity`]).
+    pub fn open_ranked(store: Arc<Store>, tiers: HashMap<String, u8>) -> Result<Self, DataError> {
         let mut stored = store.instruments().map_err(store_err)?;
         if !stored.iter().any(|r| r.exchange == Exchange::Nse.code()) {
             let seed = parse_equity_csv(SEED_NSE)?;
@@ -290,9 +327,22 @@ impl InstrumentMaster {
         let instruments = stored.into_iter().filter_map(from_row).collect();
         Ok(Self {
             store,
-            index: RwLock::new(Arc::new(InstrumentIndex::new(instruments))),
+            index: RwLock::new(Arc::new(
+                InstrumentIndex::new(instruments).with_popularity(&tiers),
+            )),
             min_rows: MIN_PLAUSIBLE_ROWS,
+            popularity: RwLock::new(Arc::new(tiers)),
         })
+    }
+
+    /// Swaps in new popularity tiers (after the membership lists are
+    /// refreshed) and re-ranks.
+    pub fn set_popularity(&self, tiers: HashMap<String, u8>) -> Result<(), DataError> {
+        match self.popularity.write() {
+            Ok(mut guard) => *guard = Arc::new(tiers),
+            Err(poisoned) => *poisoned.into_inner() = Arc::new(tiers),
+        }
+        self.rebuild()
     }
 
     /// For tests with small lists.
@@ -407,7 +457,11 @@ impl InstrumentMaster {
             .into_iter()
             .filter_map(from_row)
             .collect();
-        let fresh = Arc::new(InstrumentIndex::new(instruments));
+        let tiers = match self.popularity.read() {
+            Ok(guard) => Arc::clone(&guard),
+            Err(poisoned) => Arc::clone(&poisoned.into_inner()),
+        };
+        let fresh = Arc::new(InstrumentIndex::new(instruments).with_popularity(&tiers));
         match self.index.write() {
             Ok(mut guard) => *guard = fresh,
             Err(poisoned) => *poisoned.into_inner() = fresh,
@@ -520,14 +574,87 @@ mod tests {
         assert!(tata.contains(&"TCS".to_owned()));
     }
 
+    fn tiers(pairs: &[(&str, u8)]) -> HashMap<String, u8> {
+        pairs.iter().map(|(s, t)| ((*s).to_owned(), *t)).collect()
+    }
+
+    fn ranked() -> InstrumentIndex {
+        sample().with_popularity(&tiers(&[
+            ("RELIANCE", 0),
+            ("TCS", 0),
+            ("TATAMOTORS", 0),
+            ("TATASTEEL", 1),
+            ("INFY", 0),
+            ("ITC", 0),
+            ("RELINFRA", 2),
+        ]))
+    }
+
     #[test]
-    fn relia_suggests_reliance_first_among_equals_by_length() {
+    fn without_popularity_ties_fall_back_to_symbol_order() {
+        // RELIABLE and RELIANCE are both 8-letter prefixes: alphabetical.
         let hits = sample().search("relia", 5);
-        // RELIABLE (8) and RELIANCE (8): both symbol prefixes, alphabetical.
         assert_eq!(syms(&hits)[0], "RELIABLE");
         assert!(syms(&hits).contains(&"RELIANCE"));
-        let hits = sample().search("reliance", 5);
+    }
+
+    #[test]
+    fn relia_suggests_reliance_first_when_it_is_a_blue_chip() {
+        let hits = ranked().search("relia", 5);
+        assert_eq!(syms(&hits)[0], "RELIANCE", "{:?}", syms(&hits));
+        // Symbol-prefix matches (RELIANCE, RELIABLE) come before name matches
+        // (Reliance Infrastructure, Reliance Communications).
+        assert_eq!(syms(&hits)[..2], ["RELIANCE", "RELIABLE"]);
+        assert!(syms(&hits)[2..].contains(&"RELINFRA"));
+        let hits = ranked().search("reliance", 5);
         assert_eq!(syms(&hits)[0], "RELIANCE", "exact symbol wins");
+    }
+
+    #[test]
+    fn popularity_breaks_ties_but_never_beats_a_better_kind_of_match() {
+        let idx = ranked();
+        // Exact symbol beats a more popular prefix match.
+        let hits = idx.search("it", 5);
+        let it = syms(&hits);
+        assert_eq!(it[..2], ["IT", "ITC"]);
+        // A symbol prefix beats a popular name match: "tata" is a prefix of
+        // two symbols; TCS (NIFTY 50) only matches by name, so it comes later.
+        let hits = idx.search("tata", 5);
+        let tata = syms(&hits);
+        assert_eq!(
+            tata[..2],
+            ["TATAMOTORS", "TATASTEEL"],
+            "NIFTY 50 before NEXT 50"
+        );
+        assert_eq!(tata[2], "TCS");
+        // Among name matches the popular one is first.
+        let hits = idx.search("reliance", 5);
+        let reliance = syms(&hits);
+        assert_eq!(reliance[0], "RELIANCE");
+        assert_eq!(
+            reliance[1], "RELINFRA",
+            "ranked name match before the unranked RCOM"
+        );
+    }
+
+    #[test]
+    fn fuzzy_matches_prefer_tight_over_popular() {
+        let idx = sample().with_popularity(&tiers(&[("TATASTEEL", 0)]));
+        // "tmotors" only fits TATAMOTORS; popularity of others can't matter.
+        assert_eq!(syms(&idx.search("tmotors", 5))[0], "TATAMOTORS");
+    }
+
+    #[test]
+    fn bse_symbols_do_not_inherit_nse_popularity() {
+        let bse_tcs = Instrument {
+            id: InstrumentId::new(Exchange::Bse, "TCSX").unwrap(),
+            name: "Other Co".into(),
+            isin: None,
+            series: None,
+        };
+        let idx = InstrumentIndex::new(vec![bse_tcs, inst("TCSL", "TCS Lookalike")])
+            .with_popularity(&tiers(&[("TCSX", 0)]));
+        assert_eq!(syms(&idx.search("tcs", 5)), ["TCSL", "TCSX"]);
     }
 
     #[test]
@@ -596,6 +723,50 @@ mod tests {
         let relia = idx.search("relia", 10);
         assert!(syms(&relia).contains(&"RELIANCE"), "{:?}", syms(&relia));
         assert_eq!(syms(&idx.search("reliance", 1)), ["RELIANCE"]);
+    }
+
+    /// The full NSE list with the bundled NIFTY 500 tiers: the blue chip a
+    /// trader means is first for the usual partial typings.
+    fn real_ranked() -> InstrumentIndex {
+        let tiers = ConstituentSet::bundled().unwrap().popularity();
+        InstrumentIndex::new(parse_equity_csv(SEED_NSE).unwrap()).with_popularity(&tiers)
+    }
+
+    #[test]
+    fn on_the_real_list_relia_ranks_reliance_first() {
+        let idx = real_ranked();
+        for q in ["relia", "RELIA", "reli", "reliance", "Reliance Ind"] {
+            let hits = idx.search(q, 8);
+            assert_eq!(syms(&hits)[0], "RELIANCE", "{q}: {:?}", syms(&hits));
+        }
+    }
+
+    #[test]
+    fn on_the_real_list_common_partials_find_the_blue_chip() {
+        let idx = real_ranked();
+        for (q, want) in [
+            ("hdfcb", "HDFCBANK"),
+            ("sbi", "SBIN"),
+            ("infy", "INFY"),
+            ("icici", "ICICIBANK"),
+            ("tcs", "TCS"),
+            ("bajaj-a", "BAJAJ-AUTO"),
+            ("maruti", "MARUTI"),
+        ] {
+            let hits = idx.search(q, 8);
+            assert_eq!(syms(&hits)[0], want, "{q}: {:?}", syms(&hits));
+        }
+    }
+
+    #[test]
+    fn master_ranks_with_the_bundled_tiers_and_can_be_re_ranked() {
+        let master = InstrumentMaster::open(Arc::new(Store::open_in_memory().unwrap())).unwrap();
+        assert_eq!(syms(&master.search("relia", 3))[0], "RELIANCE");
+        // Demote everything: back to plain symbol order, RELIABLE first.
+        master.set_popularity(HashMap::new()).unwrap();
+        assert_eq!(syms(&master.search("relia", 3))[0], "RELIABLE");
+        master.set_popularity(tiers(&[("RELIANCE", 0)])).unwrap();
+        assert_eq!(syms(&master.search("relia", 3))[0], "RELIANCE");
     }
 
     // ---- master ----
