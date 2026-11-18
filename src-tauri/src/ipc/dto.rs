@@ -346,6 +346,8 @@ pub struct ProviderStatusDto {
     pub consecutive_failures: u32,
     pub last_error: Option<String>,
     pub last_ok_ms: Option<i64>,
+    /// The last failure was the provider refusing us, not a slow or dead link.
+    pub blocked: bool,
 }
 
 impl From<&ProviderStatus> for ProviderStatusDto {
@@ -356,6 +358,7 @@ impl From<&ProviderStatus> for ProviderStatusDto {
             consecutive_failures: s.consecutive_failures,
             last_error: s.last_error.clone(),
             last_ok_ms: s.last_ok.map(|t| t.timestamp_millis()),
+            blocked: s.blocked,
         }
     }
 }
@@ -526,11 +529,13 @@ mod tests {
             consecutive_failures: 3,
             last_error: Some("blocked by the provider".into()),
             last_ok: None,
+            blocked: true,
         };
         let json = serde_json::to_value(ProviderStatusDto::from(&status)).unwrap();
         assert_eq!(json["provider"], "nse");
         assert_eq!(json["state"], "DOWN");
         assert_eq!(json["consecutiveFailures"], 3);
+        assert_eq!(json["blocked"], true);
         assert!(json["lastOkMs"].is_null());
     }
 }

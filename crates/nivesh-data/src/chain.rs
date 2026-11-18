@@ -568,6 +568,7 @@ mod tests {
             .health(HealthConfig {
                 failure_threshold: 3,
                 cooldown: Duration::from_secs(30),
+                ..HealthConfig::default()
             })
             .build();
         Rig {
@@ -687,6 +688,11 @@ mod tests {
         r.clock.advance(Duration::from_secs(31));
         r.md.quote(&id("TCS")).await.unwrap();
         assert_eq!(MockProvider::calls(&r.nse.quote_calls), 4);
+        r.md.quote(&id("TCS")).await.unwrap();
+        assert_eq!(MockProvider::calls(&r.nse.quote_calls), 4);
+
+        // The failed probe doubled the cool-down (60 s): 31 s later is too soon.
+        r.clock.advance(Duration::from_secs(31));
         r.md.quote(&id("TCS")).await.unwrap();
         assert_eq!(MockProvider::calls(&r.nse.quote_calls), 4);
 
