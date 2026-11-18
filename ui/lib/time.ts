@@ -53,3 +53,28 @@ export function formatIstDate(at: Date | number): string {
   const f = istFields(at);
   return `${WEEKDAYS[f.weekday]} ${pad2(f.day)} ${MONTHS[f.month]} ${f.year}`;
 }
+
+const IST_DAY_MS = 86_400_000;
+
+function istDayNumber(ms: number): number {
+  return Math.floor((ms + IST_OFFSET_MINUTES * 60_000) / IST_DAY_MS);
+}
+
+/**
+ * An as-of time for a data label: `15:30:00 IST` when it is from today (IST),
+ * `17 NOV 15:30 IST` otherwise, so old data never looks current.
+ */
+export function formatAsOf(asOfMs: number, nowMs: number = Date.now()): string {
+  if (istDayNumber(asOfMs) === istDayNumber(nowMs)) return `${formatIstTime(asOfMs)} IST`;
+  const f = istFields(asOfMs);
+  return `${pad2(f.day)} ${MONTHS[f.month]} ${formatIstHm(asOfMs)} IST`;
+}
+
+/** `12s`, `5m`, `2h`, `3d`: how long ago, coarsely. */
+export function formatAge(ms: number): string {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  if (s < 60) return `${s}s`;
+  if (s < 3600) return `${Math.floor(s / 60)}m`;
+  if (s < 86_400) return `${Math.floor(s / 3600)}h`;
+  return `${Math.floor(s / 86_400)}d`;
+}

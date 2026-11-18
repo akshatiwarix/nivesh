@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-watchlist-move"
+description = "Enables the watchlist_move command without any pre-configured scope."
+commands.allow = ["watchlist_move"]
+
+[[permission]]
+identifier = "deny-watchlist-move"
+description = "Denies the watchlist_move command without any pre-configured scope."
+commands.deny = ["watchlist_move"]

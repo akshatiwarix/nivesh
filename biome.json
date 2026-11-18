@@ -6,7 +6,7 @@
     "useIgnoreFile": true
   },
   "files": {
-    "includes": ["**", "!**/*.md", "!ui/ipc/bindings"]
+    "includes": ["**", "!**/*.md", "!ui/ipc/bindings", "!crates"]
   },
   "formatter": {
     "enabled": true,
@@ -20,7 +20,10 @@
       "solid": "recommended"
     },
     "rules": {
-      "preset": "recommended"
+      "preset": "recommended",
+      "complexity": {
+        "useLiteralKeys": "off"
+      }
     }
   },
   "assist": {

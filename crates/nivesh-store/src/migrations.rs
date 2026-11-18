@@ -33,6 +33,48 @@ const MIGRATIONS: &[&str] = &[
         maximized INTEGER NOT NULL CHECK (maximized IN (0, 1))
     ) STRICT;
     ",
+    // v2: persistent data cache (quotes, index snapshots, candle series),
+    // served as STALE when providers are unreachable.
+    "
+    CREATE TABLE data_cache (
+        key        TEXT PRIMARY KEY,
+        kind       TEXT NOT NULL,
+        payload    TEXT NOT NULL,
+        fetched_at INTEGER NOT NULL
+    ) STRICT;
+
+    CREATE INDEX data_cache_kind_fetched ON data_cache (kind, fetched_at);
+    ",
+    // v3: the instrument master (listed equities), refreshed daily.
+    "
+    CREATE TABLE instruments (
+        exchange TEXT NOT NULL,
+        symbol   TEXT NOT NULL,
+        name     TEXT NOT NULL,
+        isin     TEXT,
+        series   TEXT,
+        PRIMARY KEY (exchange, symbol)
+    ) STRICT, WITHOUT ROWID;
+    ",
+    // v4: watchlists. A fresh database starts with one list so `WL ADD` works
+    // straight away.
+    "
+    CREATE TABLE watchlists (
+        id       INTEGER PRIMARY KEY AUTOINCREMENT,
+        name     TEXT NOT NULL UNIQUE COLLATE NOCASE,
+        position INTEGER NOT NULL
+    ) STRICT;
+
+    CREATE TABLE watchlist_items (
+        list_id  INTEGER NOT NULL REFERENCES watchlists (id) ON DELETE CASCADE,
+        exchange TEXT NOT NULL,
+        symbol   TEXT NOT NULL,
+        position INTEGER NOT NULL,
+        PRIMARY KEY (list_id, exchange, symbol)
+    ) STRICT, WITHOUT ROWID;
+
+    INSERT INTO watchlists (name, position) VALUES ('WATCHLIST', 0);
+    ",
 ];
 
 /// The schema version a fully migrated database has.
@@ -89,7 +131,15 @@ mod tests {
         assert_eq!(current_version(&conn).unwrap(), LATEST_VERSION);
         assert_eq!(
             tables(&conn),
-            ["command_history", "settings", "window_state"]
+            [
+                "command_history",
+                "data_cache",
+                "instruments",
+                "settings",
+                "watchlist_items",
+                "watchlists",
+                "window_state"
+            ]
         );
     }
 

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-subscribe-quotes"
+description = "Enables the subscribe_quotes command without any pre-configured scope."
+commands.allow = ["subscribe_quotes"]
+
+[[permission]]
+identifier = "deny-subscribe-quotes"
+description = "Denies the subscribe_quotes command without any pre-configured scope."
+commands.deny = ["subscribe_quotes"]

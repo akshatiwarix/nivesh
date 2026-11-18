@@ -1,0 +1,80 @@
+.quote__head {
+  display: flex;
+  align-items: baseline;
+  gap: calc(var(--pad-x) * 2);
+}
+
+.quote__name {
+  flex: 1;
+  min-width: 0;
+  color: var(--c-fg-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.quote__price {
+  display: flex;
+  align-items: baseline;
+  gap: calc(var(--pad-x) * 2);
+  padding: var(--pad-x) 0;
+}
+
+.quote__ltp {
+  font-size: 24px;
+  font-weight: var(--fw-bold);
+}
+
+.quote__grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--pad-y) calc(var(--pad-x) * 2);
+  margin: 0 0 var(--pad-x);
+}
+
+.quote__stat {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--pad-x);
+  height: var(--row-h);
+  border-bottom: 1px solid var(--c-line);
+}
+
+.quote__stat dt {
+  color: var(--c-fg-dim);
+  font-size: var(--fs-sm);
+  text-transform: uppercase;
+}
+
+.quote__stat dd {
+  margin: 0;
+}
+
+.quote__range {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: var(--pad-y) calc(var(--pad-x) * 2);
+}
+
+.quote__rangelabel {
+  color: var(--c-fg-dim);
+  font-size: var(--fs-sm);
+  text-transform: uppercase;
+}
+
+.quote__bar {
+  position: relative;
+  grid-column: 1 / -1;
+  height: 4px;
+  background: var(--c-line);
+}
+
+.quote__mark {
+  position: absolute;
+  top: -3px;
+  width: 2px;
+  height: 10px;
+  margin-left: -1px;
+  background: var(--c-amber);
+}

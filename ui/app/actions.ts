@@ -1,5 +1,6 @@
 import { commandForFunctionKey } from "../commands";
 import type { Action } from "../keys/keymap";
+import { sendViewOp } from "../views/context";
 import { runCommand } from "./dispatch";
 import type { Workspace } from "./workspace";
 
@@ -17,6 +18,9 @@ export function runAction(action: Action, ws: Workspace): void {
       return;
     case "help":
       runCommand("help", ws);
+      return;
+    case "view":
+      sendViewOp(ws.state.focused, action.op);
       return;
     case "fkey": {
       const command = commandForFunctionKey(action.n);

@@ -1,0 +1,29 @@
+[package]
+name = "nivesh-data"
+description = "Nivesh market data: provider trait, HTTP client, NSE and Yahoo providers, provider chain, cache and quote hub."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+async-trait.workspace = true
+chrono = { workspace = true, features = ["clock"] }
+futures.workspace = true
+governor.workspace = true
+moka.workspace = true
+nivesh-core = { path = "../nivesh-core" }
+nivesh-store = { path = "../nivesh-store" }
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }
+wiremock.workspace = true
+
+[lints]
+workspace = true

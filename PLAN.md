@@ -753,6 +753,36 @@ needs, can't accidentally grow order placement:
 - [ ] Every provider parser has fixture tests, and CI makes no network calls.
 - [ ] **Check-in with Akshat after merge.**
 
+### As built: deviations from the plan above
+
+- **Trait:** `DataProvider` gained `all_indices()` (returns per-item `Sourced`, so
+  SENSEX can come from Yahoo while the rest come from NSE without mixing
+  provenance), and `DataError` gained `UnsupportedRange` for interval limits.
+- **Provenance** uses `DateTime<Utc>` plus a `stale` flag that only the cache
+  sets. STALE means "served past TTL because providers failed", not "market closed".
+- **Cache:** the SQLite tier is a generic `data_cache` table (quotes, indices and
+  candles), not candle-only. The cache is opt-in on the `MarketData` builder.
+- **NSE:** no batch quote endpoint, so batches over 4 symbols are declined and go
+  to Yahoo. Back-off is per endpoint. Quote volume is left unset (unit
+  unverified). `market_status` stays on the local calendar; the event
+  `market:session` replaced the 15 s poll.
+- **BSE:** no instrument list (its endpoint refused the dev machine). BSE symbols
+  are typed explicitly and quoted via Yahoo `.BO`.
+- **Hub** topics also cover index snapshots and the dashboard list, not only quotes.
+- **UI:** `ProvenanceBadge` arrives with the first data view (commit 11);
+  `DataPanel` (requires provenance) and provider health land in commit 15 as planned.
+  View-local keys are Alt+Up/Down (select), Alt+Shift+Up/Down (reorder),
+  Alt+Left/Right (lists), Delete (remove, bar empty) and Enter on an empty bar
+  (open), because the command bar owns plain arrows for history.
+- **Watchlists:** `WL DEL` needs the exact list name; lists and items are bounded.
+- **Debug hooks (debug builds only):** `NIVESH_NSE_URL`, `NIVESH_YAHOO_URL`,
+  `NIVESH_FORCE_FAIL=nse,yahoo`.
+- **Tooling:** Biome skips `crates/` (byte-exact fixtures) and has `useLiteralKeys`
+  off (conflicts with `noPropertyAccessFromIndexSignature`).
+- **Fixtures:** Yahoo and NSE `allIndices`/`marketStatus`/equity list are real
+  recordings; NSE `quote-equity` and `equity-stockIndices` are hand-written
+  (`*.synthetic.json`) because those endpoints refused the dev IP.
+
 ---
 
 ## Part 3: Charts & market views

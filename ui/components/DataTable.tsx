@@ -1,7 +1,7 @@
-import { For, type JSX, Show } from "solid-js";
+import { createEffect, For, type JSX, Show } from "solid-js";
 import "./DataTable.css";
 
-export type CellTone = "up" | "down" | "dim" | "accent";
+export type CellTone = "up" | "down" | "dim" | "accent" | "stale";
 
 export interface Column<Row> {
   id: string;
@@ -10,6 +10,8 @@ export interface Column<Row> {
   width?: string;
   align?: "left" | "right" | "center";
   value: (row: Row) => string | number;
+  /** Custom cell content (a badge, say). Takes precedence over `value`. */
+  render?: (row: Row) => JSX.Element;
   tone?: (row: Row) => CellTone | undefined;
 }
 
@@ -19,6 +21,8 @@ export interface DataTableProps<Row> {
   columns: readonly Column<Row>[];
   rows: readonly Row[];
   selectedIndex?: number;
+  /** Mouse selection. Keyboard selection is the owner's business. */
+  onRowMouseDown?: (index: number) => void;
   emptyText?: string;
 }
 
@@ -31,6 +35,15 @@ export function DataTable<Row>(props: DataTableProps<Row>): JSX.Element {
     const tone = row === undefined ? undefined : column.tone?.(row);
     return `table__cell table__cell--${column.align ?? "left"}${tone ? ` ${tone}` : ""}`;
   };
+
+  let body: HTMLTableSectionElement | undefined;
+  // Keep the keyboard-selected row on screen. Rows have a fixed height, so the
+  // row's position is simply its index.
+  createEffect(() => {
+    const i = props.selectedIndex;
+    if (i === undefined) return;
+    body?.children[i]?.scrollIntoView?.({ block: "nearest" });
+  });
 
   return (
     <table class="table" aria-label={props.label}>
@@ -50,7 +63,7 @@ export function DataTable<Row>(props: DataTableProps<Row>): JSX.Element {
           </For>
         </tr>
       </thead>
-      <tbody>
+      <tbody ref={body}>
         <Show
           when={props.rows.length > 0}
           fallback={
@@ -66,9 +79,15 @@ export function DataTable<Row>(props: DataTableProps<Row>): JSX.Element {
               <tr
                 class="table__row"
                 classList={{ "table__row--selected": index() === props.selectedIndex }}
+                aria-selected={index() === props.selectedIndex ? "true" : undefined}
+                onMouseDown={() => props.onRowMouseDown?.(index())}
               >
                 <For each={props.columns}>
-                  {(column) => <td class={cellClass(column, row)}>{column.value(row)}</td>}
+                  {(column) => (
+                    <td class={cellClass(column, row)}>
+                      {column.render ? column.render(row) : column.value(row)}
+                    </td>
+                  )}
                 </For>
               </tr>
             )}

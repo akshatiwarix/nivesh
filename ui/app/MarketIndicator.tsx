@@ -1,9 +1,13 @@
 import { type Component, createSignal, onCleanup, onMount, Show } from "solid-js";
 import { Badge, type BadgeTone } from "../components/Badge";
-import { inTauri, type MarketStatusDto, marketStatus, type SessionKind } from "../ipc";
+import {
+  inTauri,
+  type MarketStatusDto,
+  marketStatus,
+  onMarketSession,
+  type SessionKind,
+} from "../ipc";
 import { formatIstHm } from "../lib/time";
-
-const POLL_MS = 15_000;
 
 const LABEL: Record<SessionKind, string> = {
   PRE_OPEN: "PRE-OPEN",
@@ -32,18 +36,36 @@ export function statusTitle(s: MarketStatusDto): string {
   return s.calendarKnown ? next : `${next}. No holiday data for this year.`;
 }
 
-/** NSE session indicator for the header. Renders nothing outside the app. */
+/**
+ * NSE session indicator for the header. Reads the status once, then follows the
+ * backend's `market:session` event: no polling. Renders nothing outside the app.
+ */
 export const MarketIndicator: Component = () => {
   const [status, setStatus] = createSignal<MarketStatusDto>();
 
-  const refresh = () => {
-    marketStatus().then(setStatus, () => setStatus(undefined));
-  };
   onMount(() => {
     if (!inTauri()) return;
-    refresh();
-    const id = setInterval(refresh, POLL_MS);
-    onCleanup(() => clearInterval(id));
+    let closed = false;
+    let unlisten: (() => void) | undefined;
+    // Listen before fetching so a session change in between isn't lost.
+    onMarketSession((s) => setStatus(s)).then(
+      (stop) => {
+        if (closed) stop();
+        else unlisten = stop;
+      },
+      () => undefined,
+    );
+    marketStatus().then(
+      (s) => {
+        // An event that already arrived is newer than this snapshot.
+        if (!closed && status() === undefined) setStatus(s);
+      },
+      () => setStatus(undefined),
+    );
+    onCleanup(() => {
+      closed = true;
+      unlisten?.();
+    });
   });
 
   return (

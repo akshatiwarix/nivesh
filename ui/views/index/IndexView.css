@@ -1,0 +1,33 @@
+.idx {
+  padding: 0;
+}
+
+.idx__head {
+  display: flex;
+  align-items: baseline;
+  gap: calc(var(--pad-x) * 2);
+  padding: var(--pad-x);
+}
+
+.idx__last {
+  font-size: var(--fs-xl);
+  font-weight: var(--fw-bold);
+}
+
+.idx__stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 calc(var(--pad-x) * 2);
+  padding: 0 var(--pad-x) var(--pad-x);
+  color: var(--c-fg-dim);
+  font-size: var(--fs-sm);
+}
+
+.idx__stats dt {
+  text-transform: uppercase;
+}
+
+.idx__stats dd {
+  margin: 0 var(--pad-x) 0 0;
+  color: var(--c-fg);
+}

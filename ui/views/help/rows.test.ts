@@ -22,6 +22,6 @@ describe("help rows", () => {
     const nonF = KEYMAP.filter((b) => b.action.type !== "fkey");
     for (const b of nonF) expect(rows.some((r) => r.keys === b.keys.join(" / "))).toBe(true);
     expect(rows.some((r) => r.keys.startsWith("F1 "))).toBe(true);
-    expect(rows.some((r) => r.keys.startsWith("F2 "))).toBe(false);
+    expect(rows.some((r) => r.keys.startsWith("F5 "))).toBe(false);
   });
 });

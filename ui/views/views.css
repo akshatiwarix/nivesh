@@ -16,3 +16,10 @@
 .view__note {
   color: var(--c-fg-dim);
 }
+
+.view__error {
+  margin: 0;
+  padding: var(--pad-y) var(--pad-x);
+  color: var(--c-stale);
+  font-size: var(--fs-sm);
+}

@@ -51,7 +51,7 @@ impl Store {
         })
     }
 
-    fn lock(&self) -> Result<MutexGuard<'_, Connection>, StoreError> {
+    pub(crate) fn lock(&self) -> Result<MutexGuard<'_, Connection>, StoreError> {
         self.conn.lock().map_err(|_| StoreError::Poisoned)
     }
 
