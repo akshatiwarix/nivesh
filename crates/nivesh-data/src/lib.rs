@@ -4,15 +4,21 @@
 //! `MarketData` facade (added in a later commit), never to a provider directly.
 //! Every value leaves this crate as a `Sourced<T>` carrying its provenance.
 
+mod chain;
+pub mod clock;
 mod error;
+pub mod health;
 pub mod http;
 pub mod mock;
 pub mod nse;
 mod provider;
+mod singleflight;
 mod util;
 pub mod yahoo;
 
+pub use chain::{MarketData, MarketDataBuilder, Routing};
 pub use error::DataError;
+pub use health::{HealthConfig, HealthState, ProviderStatus};
 pub use provider::{
     Capabilities, DataProvider, HistoryRange, HistoryRequest, Mover, Movers, MoversRequest,
     NewsItem, NewsRequest,

@@ -9,6 +9,7 @@ publish.workspace = true
 [dependencies]
 async-trait.workspace = true
 chrono = { workspace = true, features = ["clock"] }
+futures.workspace = true
 governor.workspace = true
 nivesh-core = { path = "../nivesh-core" }
 reqwest.workspace = true
