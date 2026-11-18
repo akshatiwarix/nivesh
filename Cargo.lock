@@ -2632,7 +2632,9 @@ name = "nivesh-app"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "chrono",
  "nivesh-core",
+ "nivesh-data",
  "nivesh-store",
  "serde",
  "serde_json",
@@ -2640,6 +2642,7 @@ dependencies = [
  "tauri-build",
  "tauri-plugin-single-instance",
  "thiserror 2.0.21",
+ "tokio",
  "tracing",
  "tracing-appender",
  "tracing-subscriber",

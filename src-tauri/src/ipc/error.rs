@@ -71,6 +71,27 @@ impl From<nivesh_store::StoreError> for IpcError {
     }
 }
 
+impl From<nivesh_data::DataError> for IpcError {
+    /// Provider failures are expected and shown inline, so they are not logged
+    /// as errors. Network-ish failures are retryable; a bad range is the
+    /// caller's to fix.
+    fn from(err: nivesh_data::DataError) -> Self {
+        use nivesh_data::DataError as E;
+        let code = match &err {
+            E::NotFound => ErrorCode::NotFound,
+            E::UnsupportedRange(_) => ErrorCode::InvalidArgument,
+            E::Unsupported
+            | E::RateLimited { .. }
+            | E::Blocked
+            | E::Unauthorized
+            | E::Timeout
+            | E::Upstream(_)
+            | E::Parse(_) => ErrorCode::Unavailable,
+        };
+        Self::new(code, err.to_string())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -102,6 +123,32 @@ mod tests {
                 IpcError::new(code, "x").retryable,
                 code == ErrorCode::Unavailable
             );
+        }
+    }
+
+    #[test]
+    fn data_errors_map_to_codes_the_ui_can_act_on() {
+        use nivesh_data::DataError as E;
+        let cases = [
+            (E::NotFound, ErrorCode::NotFound, false),
+            (
+                E::UnsupportedRange("1m bars cover 7 days".into()),
+                ErrorCode::InvalidArgument,
+                false,
+            ),
+            (E::Blocked, ErrorCode::Unavailable, true),
+            (E::Timeout, ErrorCode::Unavailable, true),
+            (
+                E::RateLimited { retry_after: None },
+                ErrorCode::Unavailable,
+                true,
+            ),
+            (E::Parse("x".into()), ErrorCode::Unavailable, true),
+        ];
+        for (err, code, retryable) in cases {
+            let ipc = IpcError::from(err.clone());
+            assert_eq!((ipc.code, ipc.retryable), (code, retryable), "{err:?}");
+            assert_eq!(ipc.message, err.to_string());
         }
     }
 

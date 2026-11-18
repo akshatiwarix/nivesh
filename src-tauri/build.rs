@@ -2,8 +2,16 @@
 /// and `deny-<command>` permissions for each, and `capabilities/main.json`
 /// grants them explicitly. Keep in sync with `generate_handler!` in `lib.rs`.
 const COMMANDS: &[&str] = &[
+    "all_indices",
     "app_info",
+    "get_quote",
+    "index_snapshot",
     "market_status",
+    "provider_status",
+    "search_instruments",
+    "set_window_visible",
+    "subscribe_quotes",
+    "unsubscribe",
     "ui_state",
     "save_layout",
     "save_command_history",

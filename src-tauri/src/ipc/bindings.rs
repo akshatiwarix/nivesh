@@ -12,6 +12,10 @@ use crate::commands::app::AppInfo;
 use crate::commands::market::MarketStatusDto;
 use crate::commands::ui_state::UiState;
 use crate::ipc::IpcError;
+use crate::ipc::dto::{
+    HubUpdateDto, IndexSnapshotDto, InstrumentDto, ProviderStatusDto, SourcedIndexQuoteDto,
+    SourcedQuoteDto, TopicDto,
+};
 
 /// The committed bindings directory.
 pub fn committed_dir() -> PathBuf {
@@ -29,5 +33,12 @@ pub fn export(dir: &Path) -> Result<(), ExportError> {
     AppInfo::export_all(&cfg)?;
     MarketStatusDto::export_all(&cfg)?;
     UiState::export_all(&cfg)?;
+    InstrumentDto::export_all(&cfg)?;
+    SourcedQuoteDto::export_all(&cfg)?;
+    SourcedIndexQuoteDto::export_all(&cfg)?;
+    IndexSnapshotDto::export_all(&cfg)?;
+    TopicDto::export_all(&cfg)?;
+    HubUpdateDto::export_all(&cfg)?;
+    ProviderStatusDto::export_all(&cfg)?;
     Ok(())
 }

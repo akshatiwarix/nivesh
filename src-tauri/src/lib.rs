@@ -7,6 +7,7 @@
 mod commands;
 pub mod ipc;
 mod logging;
+pub mod services;
 mod window_state;
 
 use std::sync::Arc;
@@ -49,6 +50,13 @@ pub fn run() -> anyhow::Result<()> {
             let window = app
                 .get_webview_window(MAIN_WINDOW)
                 .context("main window missing from tauri.conf.json")?;
+            let services = tauri::async_runtime::block_on(async { services::build(Arc::clone(&store), &services::Overrides::from_env()) })
+                .map(Arc::new)
+                .context("starting market data")?;
+            services.spawn_background_tasks();
+            services.spawn_event_bridges(app.handle());
+            app.manage(services);
+
             window_state::restore(&window, &store);
             window_state::track(&window, store);
             window.show().context("showing main window")?;
@@ -57,6 +65,14 @@ pub fn run() -> anyhow::Result<()> {
         // Keep in sync with COMMANDS in build.rs.
         .invoke_handler(tauri::generate_handler![
             commands::app::app_info,
+            commands::data::all_indices,
+            commands::data::get_quote,
+            commands::data::index_snapshot,
+            commands::data::provider_status,
+            commands::data::search_instruments,
+            commands::data::set_window_visible,
+            commands::data::subscribe_quotes,
+            commands::data::unsubscribe,
             commands::market::market_status,
             commands::ui_state::ui_state,
             commands::ui_state::save_layout,
