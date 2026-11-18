@@ -16,6 +16,7 @@ use tokio::sync::broadcast;
 
 use crate::cache::{CacheConfig, CacheLayer};
 use crate::clock::{Clock, SystemClock};
+use crate::constituents::ConstituentsList;
 use crate::health::{Breaker, HealthConfig, Permit, ProviderStatus};
 use crate::singleflight::SingleFlight;
 use crate::{Capabilities, DataError, DataProvider, HistoryRequest};
@@ -52,6 +53,7 @@ pub(crate) struct Inner {
     forced: Mutex<HashMap<ProviderId, DataError>>,
     status_tx: broadcast::Sender<ProviderStatus>,
     cache: Option<Arc<CacheLayer>>,
+    constituents: Option<Arc<ConstituentsList>>,
     quotes_flight: SingleFlight<Vec<InstrumentId>, Vec<Sourced<Quote>>>,
     index_flight: SingleFlight<IndexId, Sourced<IndexSnapshot>>,
     all_indices_flight: SingleFlight<(), Vec<Sourced<IndexQuote>>>,
@@ -69,6 +71,7 @@ pub struct MarketDataBuilder {
     health: HealthConfig,
     clock: Arc<dyn Clock>,
     cache: Option<CacheConfig>,
+    constituents: Option<Arc<ConstituentsList>>,
 }
 
 impl MarketDataBuilder {
@@ -98,6 +101,13 @@ impl MarketDataBuilder {
         self
     }
 
+    /// Dated membership lists to use when no provider supplies an index's
+    /// constituents (Yahoo has the level only; NSE's list may be blocked).
+    pub fn constituents(mut self, list: Arc<ConstituentsList>) -> Self {
+        self.constituents = Some(list);
+        self
+    }
+
     pub fn build(self) -> MarketData {
         let breakers = self
             .providers
@@ -117,6 +127,7 @@ impl MarketDataBuilder {
                 forced: Mutex::new(HashMap::new()),
                 status_tx,
                 cache,
+                constituents: self.constituents,
                 quotes_flight: SingleFlight::new(),
                 index_flight: SingleFlight::new(),
                 all_indices_flight: SingleFlight::new(),
@@ -150,6 +161,7 @@ impl MarketData {
             health: HealthConfig::default(),
             clock: Arc::new(SystemClock::new()),
             cache: None,
+            constituents: None,
         }
     }
 
@@ -338,12 +350,58 @@ impl MarketData {
             .index_flight
             .run(index, move || async move {
                 let order = this.inner.routing.index.clone();
-                this.route(Capabilities::INDEX, &order, |p| async move {
-                    p.index_snapshot(index).await
-                })
-                .await
+                let snapshot = this
+                    .route(Capabilities::INDEX, &order, |p| async move {
+                        p.index_snapshot(index).await
+                    })
+                    .await?;
+                Ok(this.with_fallback_constituents(index, snapshot).await)
             })
             .await
+    }
+
+    /// When the provider that priced the index level has no constituents, fills
+    /// them from the dated membership list, priced by that same provider so the
+    /// snapshot still comes from one source. If it can't price them the list is
+    /// left empty (the UI says so) rather than shown unpriced.
+    async fn with_fallback_constituents(
+        &self,
+        index: IndexId,
+        mut snapshot: Sourced<IndexSnapshot>,
+    ) -> Sourced<IndexSnapshot> {
+        let Some(list) = &self.inner.constituents else {
+            return snapshot;
+        };
+        if !snapshot.data.constituents.is_empty() {
+            return snapshot;
+        }
+        let Some((ids, info)) = list.members(index) else {
+            return snapshot;
+        };
+        let provider = snapshot.provenance.provider;
+        let priced = self
+            .route(Capabilities::QUOTE, &[provider], |p| {
+                let ids = ids.clone();
+                async move { p.constituent_quotes(&ids).await }
+            })
+            .await;
+        match priced {
+            Ok(quotes) => {
+                // Keep the list's order; drop anything priced by someone else.
+                snapshot.data.constituents = quotes
+                    .into_iter()
+                    .filter(|q| q.provenance.provider == provider)
+                    .map(|q| q.data)
+                    .collect();
+                if !snapshot.data.constituents.is_empty() {
+                    snapshot.data.constituents_info = Some(info);
+                }
+            }
+            Err(error) => {
+                tracing::debug!(index = index.code(), %error, "could not price the fallback constituents");
+            }
+        }
+        snapshot
     }
 
     /// Levels of every catalogued index, for the MKT dashboard. The first
@@ -715,6 +773,136 @@ mod tests {
         let (a, b) = tokio::join!(md.quotes(&forward), md.quotes(&reverse));
         assert!(a.is_ok() && b.is_ok());
         assert_eq!(nse.quote_calls.load(Ordering::SeqCst), 1);
+    }
+
+    // ---- fallback constituents ----
+
+    fn level_only(p: ProviderId, index: IndexId) -> Sourced<IndexSnapshot> {
+        index_quote(p, index).map(|quote| IndexSnapshot {
+            quote,
+            constituents: vec![],
+            constituents_info: None,
+        })
+    }
+
+    fn with_list(r: &Rig) -> MarketData {
+        MarketData::builder()
+            .provider(r.nse.clone())
+            .provider(r.yahoo.clone())
+            .constituents(Arc::new(ConstituentsList::bundled().unwrap()))
+            .build()
+    }
+
+    /// Yahoo prices every symbol it is asked about.
+    fn yahoo_prices_everything(r: &Rig, symbols: &[&str]) {
+        r.yahoo.repeat_quotes(Ok(symbols
+            .iter()
+            .map(|s| quote(ProviderId::Yahoo, s))
+            .collect()));
+    }
+
+    #[tokio::test]
+    async fn blocked_nse_gets_dated_constituents_priced_by_yahoo() {
+        let r = rig();
+        let md = with_list(&r);
+        r.nse.repeat_index(Err(DataError::Blocked));
+        r.yahoo
+            .repeat_index(Ok(level_only(ProviderId::Yahoo, IndexId::NiftyBank)));
+        yahoo_prices_everything(&r, &["HDFCBANK", "ICICIBANK", "SBIN"]);
+
+        let snap = md.index_snapshot(IndexId::NiftyBank).await.unwrap();
+        assert_eq!(snap.provenance.provider, ProviderId::Yahoo);
+        let symbols: Vec<_> = snap
+            .data
+            .constituents
+            .iter()
+            .map(|q| q.id.symbol())
+            .collect();
+        assert_eq!(symbols, ["HDFCBANK", "ICICIBANK", "SBIN"]);
+        let info = snap.data.constituents_info.unwrap();
+        let bundled = crate::constituents::ConstituentSet::bundled().unwrap();
+        assert_eq!(info.as_of, bundled.as_of);
+        assert_eq!(info.source, bundled.source);
+        // The ask was for the whole bundled NIFTY BANK list, in its order.
+        let asked = r.yahoo.quote_requests().remove(0);
+        let wanted: Vec<_> = bundled.lists["BANKNIFTY"]
+            .iter()
+            .map(String::as_str)
+            .collect();
+        assert_eq!(asked.iter().map(|i| i.symbol()).collect::<Vec<_>>(), wanted);
+        // NSE was asked for the level only, never for the fallback prices.
+        assert_eq!(MockProvider::calls(&r.nse.quote_calls), 0);
+    }
+
+    #[tokio::test]
+    async fn live_constituents_are_left_alone() {
+        let r = rig();
+        let md = with_list(&r);
+        let live = Sourced::new(
+            IndexSnapshot {
+                quote: index_quote(ProviderId::Nse, IndexId::Nifty50).data,
+                constituents: vec![quote(ProviderId::Nse, "TCS").data],
+                constituents_info: None,
+            },
+            prov(ProviderId::Nse),
+        );
+        r.nse.repeat_index(Ok(live));
+        let snap = md.index_snapshot(IndexId::Nifty50).await.unwrap();
+        assert_eq!(snap.data.constituents.len(), 1);
+        assert!(
+            snap.data.constituents_info.is_none(),
+            "no as-of label on live data"
+        );
+        assert_eq!(MockProvider::calls(&r.yahoo.quote_calls), 0);
+    }
+
+    #[tokio::test]
+    async fn fallback_prices_only_come_from_the_provider_that_priced_the_level() {
+        let r = rig();
+        let md = with_list(&r);
+        r.nse.repeat_index(Err(DataError::Blocked));
+        r.yahoo
+            .repeat_index(Ok(level_only(ProviderId::Yahoo, IndexId::NiftyIt)));
+        // Yahoo's quote call is answered, but with rows stamped by NSE.
+        r.yahoo
+            .repeat_quotes(Ok(vec![quote(ProviderId::Nse, "TCS")]));
+        let snap = md.index_snapshot(IndexId::NiftyIt).await.unwrap();
+        assert!(snap.data.constituents.is_empty());
+        assert!(snap.data.constituents_info.is_none());
+    }
+
+    #[tokio::test]
+    async fn unpriceable_fallback_leaves_the_level_alone_without_a_label() {
+        let r = rig();
+        let md = with_list(&r);
+        r.nse.repeat_index(Err(DataError::Blocked));
+        r.yahoo
+            .repeat_index(Ok(level_only(ProviderId::Yahoo, IndexId::NiftyIt)));
+        r.yahoo.repeat_quotes(Err(DataError::Timeout));
+        let snap = md.index_snapshot(IndexId::NiftyIt).await.unwrap();
+        assert!(snap.data.constituents.is_empty());
+        assert!(snap.data.constituents_info.is_none());
+    }
+
+    #[tokio::test]
+    async fn sensex_and_unconfigured_chains_have_no_fallback() {
+        let r = rig();
+        let md = with_list(&r);
+        r.nse.repeat_index(Err(DataError::Unsupported));
+        r.yahoo
+            .repeat_index(Ok(level_only(ProviderId::Yahoo, IndexId::Sensex)));
+        let snap = md.index_snapshot(IndexId::Sensex).await.unwrap();
+        assert!(snap.data.constituents.is_empty());
+        assert_eq!(MockProvider::calls(&r.yahoo.quote_calls), 0);
+
+        // Without a list the chain behaves as before.
+        let r = rig();
+        r.nse.repeat_index(Err(DataError::Blocked));
+        r.yahoo
+            .repeat_index(Ok(level_only(ProviderId::Yahoo, IndexId::Nifty50)));
+        let snap = r.md.index_snapshot(IndexId::Nifty50).await.unwrap();
+        assert!(snap.data.constituents.is_empty());
+        assert_eq!(MockProvider::calls(&r.yahoo.quote_calls), 0);
     }
 
     #[tokio::test]

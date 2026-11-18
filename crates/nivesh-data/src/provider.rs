@@ -129,6 +129,16 @@ pub trait DataProvider: Send + Sync + 'static {
         Err(DataError::Unsupported)
     }
 
+    /// Quotes for the members of an index, where a provider can fetch many in
+    /// far fewer requests than [`quotes`](Self::quotes) by giving up detail
+    /// (Yahoo's batch endpoint has no OHLC or volume). Defaults to `quotes`.
+    async fn constituent_quotes(
+        &self,
+        ids: &[InstrumentId],
+    ) -> Result<Vec<Sourced<Quote>>, DataError> {
+        self.quotes(ids).await
+    }
+
     async fn history(&self, _req: &HistoryRequest) -> Result<Sourced<CandleSeries>, DataError> {
         Err(DataError::Unsupported)
     }

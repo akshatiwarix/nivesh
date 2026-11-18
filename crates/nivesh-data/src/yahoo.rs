@@ -266,6 +266,79 @@ pub fn parse_quote(body: &[u8], id: &InstrumentId) -> Result<Sourced<Quote>, Dat
     Ok(Sourced::new(quote, provenance(l.as_of)))
 }
 
+/// The batch endpoint takes at most this many symbols.
+const SPARK_BATCH: usize = 20;
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SparkItem {
+    #[serde(default)]
+    timestamp: Vec<i64>,
+    #[serde(default)]
+    close: Vec<Option<f64>>,
+    chart_previous_close: Option<f64>,
+    previous_close: Option<f64>,
+}
+
+/// Parses `/v8/finance/spark` for `ids` (the order of `ids` is kept). The
+/// batch carries last price and previous close only. Symbols Yahoo doesn't
+/// know are simply absent from the reply and so from the result; if none are
+/// known the result is `NotFound`.
+pub fn parse_spark(body: &[u8], ids: &[InstrumentId]) -> Result<Vec<Sourced<Quote>>, DataError> {
+    let mut map: std::collections::HashMap<String, serde_json::Value> =
+        serde_json::from_slice(body).map_err(|e| DataError::Parse(format!("yahoo spark: {e}")))?;
+    if let Some(error) = map.get("spark").and_then(|s| s.get("error")) {
+        let text = error
+            .get("description")
+            .and_then(|d| d.as_str())
+            .unwrap_or("unknown error");
+        return Err(DataError::Parse(format!("yahoo spark: {text}")));
+    }
+    let mut out = Vec::new();
+    for id in ids {
+        let Some(value) = map.remove(&equity_ticker(id)) else {
+            continue;
+        };
+        let Ok(item) = serde_json::from_value::<SparkItem>(value) else {
+            continue;
+        };
+        let (Some(last), Some(prev)) = (
+            last_value(&item.close),
+            item.chart_previous_close.or(item.previous_close),
+        ) else {
+            continue;
+        };
+        if !last.is_finite() || !prev.is_finite() || prev <= 0.0 {
+            continue;
+        }
+        let as_of = item
+            .timestamp
+            .last()
+            .map_or_else(|| Ok(Utc::now()), |t| utc_from_secs(*t))?;
+        out.push(Sourced::new(
+            Quote {
+                id: id.clone(),
+                name: None,
+                ltp: last,
+                prev_close: prev,
+                open: None,
+                high: None,
+                low: None,
+                volume: None,
+                week52_high: None,
+                week52_low: None,
+                upper_band: None,
+                lower_band: None,
+            },
+            provenance(as_of),
+        ));
+    }
+    if out.is_empty() {
+        return Err(DataError::NotFound);
+    }
+    Ok(out)
+}
+
 pub fn parse_index_quote(body: &[u8], index: IndexId) -> Result<Sourced<IndexQuote>, DataError> {
     let result = parse_chart(body)?;
     let l = level(&result)?;
@@ -422,6 +495,32 @@ impl DataProvider for YahooProvider {
         settle(results.into_iter().map(|(_, r)| r).collect())
     }
 
+    /// One request per 20 symbols instead of one per symbol.
+    async fn constituent_quotes(
+        &self,
+        ids: &[InstrumentId],
+    ) -> Result<Vec<Sourced<Quote>>, DataError> {
+        let mut results = Vec::new();
+        for chunk in ids.chunks(SPARK_BATCH) {
+            let symbols: Vec<String> = chunk
+                .iter()
+                .map(|id| percent_encode(&equity_ticker(id)))
+                .collect();
+            let url = format!(
+                "{}/v8/finance/spark?symbols={}&range=1d&interval=1d",
+                self.base_url,
+                symbols.join(",")
+            );
+            let result = match self.http.get(&url, &[("Accept", "application/json")]).await {
+                Ok(response) => parse_spark(&response.body, chunk),
+                Err(e) => Err(e),
+            };
+            results.push(result);
+        }
+        let quotes = settle(results)?;
+        Ok(quotes.into_iter().flatten().collect())
+    }
+
     async fn history(&self, req: &HistoryRequest) -> Result<Sourced<CandleSeries>, DataError> {
         check_limits(req.interval, req.range)?;
         let body = self
@@ -520,6 +619,75 @@ mod tests {
             ..HttpConfig::default()
         };
         YahooProvider::with_base_url(HttpClient::new(config, limits).unwrap(), &server.uri())
+    }
+
+    const SPARK: &[u8] = include_bytes!("../tests/fixtures/yahoo/spark_batch.json");
+
+    #[test]
+    fn spark_batch_parses_in_request_order_and_omits_unknown_symbols() {
+        let ids = [id("RELIANCE"), id("NOPE123"), id("M&M"), id("TCS")];
+        let quotes = parse_spark(SPARK, &ids).unwrap();
+        let syms: Vec<_> = quotes.iter().map(|q| q.data.id.symbol()).collect();
+        assert_eq!(syms, ["RELIANCE", "M&M", "TCS"]);
+        let reliance = &quotes[0];
+        assert!((reliance.data.ltp - 1363.0).abs() < 1e-9);
+        assert!((reliance.data.prev_close - 1367.0).abs() < 1e-9);
+        assert_eq!(reliance.data.volume, None, "the batch has no volume");
+        assert_eq!(reliance.provenance.provider, ProviderId::Yahoo);
+        assert_eq!(reliance.provenance.feed, FeedKind::Delayed);
+    }
+
+    #[test]
+    fn spark_with_no_known_symbol_is_not_found_and_errors_are_typed() {
+        assert_eq!(
+            parse_spark(SPARK, &[id("NOPE123")]).unwrap_err(),
+            DataError::NotFound
+        );
+        let too_many = br#"{"spark":{"result":null,"error":{"code":"Bad Request","description":"Number of symbols needs to be less than or equal to 20"}}}"#;
+        assert!(matches!(
+            parse_spark(too_many, &[id("TCS")]),
+            Err(DataError::Parse(m)) if m.contains("less than or equal to 20")
+        ));
+        assert!(parse_spark(b"<html>denied</html>", &[id("TCS")]).is_err());
+    }
+
+    #[tokio::test]
+    async fn constituent_quotes_go_out_in_batches_of_twenty() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/v8/finance/spark"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(SPARK))
+            .expect(3)
+            .mount(&server)
+            .await;
+        // 45 symbols: 20 + 20 + 5. The mock answers each batch with the same
+        // three known symbols; what matters is the request count and that the
+        // answers are combined.
+        let mut ids = vec![id("RELIANCE"), id("TCS"), id("M&M")];
+        ids.extend((0..42).map(|i| id(&format!("SYM{i}"))));
+        let quotes = provider_for(&server)
+            .constituent_quotes(&ids)
+            .await
+            .unwrap();
+        assert!(!quotes.is_empty());
+        let requests = server.received_requests().await.unwrap();
+        assert_eq!(requests.len(), 3);
+        let first = requests[0].url.query().unwrap_or_default();
+        assert!(first.contains("M%26M.NS"), "specials are encoded: {first}");
+    }
+
+    #[tokio::test]
+    async fn constituent_quotes_report_a_blocked_provider() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .respond_with(ResponseTemplate::new(403))
+            .mount(&server)
+            .await;
+        let err = provider_for(&server)
+            .constituent_quotes(&[id("TCS")])
+            .await
+            .unwrap_err();
+        assert_eq!(err, DataError::Blocked);
     }
 
     #[test]
