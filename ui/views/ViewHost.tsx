@@ -3,7 +3,8 @@ import { PanelContext } from "./context";
 import { HelpView } from "./help/HelpView";
 import { IndexView } from "./index/IndexView";
 import { MktView } from "./mkt/MktView";
-import { EmptyView, QuoteView } from "./PlaceholderViews";
+import { EmptyView } from "./PlaceholderViews";
+import { QuoteView } from "./quote/QuoteView";
 import type { View } from "./types";
 import "./views.css";
 
