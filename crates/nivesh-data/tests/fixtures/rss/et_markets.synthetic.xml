@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:media="http://search.yahoo.com/mrss/" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>ET Markets (test feed)</title>
+    <link>https://example.com/markets</link>
+    <description>Synthetic feed in the shape of the public ET Markets RSS</description>
+    <item>
+      <title><![CDATA[Reliance Industries posts record quarterly profit &amp; revenue]]></title>
+      <link>https://example.com/news/reliance-record-profit?utm_source=rss</link>
+      <description><![CDATA[<p>This body is never read or shown.</p><script>alert(1)</script>]]></description>
+      <pubDate>Wed, 18 Nov 2026 09:40:00 +0530</pubDate>
+      <media:content url="https://example.com/img.jpg" />
+    </item>
+    <item>
+      <title>Sensex, Nifty end higher; IT stocks lead gains</title>
+      <link>https://example.com/news/sensex-nifty-higher</link>
+      <pubDate>Wed, 18 Nov 2026 15:45:00 +0530</pubDate>
+    </item>
+    <item>
+      <title>Infosys raises FY27 guidance after strong deal wins</title>
+      <link>https://example.com/news/infosys-guidance</link>
+      <pubDate>Wed, 18 Nov 2026 11:05:00 +0530</pubDate>
+    </item>
+    <item>
+      <title>Item with an unsafe link</title>
+      <link>javascript:alert(document.cookie)</link>
+      <pubDate>Wed, 18 Nov 2026 12:00:00 +0530</pubDate>
+    </item>
+    <item>
+      <title>Item with no date</title>
+      <link>https://example.com/news/undated</link>
+    </item>
+    <item>
+      <link>https://example.com/news/untitled</link>
+      <pubDate>Wed, 18 Nov 2026 12:00:00 +0530</pubDate>
+    </item>
+  </channel>
+</rss>

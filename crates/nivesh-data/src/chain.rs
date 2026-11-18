@@ -9,6 +9,7 @@ use std::collections::HashMap;
 use std::future::Future;
 use std::sync::{Arc, Mutex};
 
+use nivesh_core::bars::{normalize, resample};
 use nivesh_core::{
     CandleSeries, IndexId, IndexQuote, IndexSnapshot, InstrumentId, ProviderId, Quote, Sourced,
 };
@@ -18,8 +19,16 @@ use crate::cache::{CacheConfig, CacheLayer};
 use crate::clock::{Clock, SystemClock};
 use crate::constituents::ConstituentsList;
 use crate::health::{Breaker, HealthConfig, Permit, ProviderStatus};
+use crate::movers::compute_movers;
+use crate::news::TagIndex;
 use crate::singleflight::SingleFlight;
-use crate::{Capabilities, DataError, DataProvider, HistoryRequest};
+use crate::{
+    Capabilities, DataError, DataProvider, HistoryRequest, Movers, MoversRequest, NewsItem,
+    NewsRequest,
+};
+
+/// Headlines kept in the cached list; requests filter and trim it.
+const NEWS_KEPT: usize = 200;
 
 /// Which providers to try, in order, for each capability. Providers named here
 /// but not registered (Kite before it's connected) are skipped.
@@ -28,15 +37,17 @@ pub struct Routing {
     pub quotes: Vec<ProviderId>,
     pub history: Vec<ProviderId>,
     pub index: Vec<ProviderId>,
+    pub news: Vec<ProviderId>,
 }
 
 impl Default for Routing {
     fn default() -> Self {
-        use ProviderId::{Kite, Nse, Yahoo};
+        use ProviderId::{Kite, Nse, Rss, Yahoo};
         Self {
             quotes: vec![Kite, Nse, Yahoo],
             history: vec![Kite, Yahoo, Nse],
             index: vec![Nse, Yahoo],
+            news: vec![Rss],
         }
     }
 }
@@ -54,10 +65,13 @@ pub(crate) struct Inner {
     status_tx: broadcast::Sender<ProviderStatus>,
     cache: Option<Arc<CacheLayer>>,
     constituents: Option<Arc<ConstituentsList>>,
+    tagger: Option<Arc<TagIndex>>,
+    news_flight: SingleFlight<(), Sourced<Vec<NewsItem>>>,
     quotes_flight: SingleFlight<Vec<InstrumentId>, Vec<Sourced<Quote>>>,
     index_flight: SingleFlight<IndexId, Sourced<IndexSnapshot>>,
     all_indices_flight: SingleFlight<(), Vec<Sourced<IndexQuote>>>,
     history_flight: SingleFlight<HistoryRequest, Sourced<CandleSeries>>,
+    movers_flight: SingleFlight<MoversRequest, Sourced<Movers>>,
 }
 
 #[derive(Clone)]
@@ -72,6 +86,7 @@ pub struct MarketDataBuilder {
     clock: Arc<dyn Clock>,
     cache: Option<CacheConfig>,
     constituents: Option<Arc<ConstituentsList>>,
+    tagger: Option<Arc<TagIndex>>,
 }
 
 impl MarketDataBuilder {
@@ -108,6 +123,12 @@ impl MarketDataBuilder {
         self
     }
 
+    /// Tags headlines with the companies they mention.
+    pub fn tagger(mut self, tagger: Arc<TagIndex>) -> Self {
+        self.tagger = Some(tagger);
+        self
+    }
+
     pub fn build(self) -> MarketData {
         let breakers = self
             .providers
@@ -128,10 +149,13 @@ impl MarketDataBuilder {
                 status_tx,
                 cache,
                 constituents: self.constituents,
+                tagger: self.tagger,
+                news_flight: SingleFlight::new(),
                 quotes_flight: SingleFlight::new(),
                 index_flight: SingleFlight::new(),
                 all_indices_flight: SingleFlight::new(),
                 history_flight: SingleFlight::new(),
+                movers_flight: SingleFlight::new(),
             }),
         }
     }
@@ -162,7 +186,20 @@ impl MarketData {
             clock: Arc::new(SystemClock::new()),
             cache: None,
             constituents: None,
+            tagger: None,
         }
+    }
+
+    pub(crate) fn history_order(&self) -> Vec<ProviderId> {
+        self.inner.routing.history.clone()
+    }
+
+    pub(crate) fn constituent_lists(&self) -> Option<&Arc<ConstituentsList>> {
+        self.inner.constituents.as_ref()
+    }
+
+    pub(crate) fn cache_layer(&self) -> Option<&Arc<CacheLayer>> {
+        self.inner.cache.as_ref()
     }
 
     /// Health changes, for the `provider:status` event.
@@ -192,7 +229,7 @@ impl MarketData {
     }
 
     /// Runs `call` against `order`'s providers until one succeeds.
-    async fn route<T, F, Fut>(
+    pub(crate) async fn route<T, F, Fut>(
         &self,
         need: Capabilities,
         order: &[ProviderId],
@@ -325,12 +362,138 @@ impl MarketData {
         }
     }
 
+    /// Top gainers, losers and most active stocks of an index universe, all
+    /// from one source.
+    pub async fn movers(&self, req: &MoversRequest) -> Result<Sourced<Movers>, DataError> {
+        match &self.inner.cache {
+            Some(cache) => crate::cache::movers(self, cache, req).await,
+            None => self.fetch_movers(req).await,
+        }
+    }
+
+    /// NSE's own gainers/losers where it has them for this index, with the
+    /// most-active list ranked from the same source's constituent volumes.
+    /// Otherwise everything is ranked from the index's constituent quotes
+    /// (whoever priced them, with their provenance), so the three lists never
+    /// mix providers.
+    pub(crate) async fn fetch_movers(
+        &self,
+        req: &MoversRequest,
+    ) -> Result<Sourced<Movers>, DataError> {
+        let this = self.clone();
+        let request = *req;
+        self.inner
+            .movers_flight
+            .run(request, move || async move {
+                let order = this.inner.routing.index.clone();
+                let direct = this
+                    .route(Capabilities::MOVERS, &order, |p| async move {
+                        p.movers(&request).await
+                    })
+                    .await;
+                match direct {
+                    Ok(mut movers) => {
+                        // Same provider only: a different one would splice sources.
+                        if let Ok(snap) = this.index_snapshot(request.index).await
+                            && snap.provenance.provider == movers.provenance.provider
+                        {
+                            movers.data.most_active =
+                                compute_movers(&snap.data.constituents, request.limit).most_active;
+                        }
+                        Ok(movers)
+                    }
+                    Err(direct_error) => {
+                        let snap = this.index_snapshot(request.index).await.map_err(|e| {
+                            // Prefer the more informative of the two failures.
+                            pick_error(vec![direct_error, e])
+                        })?;
+                        if snap.data.constituents.is_empty() {
+                            return Err(DataError::NotFound);
+                        }
+                        let movers = compute_movers(&snap.data.constituents, request.limit);
+                        Ok(Sourced {
+                            data: movers,
+                            provenance: snap.provenance,
+                        })
+                    }
+                }
+            })
+            .await
+    }
+
+    /// Recent headlines, newest first, optionally only those about
+    /// `req.query`: a symbol the headline is tagged with, or text in its title.
+    /// The whole feed set is fetched once and cached; a query only filters it.
+    pub async fn news(&self, req: &NewsRequest) -> Result<Sourced<Vec<NewsItem>>, DataError> {
+        let mut all = match &self.inner.cache {
+            Some(cache) => crate::cache::news(self, cache).await?,
+            None => self.fetch_news().await?,
+        };
+        if let Some(query) = req
+            .query
+            .as_deref()
+            .map(str::trim)
+            .filter(|q| !q.is_empty())
+        {
+            let upper = query.to_ascii_uppercase();
+            all.data.retain(|item| {
+                item.tags.contains(&upper) || item.title.to_ascii_uppercase().contains(&upper)
+            });
+        }
+        all.data.truncate(req.limit);
+        Ok(all)
+    }
+
+    pub(crate) async fn fetch_news(&self) -> Result<Sourced<Vec<NewsItem>>, DataError> {
+        let this = self.clone();
+        self.inner
+            .news_flight
+            .run((), move || async move {
+                let order = this.inner.routing.news.clone();
+                let request = NewsRequest {
+                    query: None,
+                    limit: NEWS_KEPT,
+                };
+                let mut items = this
+                    .route(Capabilities::NEWS, &order, |p| {
+                        let request = request.clone();
+                        async move { p.news(&request).await }
+                    })
+                    .await?;
+                if let Some(tagger) = &this.inner.tagger {
+                    for item in &mut items {
+                        item.tags = tagger.tag(&item.title);
+                    }
+                }
+                Ok(crate::news::sourced(items, chrono::Utc::now()))
+            })
+            .await
+    }
+
     /// A candle series, whole, from a single provider.
     pub async fn history(&self, req: &HistoryRequest) -> Result<Sourced<CandleSeries>, DataError> {
         match &self.inner.cache {
             Some(cache) => crate::cache::history(self, cache, req).await,
             None => self.fetch_history(req).await,
         }
+    }
+
+    /// A quote from `provider` and no other, uncached. For callers that must
+    /// not mix sources (a chart's forming bar). Health tracking still applies.
+    pub async fn quote_from(
+        &self,
+        provider: ProviderId,
+        id: &InstrumentId,
+    ) -> Result<Sourced<Quote>, DataError> {
+        let ids = [id.clone()];
+        self.route(Capabilities::QUOTE, &[provider], |p| {
+            let ids = ids.clone();
+            async move { p.quotes(&ids).await }
+        })
+        .await?
+        .into_iter()
+        .next()
+        .ok_or(DataError::NotFound)
     }
 
     pub async fn quote(&self, id: &InstrumentId) -> Result<Sourced<Quote>, DataError> {
@@ -445,23 +608,43 @@ impl MarketData {
                 let order = this.inner.routing.history.clone();
                 this.route(Capabilities::HISTORY, &order, |p| {
                     let request = request.clone();
-                    async move {
-                        let series = p.history(&request).await?;
-                        // A series must be exactly what was asked for, from one
-                        // source. Anything else is rejected, not patched.
-                        if series.data.id != request.id || series.data.interval != request.interval
-                        {
-                            return Err(DataError::Parse(
-                                "provider returned a different series".into(),
-                            ));
-                        }
-                        Ok(series)
-                    }
+                    async move { fetch_series(p.as_ref(), &request).await }
                 })
                 .await
             })
             .await
     }
+}
+
+/// One provider's answer to `request`, as exactly the series that was asked
+/// for. Intervals no provider offers (4h) are built from the base interval's
+/// bars with session-aligned resampling; the provider's rows are cleaned of
+/// nulls and duplicates first. Anything else wrong is rejected, not patched.
+async fn fetch_series(
+    p: &dyn DataProvider,
+    request: &HistoryRequest,
+) -> Result<Sourced<CandleSeries>, DataError> {
+    let base = request.interval.base();
+    let asked = HistoryRequest {
+        interval: base,
+        ..request.clone()
+    };
+    let mut series = p.history(&asked).await?;
+    if series.data.id != request.id || series.data.interval != base {
+        return Err(DataError::Parse(
+            "provider returned a different series".into(),
+        ));
+    }
+    let mut candles = normalize(std::mem::take(&mut series.data.candles));
+    if base != request.interval {
+        candles = resample(&candles, request.interval);
+    }
+    if candles.is_empty() {
+        return Err(DataError::NotFound);
+    }
+    series.data.candles = candles;
+    series.data.interval = request.interval;
+    Ok(series)
 }
 
 #[cfg(test)]
@@ -473,10 +656,11 @@ mod tests {
     use nivesh_core::{Candle, FeedKind, Interval, Provenance};
 
     use super::*;
-    use crate::HistoryRange;
     use crate::clock::ManualClock;
     use crate::health::HealthState;
     use crate::mock::MockProvider;
+    use crate::news::TagIndex;
+    use crate::{HistoryRange, Mover};
 
     fn id(s: &str) -> InstrumentId {
         InstrumentId::parse(s).unwrap()
@@ -547,7 +731,10 @@ mod tests {
     fn mock(p: ProviderId) -> Arc<MockProvider> {
         Arc::new(MockProvider::new(
             p,
-            Capabilities::QUOTE | Capabilities::HISTORY | Capabilities::INDEX,
+            Capabilities::QUOTE
+                | Capabilities::HISTORY
+                | Capabilities::INDEX
+                | Capabilities::MOVERS,
         ))
     }
 
@@ -911,6 +1098,219 @@ mod tests {
         assert_eq!(MockProvider::calls(&r.yahoo.quote_calls), 0);
     }
 
+    fn snapshot_with(p: ProviderId, rows: &[(&str, f64, Option<u64>)]) -> Sourced<IndexSnapshot> {
+        let mut snap = level_only(p, IndexId::Nifty50);
+        snap.data.constituents = rows
+            .iter()
+            .map(|(sym, ltp, volume)| Quote {
+                ltp: *ltp,
+                volume: *volume,
+                ..quote(p, sym).data
+            })
+            .collect();
+        snap
+    }
+
+    fn nse_movers(gainer: &str) -> Sourced<Movers> {
+        let m = Mover {
+            quote: Quote {
+                ltp: 110.0,
+                ..quote(ProviderId::Nse, gainer).data
+            },
+        };
+        Sourced::new(
+            Movers {
+                gainers: vec![m],
+                ..Movers::default()
+            },
+            prov(ProviderId::Nse),
+        )
+    }
+
+    const REQ: MoversRequest = MoversRequest {
+        index: IndexId::Nifty50,
+        limit: 5,
+    };
+
+    #[tokio::test]
+    async fn movers_use_nses_lists_and_rank_most_active_from_the_same_source() {
+        let r = rig();
+        r.nse.repeat_movers(Ok(nse_movers("TATASTEEL")));
+        r.nse.repeat_index(Ok(snapshot_with(
+            ProviderId::Nse,
+            &[("A", 101.0, Some(10)), ("B", 102.0, Some(99))],
+        )));
+        let m = r.md.movers(&REQ).await.unwrap();
+        assert_eq!(m.provenance.provider, ProviderId::Nse);
+        assert_eq!(m.data.gainers[0].quote.id.symbol(), "TATASTEEL");
+        assert_eq!(m.data.most_active[0].quote.id.symbol(), "B");
+    }
+
+    #[tokio::test]
+    async fn movers_never_splice_a_second_source_into_nses_lists() {
+        let r = rig();
+        r.nse.repeat_movers(Ok(nse_movers("TATASTEEL")));
+        // NSE's index snapshot fails, so only Yahoo could price the constituents.
+        r.nse.repeat_index(Err(DataError::Blocked));
+        r.yahoo.repeat_index(Ok(snapshot_with(
+            ProviderId::Yahoo,
+            &[("A", 101.0, Some(10)), ("B", 102.0, Some(99))],
+        )));
+        let m = r.md.movers(&REQ).await.unwrap();
+        assert_eq!(m.provenance.provider, ProviderId::Nse);
+        assert!(m.data.most_active.is_empty());
+    }
+
+    #[tokio::test]
+    async fn movers_fall_back_to_ranking_the_constituents_with_their_provenance() {
+        let r = rig();
+        r.nse.repeat_movers(Err(DataError::Blocked));
+        r.nse.repeat_index(Err(DataError::Blocked));
+        r.yahoo.repeat_index(Ok(snapshot_with(
+            ProviderId::Yahoo,
+            &[("UP", 105.0, None), ("DOWN", 95.0, None)],
+        )));
+        let m = r.md.movers(&REQ).await.unwrap();
+        assert_eq!(m.provenance.provider, ProviderId::Yahoo);
+        assert_eq!(m.data.gainers[0].quote.id.symbol(), "UP");
+        assert_eq!(m.data.losers[0].quote.id.symbol(), "DOWN");
+        assert!(m.data.most_active.is_empty(), "no volume from this source");
+    }
+
+    #[tokio::test]
+    async fn an_index_nse_publishes_no_movers_for_is_ranked_from_constituents() {
+        let r = rig();
+        r.nse.repeat_movers(Err(DataError::Unsupported));
+        r.nse.repeat_index(Ok(snapshot_with(
+            ProviderId::Nse,
+            &[("A", 103.0, Some(5)), ("B", 98.0, Some(9))],
+        )));
+        let m = r.md.movers(&REQ).await.unwrap();
+        assert_eq!(m.provenance.provider, ProviderId::Nse);
+        assert_eq!(m.data.gainers[0].quote.id.symbol(), "A");
+        assert_eq!(m.data.most_active[0].quote.id.symbol(), "B");
+    }
+
+    #[tokio::test]
+    async fn movers_fail_when_nothing_can_be_priced() {
+        let r = rig();
+        r.nse.repeat_movers(Err(DataError::Blocked));
+        r.nse.repeat_index(Err(DataError::Blocked));
+        r.yahoo.repeat_index(Err(DataError::Timeout));
+        assert!(r.md.movers(&REQ).await.is_err());
+    }
+
+    fn headline(title: &str, minute: u32) -> NewsItem {
+        use chrono::TimeZone as _;
+        NewsItem {
+            title: title.into(),
+            source: "ET".into(),
+            url: format!("https://example.com/{minute}"),
+            published: Utc.with_ymd_and_hms(2026, 11, 18, 9, minute, 0).unwrap(),
+            tags: vec![],
+        }
+    }
+
+    fn news_market(rss: &Arc<MockProvider>) -> MarketData {
+        let entries = vec![
+            (
+                "RELIANCE".to_owned(),
+                "Reliance Industries Limited".to_owned(),
+                0,
+            ),
+            (
+                "TCS".to_owned(),
+                "Tata Consultancy Services Limited".to_owned(),
+                0,
+            ),
+        ];
+        MarketData::builder()
+            .provider(rss.clone())
+            .tagger(Arc::new(TagIndex::new(&entries)))
+            .cache(crate::CacheConfig::default())
+            .build()
+    }
+
+    fn rss_mock() -> Arc<MockProvider> {
+        let rss = Arc::new(MockProvider::new(ProviderId::Rss, Capabilities::NEWS));
+        rss.repeat_news(Ok(vec![
+            headline("Reliance Industries hits record high", 30),
+            headline("Sensex ends higher", 20),
+            headline("TCS bags big contract", 10),
+        ]));
+        rss
+    }
+
+    #[tokio::test]
+    async fn news_is_tagged_labelled_delayed_and_fetched_once() {
+        let rss = rss_mock();
+        let md = news_market(&rss);
+        let req = NewsRequest {
+            query: None,
+            limit: 10,
+        };
+        let news = md.news(&req).await.unwrap();
+        assert_eq!(news.provenance.provider, ProviderId::Rss);
+        assert_eq!(news.provenance.feed, FeedKind::Delayed);
+        assert_eq!(news.data[0].tags, ["RELIANCE"]);
+        assert_eq!(news.data[2].tags, ["TCS"]);
+        assert!(news.data[1].tags.is_empty());
+        // As of the newest headline.
+        assert_eq!(news.provenance.as_of, news.data[0].published);
+        md.news(&NewsRequest {
+            query: Some("tcs".into()),
+            limit: 10,
+        })
+        .await
+        .unwrap();
+        assert_eq!(
+            MockProvider::calls(&rss.news_calls),
+            1,
+            "queries filter the cached list"
+        );
+    }
+
+    #[tokio::test]
+    async fn news_can_be_filtered_by_symbol_tag_or_title_text_and_limited() {
+        let md = news_market(&rss_mock());
+        let ask = |q: Option<&str>, limit| NewsRequest {
+            query: q.map(str::to_owned),
+            limit,
+        };
+        let titles =
+            |n: Sourced<Vec<NewsItem>>| n.data.into_iter().map(|i| i.title).collect::<Vec<_>>();
+        assert_eq!(
+            titles(md.news(&ask(Some("RELIANCE"), 10)).await.unwrap()),
+            ["Reliance Industries hits record high"]
+        );
+        assert_eq!(
+            titles(md.news(&ask(Some("sensex"), 10)).await.unwrap()),
+            ["Sensex ends higher"]
+        );
+        assert!(
+            md.news(&ask(Some("nothing"), 10))
+                .await
+                .unwrap()
+                .data
+                .is_empty()
+        );
+        assert_eq!(md.news(&ask(None, 2)).await.unwrap().data.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn news_errors_when_the_feeds_are_unreachable_and_nothing_is_cached() {
+        let rss = Arc::new(MockProvider::new(ProviderId::Rss, Capabilities::NEWS));
+        rss.repeat_news(Err(DataError::Timeout));
+        let err = news_market(&rss)
+            .news(&NewsRequest {
+                query: None,
+                limit: 5,
+            })
+            .await
+            .unwrap_err();
+        assert_eq!(err, DataError::Timeout);
+    }
+
     #[tokio::test]
     async fn history_comes_whole_from_one_provider() {
         let r = rig();
@@ -924,6 +1324,41 @@ mod tests {
             .repeat_history(Ok(series(ProviderId::Yahoo, "TCS", Interval::D1)));
         let h = r.md.history(&req).await.unwrap();
         assert_eq!(h.provenance.provider, ProviderId::Yahoo);
+    }
+
+    #[tokio::test]
+    async fn four_hour_bars_are_built_from_one_providers_hourly_bars() {
+        let r = rig();
+        let req = HistoryRequest {
+            id: id("TCS"),
+            interval: Interval::H4,
+            range: HistoryRange::M1,
+        };
+        // 2026-11-16 09:15, 10:15, 13:15 and 14:15 IST, hourly.
+        let at = |h: i64, m: i64| (1_794_767_400 + h * 3600 + m * 60) * 1000;
+        let hourly = [at(9, 15), at(10, 15), at(13, 15), at(14, 15)].map(|t| Candle {
+            t,
+            o: 10.0,
+            h: 12.0,
+            l: 9.0,
+            c: 11.0,
+            v: 5.0,
+        });
+        let mut s = series(ProviderId::Yahoo, "TCS", Interval::H1);
+        s.data.candles = hourly.to_vec();
+        r.nse.repeat_history(Err(DataError::Unsupported));
+        r.yahoo.repeat_history(Ok(s));
+        let h = r.md.history(&req).await.unwrap();
+        assert_eq!(h.data.interval, Interval::H4);
+        assert_eq!(h.provenance.provider, ProviderId::Yahoo);
+        assert_eq!(
+            h.data
+                .candles
+                .iter()
+                .map(|c| (c.t, c.v))
+                .collect::<Vec<_>>(),
+            [(at(9, 15), 10.0), (at(13, 15), 10.0)]
+        );
     }
 
     #[tokio::test]

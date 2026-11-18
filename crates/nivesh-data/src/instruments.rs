@@ -220,6 +220,17 @@ impl InstrumentIndex {
         self
     }
 
+    /// `(symbol, company name, popularity tier)` of every NSE listing, for
+    /// tagging headlines (see [`crate::news::TagIndex`]). Lower tier is better:
+    /// 0 NIFTY 50, 1 NIFTY NEXT 50, 2 NIFTY 500, 3 the rest.
+    pub fn tag_entries(&self) -> Vec<(String, String, u32)> {
+        self.entries
+            .iter()
+            .filter(|e| e.instrument.id.exchange() == Exchange::Nse)
+            .map(|e| (e.sym.clone(), e.instrument.name.clone(), e.popularity))
+            .collect()
+    }
+
     /// Every listing, including the BSE ones that search hides.
     pub fn len(&self) -> usize {
         self.entries.len()
@@ -435,6 +446,11 @@ impl InstrumentMaster {
 
     pub fn get(&self, id: &InstrumentId) -> Option<Instrument> {
         self.snapshot().get(id).cloned()
+    }
+
+    /// A headline tagger over the current NSE listings.
+    pub fn tagger(&self) -> crate::news::TagIndex {
+        crate::news::TagIndex::new(&self.snapshot().tag_entries())
     }
 
     pub fn len(&self) -> usize {

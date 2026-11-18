@@ -12,7 +12,12 @@ serde.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
+criterion.workspace = true
 serde_json.workspace = true
+
+[[bench]]
+name = "resample"
+harness = false
 
 [lints]
 workspace = true

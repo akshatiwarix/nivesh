@@ -93,3 +93,55 @@ describe("Badge and KeyHint", () => {
     expect(root.querySelector(".keyhint__label")?.textContent).toBe("Help");
   });
 });
+
+describe("DataTable virtualisation", () => {
+  const cols = [{ id: "n", header: "N", value: (r: { n: number }) => r.n }];
+  const rowsOf = (n: number) => Array.from({ length: n }, (_, i) => ({ n: i }));
+
+  function mountIn(rows: { n: number }[], selectedIndex?: number) {
+    const host = document.createElement("div");
+    host.className = "panel__body";
+    document.body.append(host);
+    const dispose = render(
+      () => <DataTable label="t" columns={cols} rows={rows} selectedIndex={selectedIndex} />,
+      host,
+    );
+    return { host, dispose };
+  }
+  const bodyRows = (host: HTMLElement) => host.querySelectorAll("tbody tr.table__row").length;
+
+  it("renders every row of a short table", () => {
+    const { host, dispose } = mountIn(rowsOf(60));
+    expect(bodyRows(host)).toBe(60);
+    expect(host.querySelector(".table__spacer")).toBeNull();
+    dispose();
+    host.remove();
+  });
+
+  it("renders only a window of a long table, with spacers standing in for the rest", () => {
+    const { host, dispose } = mountIn(rowsOf(5_000));
+    const drawn = bodyRows(host);
+    expect(drawn).toBeGreaterThan(0);
+    expect(drawn).toBeLessThan(100);
+    const after = host.querySelector<HTMLElement>(".table__spacer");
+    // Rows are 18 px (the default without layout): the spacer covers the rest.
+    expect(Number.parseFloat(after?.style.height ?? "0")).toBeCloseTo((5_000 - drawn) * 18, 0);
+    dispose();
+    host.remove();
+  });
+
+  it("moves the window when the container scrolls", async () => {
+    const { host, dispose } = mountIn(rowsOf(5_000));
+    // The test DOM has no layout, so fake the scroll offset the browser would report.
+    Object.defineProperty(host, "scrollTop", { value: 18 * 2_000, configurable: true });
+    const table = host.querySelector("table");
+    if (table) table.getBoundingClientRect = () => ({ top: -18 * 2_000, height: 0 }) as DOMRect;
+    host.dispatchEvent(new Event("scroll"));
+    await new Promise((r) => setTimeout(r, 0));
+    const first = host.querySelector("tbody tr.table__row td")?.textContent;
+    expect(Number(first)).toBeGreaterThan(1_900);
+    expect(bodyRows(host)).toBeLessThan(100);
+    dispose();
+    host.remove();
+  });
+});

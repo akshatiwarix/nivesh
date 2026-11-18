@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="ISO-8859-1" ?>
+<!--  generator=Synthetic test feed in the shape of Moneycontrol's  -->
+<rss version="2.0">
+  <channel>
+    <title>Latest News (test feed)</title>
+    <link>https://example.com/</link>
+    <item>
+      <title>HDFC Bank Q2 results: net profit beats estimates</title>
+      <link>https://example.com/news/hdfc-bank-q2</link>
+      <pubDate>Wed, 18 Nov 2026 10:00:00 +0530</pubDate>
+    </item>
+    <item>
+      <title>SENSEX, NIFTY END HIGHER; IT STOCKS LEAD GAINS!</title>
+      <link>https://example.com/other/path/sensex</link>
+      <pubDate>Wed, 18 Nov 2026 15:50:00 +0530</pubDate>
+    </item>
+    <item>
+      <title>Rupee at 83.20 &#8211; caf&#233; owners cheer</title>
+      <link>https://example.com/news/rupee</link>
+      <pubDate>Wed, 18 Nov 2026 09:00:00 +0530</pubDate>
+    </item>
+  </channel>
+</rss>

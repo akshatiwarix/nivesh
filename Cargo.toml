@@ -14,6 +14,7 @@ anyhow = "1.0.104"
 async-trait = "0.1.92"
 chrono = { version = "0.4.45", default-features = false, features = ["serde", "std"] }
 futures = { version = "0.3.34", default-features = false, features = ["std"] }
+feed-rs = "3.0.0"
 governor = "0.10.4"
 reqwest = { version = "0.13.5", features = ["brotli", "cookies", "gzip"] }
 moka = { version = "0.12.16", default-features = false, features = ["sync"] }
@@ -21,9 +22,12 @@ rusqlite = { version = "0.43.0", features = ["bundled"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 tempfile = "3.27.0"
+proptest = { version = "1.6.0", default-features = false, features = ["std"] }
+criterion = { version = "0.7.0", default-features = false, features = ["cargo_bench_support"] }
 tauri = { version = "2.12.6", features = [] }
 tauri-build = { version = "2.7.5", features = [] }
 tauri-plugin-single-instance = "2.5.5"
+tauri-plugin-opener = "2"
 thiserror = "2.0.21"
 tokio = { version = "1.54.1", features = ["macros", "rt", "sync", "time"] }
 tracing = "0.1.44"

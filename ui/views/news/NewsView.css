@@ -1,0 +1,11 @@
+.news__note,
+.news__hint {
+  margin: 0;
+  padding: var(--pad-y) var(--pad-x);
+  color: var(--c-fg-dim);
+  font-size: var(--fs-sm);
+}
+
+.news__hint {
+  color: var(--c-fg-faint);
+}

@@ -1,0 +1,111 @@
+<!doctype html>
+<!--
+  Chart performance probe for PLAN.md §2.9 ("first render of a 5,000-candle chart
+  < 100 ms; pan and zoom at 60 fps"). Open it in the same engine the app uses:
+
+    Linux:  /usr/lib/x86_64-linux-gnu/webkit2gtk-4.1/MiniBrowser file://$PWD/scripts/perf/chart-perf.html
+    macOS:  open it in Safari (WKWebView is the same engine)
+
+  It draws N synthetic candles with a volume pane, times the first painted frame,
+  then pans and zooms for ~3 s each and reports frame times. Results appear on the
+  page (and in the title). The chart library is the one the app bundles.
+-->
+<meta charset="utf-8" />
+<title>chart-perf</title>
+<style>
+  body { margin: 0; background: #000; color: #d6d6d6; font: 13px monospace; }
+  #chart { width: 1100px; height: 520px; }
+  pre { margin: 8px; white-space: pre-wrap; }
+</style>
+<div id="chart"></div>
+<pre id="out">running…</pre>
+<script src="../../node_modules/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
+<script>
+  const out = document.getElementById("out");
+  const raf = () => new Promise((r) => requestAnimationFrame(r));
+  const lines = [];
+  const log = (s) => { lines.push(s); out.textContent = lines.join("\n"); };
+
+  function candles(n) {
+    const day = 86400;
+    let t = 1_500_000_000, p = 1000, seed = 7;
+    const rnd = () => {
+      seed = (seed * 16807) % 2147483647;
+      return seed / 2147483647 - 0.5;
+    };
+    const c = [], v = [];
+    for (let i = 0; i < n; i++, t += day) {
+      const o = p, cl = Math.max(1, o + rnd() * 20);
+      const h = Math.max(o, cl) + Math.abs(rnd()) * 6, l = Math.min(o, cl) - Math.abs(rnd()) * 6;
+      c.push({ time: t, open: o, high: h, low: l, close: cl });
+      v.push({ time: t, value: 1e5 + Math.abs(rnd()) * 1e6, color: cl >= o ? "#2bd47d66" : "#ff525266" });
+      p = cl;
+    }
+    return { c, v };
+  }
+
+  const stats = (xs) => {
+    const s = [...xs].sort((a, b) => a - b);
+    return { median: s[s.length >> 1], p95: s[Math.floor(s.length * 0.95)], max: s[s.length - 1] };
+  };
+
+  async function frames(n, step) {
+    const dts = [];
+    let last = performance.now();
+    for (let i = 0; i < n; i++) {
+      step(i);
+      await raf();
+      const now = performance.now();
+      dts.push(now - last);
+      last = now;
+    }
+    return dts;
+  }
+
+  async function probe(n) {
+    const el = document.getElementById("chart");
+    el.replaceChildren();
+    const chart = LightweightCharts.createChart(el, {
+      width: 1100, height: 520,
+      layout: { background: { type: "solid", color: "#070707" }, textColor: "#8c8c8c", fontSize: 11 },
+      grid: { vertLines: { color: "#262626" }, horzLines: { color: "#262626" } },
+    });
+    const price = chart.addSeries(LightweightCharts.CandlestickSeries);
+    const volume = chart.addSeries(LightweightCharts.HistogramSeries, { priceFormat: { type: "volume" } }, 1);
+    const { c, v } = candles(n);
+    await raf();
+    const t0 = performance.now();
+    price.setData(c);
+    volume.setData(v);
+    chart.timeScale().setVisibleLogicalRange({ from: n - 150, to: n + 4 });
+    await raf();
+    await raf();
+    const first = performance.now() - t0;
+
+    // Pan across the whole series, then zoom out and in, as the keyboard does.
+    const view = 150;
+    const pan = stats(await frames(180, (i) => {
+      const from = Math.max(0, n - view - (i * (n - view)) / 180);
+      chart.timeScale().setVisibleLogicalRange({ from, to: from + view });
+    }));
+    const zoom = stats(await frames(180, (i) => {
+      const span = 20 + Math.abs(Math.sin(i / 28)) * Math.min(n, 2000);
+      chart.timeScale().setVisibleLogicalRange({ from: n - span, to: n + 4 });
+    }));
+    chart.remove();
+    const fps = (ms) => (1000 / ms).toFixed(0);
+    log(
+      `${String(n).padStart(6)} candles: first render ${first.toFixed(0)} ms | ` +
+      `pan median ${pan.median.toFixed(1)} ms (${fps(pan.median)} fps) p95 ${pan.p95.toFixed(1)} ms | ` +
+      `zoom median ${zoom.median.toFixed(1)} ms (${fps(zoom.median)} fps) p95 ${zoom.p95.toFixed(1)} ms`,
+    );
+  }
+
+  (async () => {
+    log(navigator.userAgent);
+    // The first chart of a page load includes one-off engine warm-up, so 5,000 runs twice.
+    for (const n of [5000, 5000, 20000, 1250]) await probe(n);
+    log("done");
+    document.title = "chart-perf done";
+  })();
+</script>

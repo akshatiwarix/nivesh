@@ -923,6 +923,69 @@ Deviations from, and additions to, the Part 2 plan above:
 - [ ] The bundle budget still holds, and the chart library loads only on first
       chart open.
 
+### As built: deviations from the plan above
+
+- **Commits.** 14 instead of 15: the chart view and its keyboard controls (plan
+  commits 5 and 6) landed together, because the keys are what make the view
+  usable. The branch is `part-3-charts`.
+- **Intervals.** Added `4h` (built from 1h bars, aligned to the 09:15 IST open:
+  09:15-13:15 and 13:15-15:30) and `1mo`. Month is `MO`, since `M` means minutes.
+  Session-aware bucketing and resampling live in `nivesh-core::bars` (pure), not
+  in `nivesh-data`; the chain applies them and cleans provider rows.
+  `HistoryRange` gained parsing and a per-interval default the public sources
+  will serve. Unsupported combinations (1m beyond 7 days, minutes beyond 60 days,
+  hourly beyond 2 years) come back as `UnsupportedRange` and the chart shows why.
+- **Forming bar.** Built in Rust (`nivesh-data::forming`) from a new
+  provider-pinned hub topic (`Topic::Pinned`), so its last price always comes
+  from the provider that supplied the history (no splicing). Volume is not
+  tracked per bar (quotes give day volume); the next history load corrects it.
+  Indicators are computed from loaded candles, not the forming bar.
+- **Indicators.** New `nivesh-indicators` crate with batch and streaming forms
+  and `IndicatorSpec` (`ADD SMA 50`), parsed and assigned to a pane in Rust.
+  References: an independent plain-Python generator
+  (`tests/fixtures/gen_reference.py`, tolerance 1e-9), the published StockCharts
+  RSI example (0.01), and proptests that streaming equals batch. VWAP is anchored
+  per IST day, so on daily bars it is the typical price. Indicators persist per
+  symbol in the `settings` table.
+- **Chart library size.** `lightweight-charts` 5.3 is 62.6 KB gzipped (the plan
+  guessed 45), lazy-loaded; initial JS is 36.5 KB gzipped. Its attribution logo
+  is kept; link clicks in the webview are cancelled so it cannot navigate away.
+- **Movers.** NSE `live-analysis-variations` (verified live) supplies gainers and
+  losers for NIFTY 50 and NIFTY BANK only. Everything else, and any NSE outage,
+  is ranked from constituent quotes with their provenance. NSE's most-active list
+  is market-wide, so *most active* is ranked from constituent volumes, and only
+  when they come from the same provider as the gainers/losers (otherwise it is
+  empty and the view says why). Fixtures for the variations endpoint are
+  synthetic (`*.synthetic.json`).
+- **Breadth and sectors.** Sector returns use a new `DataProvider::index_history`
+  (Yahoo daily candles, 1y). The moving-average sweep covers NIFTY 50 and
+  NIFTY 100 (50 + NEXT 50 lists), four requests at a time through the shared rate
+  limiter; cold, NIFTY 50 took about 24 s. A sweep with under half the stocks is
+  an error, not a percentage. Heatmap tiles are equal-sized (no market-cap data
+  in the public sources).
+- **News.** Five RSS feeds (ET Markets, Mint, Business Standard, BusinessLine,
+  Moneycontrol) via `feed-rs` 3.0; the list is configuration
+  (`news::default_feeds`). NSE corporate announcements are not included. Tagging
+  is precision-biased (symbol in capitals, company name, or the unambiguous first
+  word of a NIFTY 100 company). Links open through `open_news_link`, which accepts
+  only http(s) URLs the cached feed itself supplied; `tauri-plugin-opener` is
+  registered but no window is granted its commands.
+- **Tables.** `DataTable` virtualises above 100 rows (the panel body scrolls).
+  The quote feed was already batched per animation frame; the chart now draws
+  only the newest forming bar, once per frame.
+- **Performance** (WebKitGTK under Xvfb, `scripts/perf/chart-perf.html`): 5,000
+  candles draw in 25 ms warm and 121 ms for the first chart after launch (engine
+  warm-up; slightly over the 100 ms budget); 20,000 take 60 ms; pan and zoom hold
+  63 fps. macOS not measured. Rust benchmarks at 100k candles are in the README.
+- **Live check** (`cargo test -p nivesh-app live_part3 -- --ignored --nocapture`):
+  Yahoo history and index history, NSE variations and all five RSS feeds worked
+  from the dev machine. NSE `equity-stockIndices` was still unavailable, so
+  constituents and breadth came from the dated list priced by Yahoo (no volume).
+- **Known gaps:** most-active is usually empty while NSE's index endpoint is
+  blocked; NSE movers rows carry no company name or volume; the tag index is built
+  at startup and not refreshed with the daily instrument list; chart indicators
+  lag the forming bar; benches are compiled in CI but never run there.
+
 ---
 
 ## Part 4: Broker connection

@@ -25,6 +25,9 @@ pub fn run() -> anyhow::Result<()> {
         // Must be registered first: a second launch hands its arguments to the
         // running instance and exits before anything else starts. Two instances
         // would fight over the database and, later, could double-send orders.
+        // Opens links in the system browser. No window is granted its commands:
+        // the only caller is `open_news_link`, which vets the URL first.
+        .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
             focus_main_window(app);
         }))
@@ -65,6 +68,11 @@ pub fn run() -> anyhow::Result<()> {
         // Keep in sync with COMMANDS in build.rs.
         .invoke_handler(tauri::generate_handler![
             commands::app::app_info,
+            commands::chart::chart_indicators,
+            commands::chart::compute_indicators,
+            commands::chart::get_history,
+            commands::chart::save_chart_indicators,
+            commands::chart::subscribe_forming_bar,
             commands::data::all_indices,
             commands::data::get_quote,
             commands::data::index_snapshot,
@@ -74,6 +82,12 @@ pub fn run() -> anyhow::Result<()> {
             commands::data::subscribe_quotes,
             commands::data::unsubscribe,
             commands::market::market_status,
+            commands::markets::get_breadth,
+            commands::markets::get_dma_breadth,
+            commands::markets::get_movers,
+            commands::markets::get_news,
+            commands::markets::open_news_link,
+            commands::markets::get_sectors,
             commands::ui_state::ui_state,
             commands::ui_state::save_layout,
             commands::ui_state::save_command_history,

@@ -24,6 +24,14 @@ NSE fixtures from the development machine's IP were only partly obtainable:
   `equity-stockIndices` returned 404 from that IP. Replace them with
   recordings when you can reach those endpoints; the parsers must pass both.
 
+## RSS
+
+`rss/*.synthetic.*` are **hand-written** feeds in the shape of the public
+publishers' RSS (CDATA titles, `media:` extensions, an ISO-8859-1 declaration,
+Atom). Headlines are made up; no publisher content is stored. They also carry
+the awkward cases the parser must survive: an unsafe `javascript:` link, a
+missing date or title, and script in a description.
+
 ## BSE
 
 `bse/bhavcopy_sample.csv` is a **recording** of eight rows of BSE's public UDiFF

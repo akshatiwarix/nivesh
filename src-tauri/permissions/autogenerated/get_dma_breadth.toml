@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-get-dma-breadth"
+description = "Enables the get_dma_breadth command without any pre-configured scope."
+commands.allow = ["get_dma_breadth"]
+
+[[permission]]
+identifier = "deny-get-dma-breadth"
+description = "Denies the get_dma_breadth command without any pre-configured scope."
+commands.deny = ["get_dma_breadth"]

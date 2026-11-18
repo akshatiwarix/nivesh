@@ -8,7 +8,7 @@ import { createProviderHealth } from "../data/health";
 import { createVisibilityReporter } from "../data/visibility";
 import { appInfo, inTauri, searchInstruments } from "../ipc";
 import { resolveKey } from "../keys/keymap";
-import { sendViewOp } from "../views/context";
+import { hasViewOps, sendViewOp } from "../views/context";
 import { viewTitle } from "../views/types";
 import { ViewHost } from "../views/ViewHost";
 import "./App.css";
@@ -46,6 +46,9 @@ export const App: Component = () => {
     const inputEmpty = !(active instanceof HTMLInputElement) || active.value === "";
     const binding = resolveKey(e, inInput, undefined, inputEmpty);
     if (!binding) return;
+    // A view key is only taken when the focused view listens for it, so it
+    // never blocks typing or caret movement in the command bar for nothing.
+    if (binding.action.type === "view" && !hasViewOps(ws.state.focused)) return;
     e.preventDefault();
     runAction(binding.action, ws);
   };
@@ -70,6 +73,7 @@ export const App: Component = () => {
                   panel={i}
                   focused={ws.state.focused === i}
                   open={(view) => ws.openIn(i, view)}
+                  openBeside={(view) => ws.openBeside(i, view)}
                 />
               </Panel>
             </Show>

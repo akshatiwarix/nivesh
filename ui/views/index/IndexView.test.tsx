@@ -36,7 +36,12 @@ describe("IndexView", () => {
     dispose = render(
       () => (
         <PanelContext.Provider
-          value={{ panel: 0, open: (v) => opened.push(v), focused: () => true }}
+          value={{
+            panel: 0,
+            open: (v) => opened.push(v),
+            openBeside: () => {},
+            focused: () => true,
+          }}
         >
           <IndexView view={{ kind: "index", id: "NIFTY50", title: "NIFTY 50" }} />
         </PanelContext.Provider>

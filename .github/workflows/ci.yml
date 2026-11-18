@@ -26,7 +26,10 @@ jobs:
       fail-fast: false
       matrix:
         # Ubuntu 22.04 is the oldest Linux we support (webkit2gtk-4.1).
-        os: [ubuntu-22.04, macos-latest]
+        # macOS is pinned to the Intel image: the Apple silicon pool (macos-latest)
+        # was starved by capacity limits and macos-14 is retired. Intel x64 runs
+        # the same checks; the aarch64 .dmg is cross-compiled in the bundle job.
+        os: [ubuntu-22.04, macos-15-intel]
     steps:
       - uses: actions/checkout@v7
 
@@ -65,6 +68,10 @@ jobs:
       - name: Rust tests
         run: cargo test --workspace
 
+      # Cheap and early: a case-only clash passes on Linux and fails on macOS.
+      - name: File name case collisions
+        run: ./scripts/check-case-collisions.sh
+
       - name: Biome
         run: pnpm lint
 
@@ -89,7 +96,9 @@ jobs:
   # credentials will live only in GitHub Actions secrets.
   bundle-macos:
     name: Bundle (macOS aarch64 .dmg)
-    runs-on: macos-latest
+    # Intel host (see the checks matrix); the build below cross-compiles to
+    # aarch64, so the .dmg is still Apple silicon.
+    runs-on: macos-15-intel
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7
@@ -104,7 +113,7 @@ jobs:
       - name: Install Rust toolchain
         run: |
           rustup toolchain install
-          # Explicit, so the build is aarch64 even if the runner image changes.
+          # The runner is x64, so the aarch64 std must be installed to cross-compile.
           rustup target add aarch64-apple-darwin
 
       - uses: Swatinem/rust-cache@v2

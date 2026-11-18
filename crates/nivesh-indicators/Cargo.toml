@@ -1,0 +1,22 @@
+[package]
+name = "nivesh-indicators"
+description = "Nivesh technical indicators: pure batch and streaming math. No I/O."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+
+[dev-dependencies]
+serde.workspace = true
+serde_json.workspace = true
+proptest.workspace = true
+criterion.workspace = true
+
+[[bench]]
+name = "indicators"
+harness = false
+
+[lints]
+workspace = true

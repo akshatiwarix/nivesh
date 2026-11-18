@@ -5,7 +5,9 @@
 //! listed in [`bindings::export`], which generates `ui/ipc/bindings`.
 
 pub mod bindings;
+pub mod chart;
 pub mod dto;
 mod error;
+pub mod markets;
 
 pub use error::{ErrorCode, IpcError};

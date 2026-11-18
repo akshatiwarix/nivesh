@@ -5,8 +5,8 @@ use std::ops::BitOr;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use nivesh_core::{
-    CandleSeries, Exchange, FeedKind, IndexId, IndexQuote, IndexSnapshot, Instrument, InstrumentId,
-    Interval, ProviderId, Quote, Sourced,
+    Candle, CandleSeries, Exchange, FeedKind, IndexId, IndexQuote, IndexSnapshot, Instrument,
+    InstrumentId, Interval, ProviderId, Quote, Sourced,
 };
 use serde::{Deserialize, Serialize};
 
@@ -75,6 +75,61 @@ impl HistoryRange {
     }
 }
 
+impl HistoryRange {
+    pub const ALL: [HistoryRange; 8] = [
+        HistoryRange::D1,
+        HistoryRange::D5,
+        HistoryRange::M1,
+        HistoryRange::M3,
+        HistoryRange::M6,
+        HistoryRange::Y1,
+        HistoryRange::Y5,
+        HistoryRange::Max,
+    ];
+
+    /// The short code, as the provider and the command line spell it.
+    pub const fn code(self) -> &'static str {
+        match self {
+            HistoryRange::D1 => "1d",
+            HistoryRange::D5 => "5d",
+            HistoryRange::M1 => "1mo",
+            HistoryRange::M3 => "3mo",
+            HistoryRange::M6 => "6mo",
+            HistoryRange::Y1 => "1y",
+            HistoryRange::Y5 => "5y",
+            HistoryRange::Max => "max",
+        }
+    }
+
+    /// How much history a chart opens with: as much as the public sources
+    /// serve for that interval, without asking for something they refuse.
+    pub const fn default_for(interval: Interval) -> HistoryRange {
+        match interval {
+            Interval::M1 => HistoryRange::D5,
+            Interval::M5 | Interval::M15 | Interval::M30 => HistoryRange::M1,
+            Interval::H1 | Interval::H4 => HistoryRange::M6,
+            Interval::D1 => HistoryRange::Y5,
+            Interval::W1 => HistoryRange::Max,
+            Interval::Mo1 => HistoryRange::Max,
+        }
+    }
+}
+
+impl std::str::FromStr for HistoryRange {
+    type Err = String;
+
+    /// `1D`, `5D`, `1MO`, `3MO`, `6MO`, `1Y`, `5Y`, `MAX`, case-insensitively.
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let s = s.trim().to_ascii_lowercase();
+        HistoryRange::ALL
+            .into_iter()
+            .find(|r| r.code() == s)
+            .ok_or_else(|| {
+                format!("unknown range `{s}` (use 1D, 5D, 1MO, 3MO, 6MO, 1Y, 5Y or MAX)")
+            })
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct HistoryRequest {
     pub id: InstrumentId,
@@ -93,10 +148,14 @@ pub struct Mover {
     pub quote: Quote,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+/// Top movers of one index universe. The three lists come from one source.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct Movers {
     pub gainers: Vec<Mover>,
     pub losers: Vec<Mover>,
+    /// By traded volume. Empty when the source gives no volume per stock.
+    #[serde(default)]
+    pub most_active: Vec<Mover>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -112,6 +171,9 @@ pub struct NewsItem {
     pub source: String,
     pub url: String,
     pub published: DateTime<Utc>,
+    /// NSE symbols of the listed companies the headline mentions.
+    #[serde(default)]
+    pub tags: Vec<String>,
 }
 
 /// A source of market data. Every method defaults to
@@ -153,6 +215,16 @@ pub trait DataProvider: Send + Sync + 'static {
     /// on NSE instead of one per index. Each level has its own provenance so
     /// the chain can fill indices one provider lacks (SENSEX) from another.
     async fn all_indices(&self) -> Result<Vec<Sourced<IndexQuote>>, DataError> {
+        Err(DataError::Unsupported)
+    }
+
+    /// Daily candles of an index, for sector returns and the like. Candles
+    /// only: an index has no instrument id.
+    async fn index_history(
+        &self,
+        _index: IndexId,
+        _range: HistoryRange,
+    ) -> Result<Sourced<Vec<Candle>>, DataError> {
         Err(DataError::Unsupported)
     }
 
@@ -222,6 +294,20 @@ mod tests {
             p.instruments(Exchange::Nse).await.unwrap_err(),
             DataError::Unsupported
         );
+    }
+
+    #[test]
+    fn ranges_parse_and_have_defaults_every_interval_can_serve() {
+        assert_eq!("1mo".parse(), Ok(HistoryRange::M1));
+        assert_eq!("MAX".parse(), Ok(HistoryRange::Max));
+        assert!("2y".parse::<HistoryRange>().is_err());
+        for interval in Interval::ALL {
+            let range = HistoryRange::default_for(interval);
+            assert!(
+                crate::yahoo::check_limits(interval, range).is_ok(),
+                "{interval} default {range:?} must be servable"
+            );
+        }
     }
 
     #[test]

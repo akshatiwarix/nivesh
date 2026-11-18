@@ -55,10 +55,71 @@ export const COMMANDS: readonly CommandDef[] = [
     usage: "MKT",
     fkey: 2,
   },
+  {
+    id: "ch",
+    names: ["CH", "CHART"],
+    summary: "Chart of the instrument in the focused panel. CH 5M, CH 1D 5Y",
+    usage: "CH [INTERVAL] [RANGE]",
+    fkey: 4,
+  },
+  {
+    id: "mov",
+    names: ["MOV", "MOVERS"],
+    summary: "Top gainers, losers and most active. MOV BANKNIFTY picks the index",
+    usage: "MOV [INDEX]",
+    fkey: 5,
+  },
+  {
+    id: "sec",
+    names: ["SEC", "SECTORS"],
+    summary: "Sector returns (1D 1W 1M YTD) and a heatmap of the selected index's stocks",
+    usage: "SEC",
+    fkey: 6,
+  },
+  {
+    id: "brd",
+    names: ["BRD", "BREADTH"],
+    summary: "Advances/declines, and % of NIFTY 50/100 above their 20/50/200-day averages",
+    usage: "BRD [INDEX]",
+  },
+  {
+    id: "news",
+    names: ["NEWS"],
+    summary: "Market headlines from public RSS feeds. NEWS RELIANCE filters; Enter opens the link",
+    usage: "NEWS [SYMBOL]",
+    fkey: 7,
+  },
+  {
+    id: "add",
+    names: ["ADD"],
+    summary:
+      "Add an indicator to the focused chart: SMA EMA WMA BOLL VWAP (on price), RSI MACD ATR (own pane)",
+    usage: "ADD <INDICATOR> [PERIOD…], e.g. ADD SMA 50, ADD RSI 14",
+  },
+  {
+    id: "rm",
+    names: ["RM", "REMOVE"],
+    summary: "Remove an indicator from the focused chart: RM RSI, or RM SMA 50 for one of several",
+    usage: "RM <INDICATOR> [PERIOD…]",
+  },
 ];
 
-/** Functions valid after an instrument. Empty until charts land in Part 3. */
-export const FUNCTIONS: readonly FunctionDef[] = [];
+/** Functions valid after an instrument: `RELIANCE CH 5M`. */
+export const FUNCTIONS: readonly FunctionDef[] = [
+  {
+    id: "ch",
+    names: ["CH", "CHART"],
+    summary:
+      "Candlestick chart. INTERVAL: 1M 5M 15M 30M 1H 4H 1D 1W 1MO. RANGE: 1D 5D 1MO 3MO 6MO 1Y 5Y MAX",
+    usage: "<SYMBOL> CH [INTERVAL] [RANGE]",
+  },
+  {
+    id: "news",
+    names: ["NEWS"],
+    summary: "Headlines that mention the company",
+    usage: "<SYMBOL> NEWS",
+  },
+];
 
 /**
  * Index aliases take precedence over stock symbols of the same name.

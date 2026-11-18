@@ -22,7 +22,7 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 
 use crate::clock::Clock;
-use crate::{DataError, HistoryRequest, MarketData};
+use crate::{DataError, HistoryRequest, MarketData, Movers, MoversRequest, NewsItem};
 
 /// How long an entry is fresh, and how long after that it may still be served
 /// while it is refreshed in the background.
@@ -241,7 +241,7 @@ impl CacheLayer {
     }
 }
 
-type Fetch<V> = Arc<dyn Fn() -> BoxFuture<'static, Result<V, DataError>> + Send + Sync>;
+pub(crate) type Fetch<V> = Arc<dyn Fn() -> BoxFuture<'static, Result<V, DataError>> + Send + Sync>;
 
 /// Serves one keyed value with the fresh / revalidate / refresh / stale logic.
 async fn get_or_fetch<V>(
@@ -277,6 +277,21 @@ where
         }
         Err(err) => layer.stale::<V>(&key).ok_or(err),
     }
+}
+
+/// Serves any serialisable value through the cache. For the derived views
+/// (sectors, breadth, news) that are not quotes, indices or candles.
+pub(crate) async fn cached<V>(
+    layer: &Arc<CacheLayer>,
+    key: String,
+    kind: &'static str,
+    ttl: Ttl,
+    fetch: Fetch<V>,
+) -> Result<V, DataError>
+where
+    V: Clone + Serialize + DeserializeOwned + MarkStale + Send + Sync + 'static,
+{
+    get_or_fetch(layer, key, kind, ttl, fetch).await
 }
 
 fn quote_key(id: &InstrumentId) -> String {
@@ -402,6 +417,39 @@ pub(crate) async fn all_indices(
         fetch,
     )
     .await
+}
+
+pub(crate) async fn movers(
+    md: &MarketData,
+    layer: &Arc<CacheLayer>,
+    req: &MoversRequest,
+) -> Result<Sourced<Movers>, DataError> {
+    let (md, request) = (md.clone(), *req);
+    let fetch: Fetch<Sourced<Movers>> = Arc::new(move || {
+        let md = md.clone();
+        async move { md.fetch_movers(&request).await }.boxed()
+    });
+    get_or_fetch(
+        layer,
+        format!("m:{}:{}", req.index.code(), req.limit),
+        "movers",
+        layer.policy.index,
+        fetch,
+    )
+    .await
+}
+
+pub(crate) async fn news(
+    md: &MarketData,
+    layer: &Arc<CacheLayer>,
+) -> Result<Sourced<Vec<NewsItem>>, DataError> {
+    let md = md.clone();
+    let fetch: Fetch<Sourced<Vec<NewsItem>>> = Arc::new(move || {
+        let md = md.clone();
+        async move { md.fetch_news().await }.boxed()
+    });
+    let ttl = Ttl::new(Duration::from_secs(300), Duration::from_secs(1800));
+    get_or_fetch(layer, "news".to_owned(), "news", ttl, fetch).await
 }
 
 /// NSE closes at 15:30 IST = 10:00 UTC.

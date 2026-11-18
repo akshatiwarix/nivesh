@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-chart-indicators"
+description = "Enables the chart_indicators command without any pre-configured scope."
+commands.allow = ["chart_indicators"]
+
+[[permission]]
+identifier = "deny-chart-indicators"
+description = "Denies the chart_indicators command without any pre-configured scope."
+commands.deny = ["chart_indicators"]

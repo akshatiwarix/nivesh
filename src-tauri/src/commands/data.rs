@@ -23,7 +23,7 @@ const MAX_TOPICS: usize = 200;
 
 type Svc<'a> = State<'a, Arc<Services>>;
 
-fn instrument_id(exchange: &str, symbol: &str) -> Result<InstrumentId, IpcError> {
+pub(crate) fn instrument_id(exchange: &str, symbol: &str) -> Result<InstrumentId, IpcError> {
     let exchange: Exchange = exchange
         .parse()
         .map_err(|e: nivesh_core::InstrumentIdError| IpcError::invalid_argument(e.to_string()))?;

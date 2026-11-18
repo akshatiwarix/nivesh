@@ -1,5 +1,15 @@
-import { createEffect, For, type JSX, Show } from "solid-js";
+import {
+  createEffect,
+  createMemo,
+  createSignal,
+  For,
+  type JSX,
+  onCleanup,
+  onMount,
+  Show,
+} from "solid-js";
 import "./DataTable.css";
+import { scrollToReveal, spacers, VIRTUALIZE_ABOVE, visibleWindow } from "./virtual";
 
 export type CellTone = "up" | "down" | "dim" | "accent" | "stale";
 
@@ -24,6 +34,16 @@ export interface DataTableProps<Row> {
   /** Mouse selection. Keyboard selection is the owner's business. */
   onRowMouseDown?: (index: number) => void;
   emptyText?: string;
+  /** Row height in px. Defaults to the `--row-h` token. Rows must all be this tall. */
+  rowHeight?: number;
+}
+
+const DEFAULT_ROW_HEIGHT = 18;
+
+function tokenRowHeight(): number {
+  const raw = getComputedStyle(document.documentElement).getPropertyValue("--row-h");
+  const n = Number.parseFloat(raw);
+  return Number.isFinite(n) && n > 0 ? n : DEFAULT_ROW_HEIGHT;
 }
 
 /**
@@ -36,17 +56,80 @@ export function DataTable<Row>(props: DataTableProps<Row>): JSX.Element {
     return `table__cell table__cell--${column.align ?? "left"}${tone ? ` ${tone}` : ""}`;
   };
 
+  let table: HTMLTableElement | undefined;
   let body: HTMLTableSectionElement | undefined;
+
+  // Long tables render only the rows near the viewport (the panel body is the
+  // scroll container). Rows are a fixed height, so a row's position is its index.
+  const [scroll, setScroll] = createSignal({ top: 0, viewport: 800, offset: 0 });
+  let scroller: HTMLElement | undefined;
+  const rowHeight = () => props.rowHeight ?? tokenRowHeight();
+  const virtual = () => props.rows.length > VIRTUALIZE_ABOVE;
+
+  const measure = () => {
+    if (!scroller || !table) return;
+    // Where the first body row sits inside the scrolled content.
+    const offset =
+      table.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop;
+    setScroll({
+      top: scroller.scrollTop,
+      viewport: scroller.clientHeight || 800,
+      offset: offset + headerHeight(),
+    });
+  };
+  const headerHeight = () => table?.tHead?.getBoundingClientRect().height ?? rowHeight();
+
+  onMount(() => {
+    scroller = table?.closest<HTMLElement>(".panel__body") ?? undefined;
+    if (!scroller) return;
+    measure();
+    scroller.addEventListener("scroll", measure, { passive: true });
+    const ro = typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(measure);
+    ro?.observe(scroller);
+    onCleanup(() => {
+      scroller?.removeEventListener("scroll", measure);
+      ro?.disconnect();
+    });
+  });
+
+  const win = createMemo(() => {
+    const s = scroll();
+    return visibleWindow({
+      count: props.rows.length,
+      rowHeight: rowHeight(),
+      scrollTop: s.top,
+      viewport: s.viewport,
+      offsetTop: s.offset,
+    });
+  });
+  const shown = createMemo(() =>
+    virtual() ? props.rows.slice(win().start, win().end) : props.rows,
+  );
+  const first = () => (virtual() ? win().start : 0);
+  const gap = () => spacers(win(), props.rows.length, rowHeight());
+
   // Keep the keyboard-selected row on screen. Rows have a fixed height, so the
-  // row's position is simply its index.
+  // row's position is simply its index, rendered or not.
   createEffect(() => {
     const i = props.selectedIndex;
     if (i === undefined) return;
+    if (virtual() && scroller) {
+      const s = scroll();
+      const top = scrollToReveal(i, {
+        rowHeight: rowHeight(),
+        scrollTop: s.top,
+        viewport: s.viewport,
+        offsetTop: s.offset,
+        headerHeight: headerHeight(),
+      });
+      if (top !== s.top) scroller.scrollTop = top;
+      return;
+    }
     body?.children[i]?.scrollIntoView?.({ block: "nearest" });
   });
 
   return (
-    <table class="table" aria-label={props.label}>
+    <table class="table" aria-label={props.label} ref={table}>
       <colgroup>
         <For each={props.columns}>
           {(column) => <col style={column.width ? { width: column.width } : undefined} />}
@@ -74,24 +157,34 @@ export function DataTable<Row>(props: DataTableProps<Row>): JSX.Element {
             </tr>
           }
         >
-          <For each={props.rows}>
-            {(row, index) => (
-              <tr
-                class="table__row"
-                classList={{ "table__row--selected": index() === props.selectedIndex }}
-                aria-selected={index() === props.selectedIndex ? "true" : undefined}
-                onMouseDown={() => props.onRowMouseDown?.(index())}
-              >
-                <For each={props.columns}>
-                  {(column) => (
-                    <td class={cellClass(column, row)}>
-                      {column.render ? column.render(row) : column.value(row)}
-                    </td>
-                  )}
-                </For>
-              </tr>
-            )}
+          <Show when={virtual() && gap().before > 0}>
+            <tr class="table__spacer" style={{ height: `${gap().before}px` }} />
+          </Show>
+          <For each={shown()}>
+            {(row, i) => {
+              const index = () => first() + i();
+              return (
+                <tr
+                  class="table__row"
+                  classList={{ "table__row--selected": index() === props.selectedIndex }}
+                  aria-selected={index() === props.selectedIndex ? "true" : undefined}
+                  aria-rowindex={virtual() ? index() + 2 : undefined}
+                  onMouseDown={() => props.onRowMouseDown?.(index())}
+                >
+                  <For each={props.columns}>
+                    {(column) => (
+                      <td class={cellClass(column, row)}>
+                        {column.render ? column.render(row) : column.value(row)}
+                      </td>
+                    )}
+                  </For>
+                </tr>
+              );
+            }}
           </For>
+          <Show when={virtual() && gap().after > 0}>
+            <tr class="table__spacer" style={{ height: `${gap().after}px` }} />
+          </Show>
         </Show>
       </tbody>
     </table>

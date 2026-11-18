@@ -12,11 +12,14 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use nivesh_core::{
-    CandleSeries, FeedKind, IndexId, IndexQuote, IndexSnapshot, InstrumentId, ProviderId, Quote,
-    Sourced,
+    Candle, CandleSeries, FeedKind, IndexId, IndexQuote, IndexSnapshot, InstrumentId, ProviderId,
+    Quote, Sourced,
 };
 
-use crate::{Capabilities, DataError, DataProvider, HistoryRequest};
+use crate::{
+    Capabilities, DataError, DataProvider, HistoryRange, HistoryRequest, Movers, MoversRequest,
+    NewsItem, NewsRequest,
+};
 
 struct Script<T> {
     queue: VecDeque<Result<T, DataError>>,
@@ -50,10 +53,16 @@ pub struct MockProvider {
     history: Mutex<Script<Sourced<CandleSeries>>>,
     index: Mutex<Script<Sourced<IndexSnapshot>>>,
     all_indices: Mutex<Script<Vec<Sourced<IndexQuote>>>>,
+    movers: Mutex<Script<Sourced<Movers>>>,
+    news: Mutex<Script<Vec<NewsItem>>>,
+    pub news_calls: AtomicUsize,
+    index_history: Mutex<Script<Sourced<Vec<Candle>>>>,
+    echo_history: Mutex<Option<Vec<Candle>>>,
     pub quote_calls: AtomicUsize,
     pub history_calls: AtomicUsize,
     pub index_calls: AtomicUsize,
     pub all_indices_calls: AtomicUsize,
+    pub movers_calls: AtomicUsize,
     quote_requests: Mutex<Vec<Vec<InstrumentId>>>,
 }
 
@@ -72,10 +81,16 @@ impl MockProvider {
             history: Mutex::new(Script::new()),
             index: Mutex::new(Script::new()),
             all_indices: Mutex::new(Script::new()),
+            movers: Mutex::new(Script::new()),
+            news: Mutex::new(Script::new()),
+            news_calls: AtomicUsize::new(0),
+            index_history: Mutex::new(Script::new()),
+            echo_history: Mutex::new(None),
             quote_calls: AtomicUsize::new(0),
             history_calls: AtomicUsize::new(0),
             index_calls: AtomicUsize::new(0),
             all_indices_calls: AtomicUsize::new(0),
+            movers_calls: AtomicUsize::new(0),
             quote_requests: Mutex::new(Vec::new()),
         }
     }
@@ -119,6 +134,24 @@ impl MockProvider {
         lock(&self.all_indices).repeat = Some(result);
     }
 
+    pub fn repeat_index_history(&self, result: Result<Sourced<Vec<Candle>>, DataError>) {
+        lock(&self.index_history).repeat = Some(result);
+    }
+
+    /// Answers every history request with `candles`, for whichever instrument
+    /// and interval was asked, stamped as this provider's data as of now.
+    pub fn echo_history(&self, candles: Vec<Candle>) {
+        *lock(&self.echo_history) = Some(candles);
+    }
+
+    pub fn repeat_news(&self, result: Result<Vec<NewsItem>, DataError>) {
+        lock(&self.news).repeat = Some(result);
+    }
+
+    pub fn repeat_movers(&self, result: Result<Sourced<Movers>, DataError>) {
+        lock(&self.movers).repeat = Some(result);
+    }
+
     /// Ids asked for in each `quotes` call, in order.
     pub fn quote_requests(&self) -> Vec<Vec<InstrumentId>> {
         lock(&self.quote_requests).clone()
@@ -156,10 +189,30 @@ impl DataProvider for MockProvider {
         lock(&self.quotes).next()
     }
 
-    async fn history(&self, _req: &HistoryRequest) -> Result<Sourced<CandleSeries>, DataError> {
+    async fn history(&self, req: &HistoryRequest) -> Result<Sourced<CandleSeries>, DataError> {
         self.history_calls.fetch_add(1, Ordering::SeqCst);
         self.pause().await;
+        if let Some(candles) = lock(&self.echo_history).clone() {
+            let now = chrono::Utc::now();
+            return Ok(Sourced::new(
+                CandleSeries {
+                    id: req.id.clone(),
+                    interval: req.interval,
+                    candles,
+                },
+                nivesh_core::Provenance::new(self.id, self.feed, now, now),
+            ));
+        }
         lock(&self.history).next()
+    }
+
+    async fn index_history(
+        &self,
+        _index: IndexId,
+        _range: HistoryRange,
+    ) -> Result<Sourced<Vec<Candle>>, DataError> {
+        self.pause().await;
+        lock(&self.index_history).next()
     }
 
     async fn index_snapshot(&self, _index: IndexId) -> Result<Sourced<IndexSnapshot>, DataError> {
@@ -172,6 +225,18 @@ impl DataProvider for MockProvider {
         self.all_indices_calls.fetch_add(1, Ordering::SeqCst);
         self.pause().await;
         lock(&self.all_indices).next()
+    }
+
+    async fn news(&self, _req: &NewsRequest) -> Result<Vec<NewsItem>, DataError> {
+        self.news_calls.fetch_add(1, Ordering::SeqCst);
+        self.pause().await;
+        lock(&self.news).next()
+    }
+
+    async fn movers(&self, _req: &MoversRequest) -> Result<Sourced<Movers>, DataError> {
+        self.movers_calls.fetch_add(1, Ordering::SeqCst);
+        self.pause().await;
+        lock(&self.movers).next()
     }
 }
 

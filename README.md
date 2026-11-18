@@ -102,6 +102,20 @@ Type anywhere: printable keys go to the command bar at the bottom.
 | `NIFTY`, `BANKNIFTY`, `SENSEX` ⏎ | Index view (placeholder until Part 2) |
 | `HELP`, `?`, `F1` | Every command and key |
 
+Charts and market views (all data is public and labelled DELAYED or STALE):
+
+| Input | Does |
+|---|---|
+| `RELIANCE CH 5M 1MO` ⏎ | Candlestick chart (interval, then range). `F4`/`CH` charts the focused instrument |
+| `ADD SMA 50`, `ADD RSI 14`, `RM RSI` | Indicators on the focused chart (SMA EMA WMA BOLL VWAP, RSI MACD ATR) |
+| `MOV [INDEX]` / `F5` | Top gainers, losers, most active |
+| `SEC` / `F6` | Sector returns and a constituent heatmap |
+| `BRD [INDEX]` | Advances/declines and % above 20/50/200-day averages |
+| `NEWS [SYMBOL]` / `F7`, `RELIANCE NEWS` | Headlines from public RSS feeds |
+
+Chart keys (command bar empty): `+`/`-` zoom, `←`/`→` pan, `Home`/`End`, `[`/`]`
+interval (or tab in MOV). `Alt+Enter` opens a row in the next panel.
+
 The grammar is `[EXCH:]TARGET [FUNCTION] [ARGS]`, case-insensitive; NSE is the
 default exchange and index names win over stock symbols.
 
@@ -125,10 +139,27 @@ Layout, command history and window position persist across restarts in a local
 SQLite database in the app data directory. Times are stored in UTC and shown in
 IST.
 
+## Performance budgets
+
+Measured on this repo's Linux dev box (optimised build, `cargo bench`):
+
+| Work (100,000 candles) | Measured | Budget |
+|---|---|---|
+| SMA / EMA / WMA | 0.2 / 0.2 / 0.3 ms | < 5 ms |
+| RSI / MACD / ATR / VWAP | 0.5 / 0.5 / 0.6 / 0.25 ms | < 5 ms |
+| Bollinger (20, 2) | 2.0 ms | < 5 ms |
+| Resample 1m to 5m / 1h / 1d / 1w / 1mo | 0.5 / 0.6 / 0.35 / 0.65 / 1.9 ms | < 10 ms |
+
+`scripts/perf/chart-perf.html` measures the chart in WebKitGTK (PLAN §2.9: first
+render of 5,000 candles < 100 ms, 60 fps pan and zoom). Benchmarks are compiled
+in CI but only run by hand: `cargo bench -p nivesh-indicators -p nivesh-core`.
+
 ## Layout
 
 ```
 crates/nivesh-core    domain types and the IST market calendar (pure)
+crates/nivesh-indicators  indicator math (pure)
+crates/nivesh-data    providers, cache, news, markets
 crates/nivesh-store   SQLite store and migrations
 src-tauri/            Tauri app crate: thin commands, window state, logging
 ui/                   SolidJS + TypeScript frontend (ui/ipc/bindings is generated)

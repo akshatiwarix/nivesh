@@ -4,6 +4,7 @@
 //! current time takes it as an argument so behaviour is deterministic and
 //! testable.
 
+pub mod bars;
 pub mod calendar;
 pub mod index;
 pub mod instrument;

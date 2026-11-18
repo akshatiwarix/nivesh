@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-get-breadth"
+description = "Enables the get_breadth command without any pre-configured scope."
+commands.allow = ["get_breadth"]
+
+[[permission]]
+identifier = "deny-get-breadth"
+description = "Denies the get_breadth command without any pre-configured scope."
+commands.deny = ["get_breadth"]

@@ -1,0 +1,60 @@
+{
+ "NIFTY": {
+  "data": [
+   {
+    "symbol": "BAJFINANCE",
+    "series": "EQ",
+    "open_price": 744.0,
+    "high_price": 746.0,
+    "low_price": 710.0,
+    "ltp": 712.3,
+    "prev_price": 745.0,
+    "net_price": -32.7,
+    "trade_quantity": 5678901,
+    "turnover": 1234.56,
+    "market_type": "N",
+    "ca_ex_dt": "-",
+    "ca_purpose": "-",
+    "perChange": -4.39
+   },
+   {
+    "symbol": "TITAN",
+    "series": "EQ",
+    "open_price": 3200.0,
+    "high_price": 3210.0,
+    "low_price": 3110.0,
+    "ltp": 3120.0,
+    "prev_price": 3205.0,
+    "net_price": -85.0,
+    "trade_quantity": 1234567,
+    "turnover": 1234.56,
+    "market_type": "N",
+    "ca_ex_dt": "-",
+    "ca_purpose": "-",
+    "perChange": -2.65
+   }
+  ],
+  "timestamp": "18-Nov-2026 15:30:00"
+ },
+ "BANKNIFTY": {
+  "data": [
+   {
+    "symbol": "HDFCBANK",
+    "series": "EQ",
+    "open_price": 1690.0,
+    "high_price": 1694.0,
+    "low_price": 1648.0,
+    "ltp": 1650.2,
+    "prev_price": 1692.0,
+    "net_price": -41.8,
+    "trade_quantity": 7654321,
+    "turnover": 1234.56,
+    "market_type": "N",
+    "ca_ex_dt": "-",
+    "ca_purpose": "-",
+    "perChange": -2.47
+   }
+  ],
+  "timestamp": "18-Nov-2026 15:30:00"
+ }
+}

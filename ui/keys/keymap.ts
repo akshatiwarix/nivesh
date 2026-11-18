@@ -66,6 +66,12 @@ const VIEW_KEYS: readonly Binding[] = [
     summary: "Open the selected row (command bar empty)",
     inInput: true,
   },
+  viewKey(
+    "openBeside",
+    "Alt+Enter",
+    { key: "Enter", alt: true },
+    "Open the selected row in the next panel",
+  ),
   {
     ...viewKey(
       "remove",
@@ -87,9 +93,31 @@ const VIEW_KEYS: readonly Binding[] = [
     { key: "ArrowDown", alt: true, shift: true },
     "Move the selected row down",
   ),
-  viewKey("prevList", "Alt+Left", { key: "ArrowLeft", alt: true }, "Previous watchlist"),
-  viewKey("nextList", "Alt+Right", { key: "ArrowRight", alt: true }, "Next watchlist"),
+  viewKey("prevList", "Alt+Left", { key: "ArrowLeft", alt: true }, "Previous watchlist or index"),
+  viewKey("nextList", "Alt+Right", { key: "ArrowRight", alt: true }, "Next watchlist or index"),
+  // Chart keys. They only act while the command bar is empty, so typing is
+  // never intercepted (no symbol starts with these characters).
+  emptyBarKey("zoomIn", "+", [{ key: "+" }, { key: "=" }], "Chart: zoom in"),
+  emptyBarKey("zoomOut", "-", [{ key: "-" }, { key: "_" }], "Chart: zoom out"),
+  emptyBarKey("panLeft", "Left", [{ key: "ArrowLeft" }], "Chart: pan back in time"),
+  emptyBarKey("panRight", "Right", [{ key: "ArrowRight" }], "Chart: pan forward"),
+  emptyBarKey("home", "Home", [{ key: "Home" }], "Chart: jump to the oldest bar"),
+  emptyBarKey("end", "End", [{ key: "End" }], "Chart: jump to the newest bar"),
+  emptyBarKey("tabPrev", "[", [{ key: "[" }], "Chart: finer interval. Movers: previous tab"),
+  emptyBarKey("tabNext", "]", [{ key: "]" }], "Chart: coarser interval. Movers: next tab"),
 ];
+
+function emptyBarKey(op: ViewOp, label: string, chords: Chord[], summary: string): Binding {
+  return {
+    id: `view.${op}`,
+    keys: [label],
+    chords,
+    action: { type: "view", op },
+    summary,
+    inInput: true,
+    emptyInputOnly: true,
+  };
+}
 
 function viewKey(op: ViewOp, label: string, chord: Chord, summary: string): Binding {
   return {

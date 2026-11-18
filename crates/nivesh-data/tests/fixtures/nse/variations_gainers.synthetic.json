@@ -1,0 +1,97 @@
+{
+ "NIFTY": {
+  "data": [
+   {
+    "symbol": "TATASTEEL",
+    "series": "EQ",
+    "open_price": 164.0,
+    "high_price": 172.0,
+    "low_price": 163.5,
+    "ltp": 171.4,
+    "prev_price": 163.2,
+    "net_price": 8.2,
+    "trade_quantity": 41234567,
+    "turnover": 1234.56,
+    "market_type": "N",
+    "ca_ex_dt": "-",
+    "ca_purpose": "-",
+    "perChange": 5.02
+   },
+   {
+    "symbol": "ADANIENT",
+    "series": "EQ",
+    "open_price": 2270.0,
+    "high_price": 2350.0,
+    "low_price": 2262.1,
+    "ltp": 2345.6,
+    "prev_price": 2260.0,
+    "net_price": 85.6,
+    "trade_quantity": 2345678,
+    "turnover": 1234.56,
+    "market_type": "N",
+    "ca_ex_dt": "-",
+    "ca_purpose": "-",
+    "perChange": 3.79
+   },
+   {
+    "symbol": "HINDALCO",
+    "series": "EQ",
+    "open_price": 676.0,
+    "high_price": 700.0,
+    "low_price": 675.5,
+    "ltp": 698.5,
+    "prev_price": 675.0,
+    "net_price": 23.5,
+    "trade_quantity": 3456789,
+    "turnover": 1234.56,
+    "market_type": "N",
+    "ca_ex_dt": "-",
+    "ca_purpose": "-",
+    "perChange": 3.48
+   }
+  ],
+  "timestamp": "18-Nov-2026 15:30:00"
+ },
+ "BANKNIFTY": {
+  "data": [
+   {
+    "symbol": "SBIN",
+    "series": "EQ",
+    "open_price": 791.0,
+    "high_price": 815.0,
+    "low_price": 789.5,
+    "ltp": 812.4,
+    "prev_price": 790.0,
+    "net_price": 22.4,
+    "trade_quantity": 9876543,
+    "turnover": 1234.56,
+    "market_type": "N",
+    "ca_ex_dt": "-",
+    "ca_purpose": "-",
+    "perChange": 2.84
+   }
+  ],
+  "timestamp": "18-Nov-2026 15:30:00"
+ },
+ "allSec": {
+  "data": [
+   {
+    "symbol": "ZZZ",
+    "series": "EQ",
+    "open_price": 9.1,
+    "high_price": 10.6,
+    "low_price": 9.0,
+    "ltp": 10.5,
+    "prev_price": 9.0,
+    "net_price": 1.5,
+    "trade_quantity": 100,
+    "turnover": 1234.56,
+    "market_type": "N",
+    "ca_ex_dt": "-",
+    "ca_purpose": "-",
+    "perChange": 16.67
+   }
+  ],
+  "timestamp": "18-Nov-2026 15:30:00"
+ }
+}

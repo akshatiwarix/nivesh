@@ -39,6 +39,105 @@ describe("dispatch", () => {
     ws.openIn(9, { kind: "mkt" }); // out of range: ignored
   });
 
+  describe("charts", () => {
+    it("SYMBOL CH [INTERVAL] [RANGE] opens a chart in the focused panel", () => {
+      const ws = createWorkspace();
+      expect(dispatch(parse("reliance ch"), ws)).toBeUndefined();
+      expect(ws.currentView(0)).toEqual({
+        kind: "chart",
+        exchange: "NSE",
+        symbol: "RELIANCE",
+        interval: "1d",
+      });
+      dispatch(parse("bse:tcs ch 5m 1mo"), ws);
+      expect(ws.currentView(0)).toEqual({
+        kind: "chart",
+        exchange: "BSE",
+        symbol: "TCS",
+        interval: "5m",
+        range: "1mo",
+      });
+    });
+
+    it("rejects an unknown interval or range with a message", () => {
+      const ws = createWorkspace();
+      expect(dispatch(parse("reliance ch 7m"), ws)).toMatch(/Unknown interval/);
+      expect(dispatch(parse("reliance ch 5m 2y"), ws)).toMatch(/Unknown range/);
+      expect(ws.currentView(0).kind).toBe("empty");
+    });
+
+    it("CH and F4 chart the instrument the panel is showing", () => {
+      const ws = createWorkspace();
+      expect(runCommand("ch", ws)).toMatch(/Open an instrument first/);
+      dispatch(parse("infy"), ws);
+      expect(runCommand("ch", ws, ["15M"])).toBeUndefined();
+      expect(ws.currentView(0)).toMatchObject({ kind: "chart", symbol: "INFY", interval: "15m" });
+      // From a chart, CH changes its interval.
+      runCommand("ch", ws, ["1H", "6MO"]);
+      expect(ws.currentView(0)).toMatchObject({ interval: "1h", range: "6mo" });
+    });
+  });
+
+  describe("movers", () => {
+    it("MOV opens movers for NIFTY 50 by default, or the named index", () => {
+      const ws = createWorkspace();
+      expect(dispatch(parse("mov"), ws)).toBeUndefined();
+      expect(ws.currentView(0)).toEqual({ kind: "mov", index: "NIFTY50" });
+      dispatch(parse("mov banknifty"), ws);
+      expect(ws.currentView(0)).toEqual({ kind: "mov", index: "BANKNIFTY" });
+      expect(dispatch(parse("mov sensex"), ws)).toMatch(/not an index with constituents/);
+      expect(dispatch(parse("mov foo"), ws)).toMatch(/not an index with constituents/);
+    });
+  });
+
+  describe("breadth and sectors", () => {
+    it("SEC opens sectors once and BRD opens breadth for NIFTY 50 or a named index", () => {
+      const ws = createWorkspace();
+      expect(dispatch(parse("sec"), ws)).toBeUndefined();
+      expect(ws.currentView(0).kind).toBe("sec");
+      dispatch(parse("sec"), ws);
+      expect(ws.back()).toBe(true);
+      expect(ws.currentView(0).kind).toBe("empty");
+
+      expect(dispatch(parse("brd"), ws)).toBeUndefined();
+      expect(ws.currentView(0)).toEqual({ kind: "brd", index: "NIFTY50" });
+      dispatch(parse("brd niftyit"), ws);
+      expect(ws.currentView(0)).toEqual({ kind: "brd", index: "NIFTYIT" });
+      expect(dispatch(parse("brd nope"), ws)).toMatch(/not an index with constituents/);
+    });
+  });
+
+  describe("news", () => {
+    it("NEWS opens all headlines and NEWS SYMBOL or SYMBOL NEWS filter them", () => {
+      const ws = createWorkspace();
+      expect(dispatch(parse("news"), ws)).toBeUndefined();
+      expect(ws.currentView(0)).toEqual({ kind: "news" });
+      dispatch(parse("news reliance"), ws);
+      expect(ws.currentView(0)).toEqual({ kind: "news", symbol: "RELIANCE" });
+      dispatch(parse("tcs news"), ws);
+      expect(ws.currentView(0)).toEqual({ kind: "news", symbol: "TCS" });
+      dispatch(parse("news nse:infy"), ws);
+      expect(ws.currentView(0)).toEqual({ kind: "news", symbol: "INFY" });
+      expect(dispatch(parse("news bad!"), ws)).toMatch(/Invalid symbol/);
+    });
+  });
+
+  describe("indicators", () => {
+    it("ADD and RM need a chart in the focused panel", () => {
+      const ws = createWorkspace();
+      expect(dispatch(parse("add sma 50"), ws)).toMatch(/works on a chart/);
+      expect(dispatch(parse("rm rsi"), ws)).toMatch(/works on a chart/);
+      dispatch(parse("reliance"), ws);
+      expect(dispatch(parse("add rsi"), ws)).toMatch(/works on a chart/);
+    });
+
+    it("on a chart with no listener it asks to try again instead of failing silently", () => {
+      const ws = createWorkspace();
+      dispatch(parse("reliance ch"), ws);
+      expect(dispatch(parse("add rsi"), ws)).toMatch(/still loading/);
+    });
+  });
+
   describe("WL", () => {
     const setup = () => {
       const ws = createWorkspace();

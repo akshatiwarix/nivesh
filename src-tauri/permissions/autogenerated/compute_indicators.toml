@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-compute-indicators"
+description = "Enables the compute_indicators command without any pre-configured scope."
+commands.allow = ["compute_indicators"]
+
+[[permission]]
+identifier = "deny-compute-indicators"
+description = "Denies the compute_indicators command without any pre-configured scope."
+commands.deny = ["compute_indicators"]

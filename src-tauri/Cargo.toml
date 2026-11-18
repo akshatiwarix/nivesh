@@ -22,10 +22,12 @@ tauri-build.workspace = true
 anyhow.workspace = true
 nivesh-core = { path = "../crates/nivesh-core" }
 nivesh-data = { path = "../crates/nivesh-data" }
+nivesh-indicators = { path = "../crates/nivesh-indicators" }
 nivesh-store = { path = "../crates/nivesh-store" }
 serde.workspace = true
 serde_json.workspace = true
 tauri.workspace = true
+tauri-plugin-opener.workspace = true
 tauri-plugin-single-instance.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
