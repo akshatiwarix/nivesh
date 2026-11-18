@@ -11,6 +11,7 @@ publish = false
 # One version of every dependency, shared by all members.
 [workspace.dependencies]
 anyhow = "1.0.104"
+chrono = { version = "0.4.45", default-features = false, features = ["serde", "std"] }
 rusqlite = { version = "0.43.0", features = ["bundled"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
