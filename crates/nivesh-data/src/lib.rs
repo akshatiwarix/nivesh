@@ -8,6 +8,7 @@ mod error;
 pub mod http;
 pub mod mock;
 mod provider;
+pub mod yahoo;
 
 pub use error::DataError;
 pub use provider::{
