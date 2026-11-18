@@ -33,6 +33,18 @@ const MIGRATIONS: &[&str] = &[
         maximized INTEGER NOT NULL CHECK (maximized IN (0, 1))
     ) STRICT;
     ",
+    // v2: persistent data cache (quotes, index snapshots, candle series),
+    // served as STALE when providers are unreachable.
+    "
+    CREATE TABLE data_cache (
+        key        TEXT PRIMARY KEY,
+        kind       TEXT NOT NULL,
+        payload    TEXT NOT NULL,
+        fetched_at INTEGER NOT NULL
+    ) STRICT;
+
+    CREATE INDEX data_cache_kind_fetched ON data_cache (kind, fetched_at);
+    ",
 ];
 
 /// The schema version a fully migrated database has.
@@ -89,7 +101,7 @@ mod tests {
         assert_eq!(current_version(&conn).unwrap(), LATEST_VERSION);
         assert_eq!(
             tables(&conn),
-            ["command_history", "settings", "window_state"]
+            ["command_history", "data_cache", "settings", "window_state"]
         );
     }
 

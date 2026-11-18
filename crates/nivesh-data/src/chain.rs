@@ -14,6 +14,7 @@ use nivesh_core::{
 };
 use tokio::sync::broadcast;
 
+use crate::cache::{CacheConfig, CacheLayer};
 use crate::clock::{Clock, SystemClock};
 use crate::health::{Breaker, HealthConfig, Permit, ProviderStatus};
 use crate::singleflight::SingleFlight;
@@ -50,6 +51,7 @@ pub(crate) struct Inner {
     breakers: Mutex<HashMap<ProviderId, Breaker>>,
     forced: Mutex<HashMap<ProviderId, DataError>>,
     status_tx: broadcast::Sender<ProviderStatus>,
+    cache: Option<Arc<CacheLayer>>,
     quotes_flight: SingleFlight<Vec<InstrumentId>, Vec<Sourced<Quote>>>,
     index_flight: SingleFlight<IndexId, Sourced<IndexSnapshot>>,
     all_indices_flight: SingleFlight<(), Vec<Sourced<IndexQuote>>>,
@@ -66,6 +68,7 @@ pub struct MarketDataBuilder {
     routing: Routing,
     health: HealthConfig,
     clock: Arc<dyn Clock>,
+    cache: Option<CacheConfig>,
 }
 
 impl MarketDataBuilder {
@@ -89,6 +92,12 @@ impl MarketDataBuilder {
         self
     }
 
+    /// Turns on the two-tier cache (memory, then the persistent store).
+    pub fn cache(mut self, config: CacheConfig) -> Self {
+        self.cache = Some(config);
+        self
+    }
+
     pub fn build(self) -> MarketData {
         let breakers = self
             .providers
@@ -96,6 +105,9 @@ impl MarketDataBuilder {
             .map(|p| (p.id(), Breaker::new(self.health)))
             .collect();
         let (status_tx, _) = broadcast::channel(64);
+        let cache = self
+            .cache
+            .map(|config| Arc::new(CacheLayer::new(config, Arc::clone(&self.clock))));
         MarketData {
             inner: Arc::new(Inner {
                 providers: self.providers.into_iter().map(|p| (p.id(), p)).collect(),
@@ -104,6 +116,7 @@ impl MarketDataBuilder {
                 breakers: Mutex::new(breakers),
                 forced: Mutex::new(HashMap::new()),
                 status_tx,
+                cache,
                 quotes_flight: SingleFlight::new(),
                 index_flight: SingleFlight::new(),
                 all_indices_flight: SingleFlight::new(),
@@ -136,6 +149,7 @@ impl MarketData {
             routing: Routing::default(),
             health: HealthConfig::default(),
             clock: Arc::new(SystemClock::new()),
+            cache: None,
         }
     }
 
@@ -245,7 +259,10 @@ impl MarketData {
 
     /// Quotes for `ids`, in one provider call where possible. Instruments no
     /// provider knows are omitted; if none are known the result is `NotFound`.
-    pub async fn quotes(&self, ids: &[InstrumentId]) -> Result<Vec<Sourced<Quote>>, DataError> {
+    pub(crate) async fn fetch_quotes(
+        &self,
+        ids: &[InstrumentId],
+    ) -> Result<Vec<Sourced<Quote>>, DataError> {
         if ids.is_empty() {
             return Ok(Vec::new());
         }
@@ -267,6 +284,43 @@ impl MarketData {
             .await
     }
 
+    /// Quotes for `ids`, in one provider call where possible. Instruments no
+    /// provider knows are omitted; if none are known the result is `NotFound`.
+    /// With a cache configured, fresh entries are served without a call.
+    pub async fn quotes(&self, ids: &[InstrumentId]) -> Result<Vec<Sourced<Quote>>, DataError> {
+        match &self.inner.cache {
+            Some(cache) => crate::cache::quotes(self, cache, ids).await,
+            None => self.fetch_quotes(ids).await,
+        }
+    }
+
+    /// One index with its constituents where a provider has them.
+    pub async fn index_snapshot(
+        &self,
+        index: IndexId,
+    ) -> Result<Sourced<IndexSnapshot>, DataError> {
+        match &self.inner.cache {
+            Some(cache) => crate::cache::index_snapshot(self, cache, index).await,
+            None => self.fetch_index_snapshot(index).await,
+        }
+    }
+
+    /// Levels of every catalogued index, for the MKT dashboard.
+    pub async fn all_indices(&self) -> Result<Vec<Sourced<IndexQuote>>, DataError> {
+        match &self.inner.cache {
+            Some(cache) => crate::cache::all_indices(self, cache).await,
+            None => self.fetch_all_indices().await,
+        }
+    }
+
+    /// A candle series, whole, from a single provider.
+    pub async fn history(&self, req: &HistoryRequest) -> Result<Sourced<CandleSeries>, DataError> {
+        match &self.inner.cache {
+            Some(cache) => crate::cache::history(self, cache, req).await,
+            None => self.fetch_history(req).await,
+        }
+    }
+
     pub async fn quote(&self, id: &InstrumentId) -> Result<Sourced<Quote>, DataError> {
         self.quotes(std::slice::from_ref(id))
             .await?
@@ -275,7 +329,7 @@ impl MarketData {
             .ok_or(DataError::NotFound)
     }
 
-    pub async fn index_snapshot(
+    pub(crate) async fn fetch_index_snapshot(
         &self,
         index: IndexId,
     ) -> Result<Sourced<IndexSnapshot>, DataError> {
@@ -296,7 +350,7 @@ impl MarketData {
     /// provider that answers supplies most rows; indices it lacks (SENSEX on
     /// NSE) are filled individually from the next provider. Each row keeps its
     /// own provenance, so a mixed table says which row came from where.
-    pub async fn all_indices(&self) -> Result<Vec<Sourced<IndexQuote>>, DataError> {
+    pub(crate) async fn fetch_all_indices(&self) -> Result<Vec<Sourced<IndexQuote>>, DataError> {
         let this = self.clone();
         self.inner
             .all_indices_flight
@@ -321,7 +375,10 @@ impl MarketData {
     }
 
     /// A candle series from the first provider that can serve all of it.
-    pub async fn history(&self, req: &HistoryRequest) -> Result<Sourced<CandleSeries>, DataError> {
+    pub(crate) async fn fetch_history(
+        &self,
+        req: &HistoryRequest,
+    ) -> Result<Sourced<CandleSeries>, DataError> {
         let this = self.clone();
         let request = req.clone();
         self.inner
