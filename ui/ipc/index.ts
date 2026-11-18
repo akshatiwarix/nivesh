@@ -1,7 +1,10 @@
 export { appInfo } from "./app";
 export type { AppInfo } from "./bindings/AppInfo";
 export type { BarDto } from "./bindings/BarDto";
+export type { BreadthDto } from "./bindings/BreadthDto";
 export type { ConstituentsInfoDto } from "./bindings/ConstituentsInfoDto";
+export type { DmaBreadthDto } from "./bindings/DmaBreadthDto";
+export type { DmaPeriodDto } from "./bindings/DmaPeriodDto";
 export type { ErrorCode } from "./bindings/ErrorCode";
 export type { FreshnessDto } from "./bindings/FreshnessDto";
 export type { HealthDto } from "./bindings/HealthDto";
@@ -16,9 +19,12 @@ export type { InstrumentDto } from "./bindings/InstrumentDto";
 export type { IpcError } from "./bindings/IpcError";
 export type { MarketStatusDto } from "./bindings/MarketStatusDto";
 export type { MoversDto } from "./bindings/MoversDto";
+export type { ProgressDto } from "./bindings/ProgressDto";
 export type { ProvenanceDto } from "./bindings/ProvenanceDto";
 export type { ProviderStatusDto } from "./bindings/ProviderStatusDto";
 export type { QuoteDto } from "./bindings/QuoteDto";
+export type { SectorRowDto } from "./bindings/SectorRowDto";
+export type { SectorsDto } from "./bindings/SectorsDto";
 export type { SessionKind } from "./bindings/SessionKind";
 export type { SourcedIndexQuoteDto } from "./bindings/SourcedIndexQuoteDto";
 export type { SourcedQuoteDto } from "./bindings/SourcedQuoteDto";
@@ -46,7 +52,7 @@ export {
 } from "./data";
 export { onMarketSession, onProviderStatus } from "./events";
 export { marketStatus } from "./market";
-export { getMovers } from "./markets";
+export { getBreadth, getDmaBreadth, getMovers, getSectors } from "./markets";
 export { loadUiState, saveCommandHistory, saveLayout } from "./uiState";
 export {
   watchlistActivate,

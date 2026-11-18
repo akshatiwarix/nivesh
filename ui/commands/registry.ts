@@ -70,6 +70,19 @@ export const COMMANDS: readonly CommandDef[] = [
     fkey: 5,
   },
   {
+    id: "sec",
+    names: ["SEC", "SECTORS"],
+    summary: "Sector returns (1D 1W 1M YTD) and a heatmap of the selected index's stocks",
+    usage: "SEC",
+    fkey: 6,
+  },
+  {
+    id: "brd",
+    names: ["BRD", "BREADTH"],
+    summary: "Advances/declines, and % of NIFTY 50/100 above their 20/50/200-day averages",
+    usage: "BRD [INDEX]",
+  },
+  {
     id: "add",
     names: ["ADD"],
     summary:

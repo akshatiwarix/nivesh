@@ -65,6 +65,10 @@ jobs:
       - name: Rust tests
         run: cargo test --workspace
 
+      # Cheap and early: a case-only clash passes on Linux and fails on macOS.
+      - name: File name case collisions
+        run: ./scripts/check-case-collisions.sh
+
       - name: Biome
         run: pnpm lint
 

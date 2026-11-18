@@ -16,6 +16,8 @@ export type View =
     }
   | { kind: "mkt" }
   | { kind: "mov"; index: string }
+  | { kind: "brd"; index: string }
+  | { kind: "sec" }
   | { kind: "wl" }
   | { kind: "help" };
 
@@ -34,6 +36,10 @@ export function viewTitle(view: View): string {
       return `${view.symbol} · ${view.exchange} · Chart`;
     case "mov":
       return "Movers";
+    case "brd":
+      return "Breadth";
+    case "sec":
+      return "Sectors";
     case "mkt":
       return "MKT · Indices";
     case "wl":

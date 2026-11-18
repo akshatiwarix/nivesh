@@ -1,0 +1,83 @@
+.brd__section {
+  padding: var(--pad-y) var(--pad-x);
+  border-bottom: 1px solid var(--c-line);
+}
+
+.brd__h {
+  margin: 0 0 var(--pad-y);
+  color: var(--c-amber);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw);
+}
+
+.brd__hint {
+  color: var(--c-fg-faint);
+}
+
+.brd__msg,
+.brd__note {
+  margin: 0;
+  color: var(--c-fg-dim);
+  font-size: var(--fs-sm);
+}
+
+.brd__bar {
+  display: flex;
+  height: 12px;
+  background: var(--c-bg-bar);
+}
+
+.brd__seg--up {
+  background: var(--c-up);
+}
+
+.brd__seg--flat {
+  background: var(--c-fg-faint);
+}
+
+.brd__seg--down {
+  background: var(--c-down);
+}
+
+.brd__counts {
+  display: flex;
+  gap: calc(var(--pad-x) * 3);
+  margin: var(--pad-y) 0 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.brd__row {
+  display: grid;
+  grid-template-columns: 9ch minmax(60px, 1fr) 8ch 22ch;
+  align-items: center;
+  gap: var(--pad-x);
+  height: var(--row-h);
+  font-variant-numeric: tabular-nums;
+}
+
+.brd__meter {
+  display: block;
+  height: 8px;
+  background: var(--c-bg-bar);
+}
+
+.brd__fill {
+  display: block;
+  height: 100%;
+}
+
+.brd__fill--up {
+  background: var(--c-up);
+}
+
+.brd__fill--down {
+  background: var(--c-down);
+}
+
+.brd__fill--amber {
+  background: var(--c-amber);
+}
+
+.brd__pct {
+  text-align: right;
+}

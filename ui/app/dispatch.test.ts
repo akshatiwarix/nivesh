@@ -90,6 +90,23 @@ describe("dispatch", () => {
     });
   });
 
+  describe("breadth and sectors", () => {
+    it("SEC opens sectors once and BRD opens breadth for NIFTY 50 or a named index", () => {
+      const ws = createWorkspace();
+      expect(dispatch(parse("sec"), ws)).toBeUndefined();
+      expect(ws.currentView(0).kind).toBe("sec");
+      dispatch(parse("sec"), ws);
+      expect(ws.back()).toBe(true);
+      expect(ws.currentView(0).kind).toBe("empty");
+
+      expect(dispatch(parse("brd"), ws)).toBeUndefined();
+      expect(ws.currentView(0)).toEqual({ kind: "brd", index: "NIFTY50" });
+      dispatch(parse("brd niftyit"), ws);
+      expect(ws.currentView(0)).toEqual({ kind: "brd", index: "NIFTYIT" });
+      expect(dispatch(parse("brd nope"), ws)).toMatch(/not an index with constituents/);
+    });
+  });
+
   describe("indicators", () => {
     it("ADD and RM need a chart in the focused panel", () => {
       const ws = createWorkspace();

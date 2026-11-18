@@ -1,4 +1,5 @@
 import type { Component, JSX } from "solid-js";
+import { BreadthView } from "./breadth/BreadthView";
 import { ChartView } from "./chart/ChartView";
 import { PanelContext } from "./context";
 import { HelpView } from "./help/HelpView";
@@ -7,6 +8,7 @@ import { MktView } from "./mkt/MktView";
 import { MoversView } from "./movers/MoversView";
 import { EmptyView } from "./PlaceholderViews";
 import { QuoteView } from "./quote/QuoteView";
+import { SectorsView } from "./sectors/SectorsView";
 import type { View } from "./types";
 import { WatchlistView } from "./watchlist/WatchlistView";
 import "./views.css";
@@ -25,6 +27,10 @@ function renderView(view: View): JSX.Element {
       return <MktView />;
     case "mov":
       return <MoversView view={view} />;
+    case "brd":
+      return <BreadthView view={view} />;
+    case "sec":
+      return <SectorsView />;
     case "wl":
       return <WatchlistView />;
     case "help":

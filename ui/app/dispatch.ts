@@ -84,6 +84,15 @@ export function runCommand(
       return undefined;
     case "wl":
       return runWatchlist(ws, args, watchlists);
+    case "sec":
+      if (ws.currentView(ws.state.focused).kind !== "sec") ws.open({ kind: "sec" });
+      return undefined;
+    case "brd": {
+      const universe = args[0] === undefined ? DEFAULT_UNIVERSE : findUniverse(args[0]);
+      if (!universe) return `${args[0]} is not an index with constituents. Try NIFTY or BANKNIFTY.`;
+      ws.open({ kind: "brd", index: universe.id });
+      return undefined;
+    }
     case "mov": {
       const universe = args[0] === undefined ? DEFAULT_UNIVERSE : findUniverse(args[0]);
       if (!universe) return `${args[0]} is not an index with constituents. Try NIFTY or BANKNIFTY.`;
