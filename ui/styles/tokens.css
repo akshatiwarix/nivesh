@@ -1,0 +1,49 @@
+/* Design tokens. Every colour, size and density value used by the UI. */
+:root {
+  /* Surfaces */
+  --c-bg: #000000;
+  --c-bg-panel: #070707;
+  --c-bg-bar: #121212;
+  --c-bg-select: #2b1d00;
+  --c-line: #262626;
+
+  /* Text */
+  --c-fg: #d6d6d6;
+  --c-fg-dim: #8c8c8c;
+  --c-fg-faint: #5c5c5c;
+  --c-fg-inverse: #000000;
+
+  /* Accents */
+  --c-amber: #ffb000;
+  --c-orange: #ff7a1a;
+  --c-up: #2bd47d;
+  --c-down: #ff5252;
+  --c-info: #5cb8ff;
+  --c-warn: #ffd04d;
+  --c-error: #ff5252;
+
+  /* Provenance badges (see CLAUDE.md "Data labelling") */
+  --c-live: var(--c-up);
+  --c-delayed: var(--c-info);
+  --c-eod: var(--c-fg-dim);
+  --c-stale: var(--c-warn);
+  --c-paper: #c792ea;
+
+  /* Type */
+  --font-mono: "Source Code Pro", ui-monospace, "SF Mono", Menlo, "DejaVu Sans Mono", monospace;
+  --fs-xs: 10px;
+  --fs-sm: 11px;
+  --fs: 12px;
+  --fs-lg: 13px;
+  --fs-xl: 15px;
+  --fw: 400;
+  --fw-bold: 600;
+
+  /* Density */
+  --row-h: 18px;
+  --pad-x: 6px;
+  --pad-y: 2px;
+  --bar-h: 22px;
+  --panel-title-h: 20px;
+  --gap: 2px;
+}

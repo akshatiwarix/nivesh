@@ -1,0 +1,8 @@
+@font-face {
+  font-family: "Source Code Pro";
+  src: url("../fonts/SourceCodePro-VF-Upright.woff2") format("woff2");
+  font-weight: 200 900;
+  font-style: normal;
+  /* Local file: block briefly rather than flash a fallback font. */
+  font-display: block;
+}

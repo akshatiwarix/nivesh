@@ -1,0 +1,9 @@
+.app {
+  display: grid;
+  height: 100%;
+  padding: var(--gap);
+}
+
+.app__welcome {
+  padding: var(--pad-y) var(--pad-x);
+}

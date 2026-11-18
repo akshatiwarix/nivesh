@@ -1,0 +1,24 @@
+.keyhint {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  white-space: nowrap;
+  font-size: var(--fs-sm);
+}
+
+.keyhint__key {
+  padding: 0 3px;
+  background: var(--c-bg-bar);
+  border: 1px solid var(--c-line);
+  color: var(--c-amber);
+  line-height: 13px;
+}
+
+.keyhint__or {
+  color: var(--c-fg-faint);
+}
+
+.keyhint__label {
+  color: var(--c-fg-dim);
+  text-transform: uppercase;
+}

@@ -24,6 +24,8 @@ export default defineConfig({
     target: tauriPlatform === "windows" ? "chrome105" : "safari15",
     minify: !tauriDebug,
     sourcemap: tauriDebug,
+    // Never inline assets as data: URIs; the CSP only allows 'self'.
+    assetsInlineLimit: 0,
     outDir: "dist",
     emptyOutDir: true,
   },

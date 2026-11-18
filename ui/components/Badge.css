@@ -1,0 +1,47 @@
+.badge {
+  display: inline-block;
+  padding: 0 4px;
+  border: 1px solid currentColor;
+  font-size: var(--fs-xs);
+  line-height: 13px;
+  font-weight: var(--fw-bold);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.badge--neutral {
+  color: var(--c-fg-dim);
+}
+
+.badge--accent {
+  color: var(--c-amber);
+}
+
+.badge--live {
+  color: var(--c-live);
+}
+
+.badge--delayed {
+  color: var(--c-delayed);
+}
+
+.badge--eod {
+  color: var(--c-eod);
+}
+
+.badge--stale {
+  color: var(--c-stale);
+}
+
+.badge--paper {
+  color: var(--c-paper);
+}
+
+.badge--up {
+  color: var(--c-up);
+}
+
+.badge--down {
+  color: var(--c-down);
+}
