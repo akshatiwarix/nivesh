@@ -1,4 +1,5 @@
 import type { Component, JSX } from "solid-js";
+import { HelpView } from "./help/HelpView";
 import { EmptyView, IndexView, QuoteView } from "./PlaceholderViews";
 import type { View } from "./types";
 import "./views.css";
@@ -11,6 +12,8 @@ function renderView(view: View): JSX.Element {
       return <QuoteView view={view} />;
     case "index":
       return <IndexView view={view} />;
+    case "help":
+      return <HelpView />;
   }
 }
 

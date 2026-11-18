@@ -5,14 +5,19 @@ import { Badge } from "../components/Badge";
 import { CommandBar } from "../components/CommandBar";
 import { Panel } from "../components/Panel";
 import { appInfo, inTauri } from "../ipc";
+import { resolveKey } from "../keys/keymap";
 import { viewTitle } from "../views/types";
 import { ViewHost } from "../views/ViewHost";
 import "./App.css";
+import { runAction } from "./actions";
 import { createClock } from "./clock";
 import { dispatch } from "./dispatch";
 import { Header } from "./Header";
 import { StatusBar } from "./StatusBar";
 import { createWorkspace, PANEL_COUNT } from "./workspace";
+
+const isTextInput = (el: Element | null) =>
+  el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement;
 
 const PANELS = Array.from({ length: PANEL_COUNT }, (_, i) => i);
 
@@ -26,16 +31,13 @@ export const App: Component = () => {
 
   const run = (line: string) => dispatch(parse(line), ws);
 
-  // Interim layout/focus keys; replaced by the table-driven keymap later.
   const onKey = (e: KeyboardEvent) => {
+    // The command bar claims keys it handles itself (Tab with text, Esc, ...).
     if (e.defaultPrevented) return;
-    if (e.key === "Tab") {
-      e.preventDefault();
-      ws.cycleFocus(e.shiftKey ? -1 : 1);
-    } else if (e.altKey && (e.key === "1" || e.key === "2" || e.key === "4")) {
-      e.preventDefault();
-      ws.setLayout(Number(e.key) as 1 | 2 | 4);
-    }
+    const binding = resolveKey(e, isTextInput(document.activeElement));
+    if (!binding) return;
+    e.preventDefault();
+    runAction(binding.action, ws);
   };
   onMount(() => window.addEventListener("keydown", onKey));
   onCleanup(() => window.removeEventListener("keydown", onKey));

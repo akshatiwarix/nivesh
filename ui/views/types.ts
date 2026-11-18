@@ -4,7 +4,8 @@ import type { Exchange } from "../commands";
 export type View =
   | { kind: "empty" }
   | { kind: "quote"; exchange: Exchange; symbol: string }
-  | { kind: "index"; id: string; title: string };
+  | { kind: "index"; id: string; title: string }
+  | { kind: "help" };
 
 export const EMPTY_VIEW: View = { kind: "empty" };
 
@@ -17,5 +18,7 @@ export function viewTitle(view: View): string {
       return `${view.symbol} · ${view.exchange}`;
     case "index":
       return view.title;
+    case "help":
+      return "Help";
   }
 }

@@ -14,6 +14,7 @@ export const StatusBar: Component<StatusBarProps> = (props) => (
     <span>
       PANEL {props.focused + 1}/{props.layout}
     </span>
+    <KeyHint keys={["F1"]} label="Help" />
     <KeyHint keys={["Tab"]} label="Next panel" />
     <KeyHint keys={["Alt+1", "Alt+2", "Alt+4"]} label="Layout" />
     <span class="shell__spacer">{props.extra}</span>
