@@ -4,6 +4,9 @@
 //! current time takes it as an argument so behaviour is deterministic and
 //! testable.
 
+pub mod calendar;
 pub mod instrument;
+
+pub use calendar::{CalendarError, Date, MarketCalendar, MarketStatus, Session};
 
 pub use instrument::{Exchange, InstrumentId, InstrumentIdError};

@@ -20,6 +20,7 @@ tauri-build.workspace = true
 
 [dependencies]
 anyhow.workspace = true
+nivesh-core = { path = "../crates/nivesh-core" }
 serde.workspace = true
 serde_json.workspace = true
 tauri.workspace = true

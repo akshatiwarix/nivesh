@@ -13,6 +13,7 @@ import { runAction } from "./actions";
 import { createClock } from "./clock";
 import { dispatch } from "./dispatch";
 import { Header } from "./Header";
+import { MarketIndicator } from "./MarketIndicator";
 import { StatusBar } from "./StatusBar";
 import { createWorkspace, PANEL_COUNT } from "./workspace";
 
@@ -44,7 +45,7 @@ export const App: Component = () => {
 
   return (
     <div class="shell">
-      <Header now={now()} />
+      <Header now={now()} status={<MarketIndicator />} />
       <main class="shell__grid" data-layout={ws.state.layout}>
         <For each={PANELS}>
           {(i) => (

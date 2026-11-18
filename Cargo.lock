@@ -2188,6 +2188,7 @@ name = "nivesh-app"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "nivesh-core",
  "serde",
  "serde_json",
  "tauri",

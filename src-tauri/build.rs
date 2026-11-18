@@ -1,7 +1,7 @@
 /// Commands the webview may invoke. tauri-build generates `allow-<command>`
 /// and `deny-<command>` permissions for each, and `capabilities/main.json`
 /// grants them explicitly. Keep in sync with `generate_handler!` in `lib.rs`.
-const COMMANDS: &[&str] = &["app_info"];
+const COMMANDS: &[&str] = &["app_info", "market_status"];
 
 fn main() {
     let attributes = tauri_build::Attributes::new()

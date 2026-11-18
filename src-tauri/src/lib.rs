@@ -41,7 +41,7 @@ pub fn run() -> anyhow::Result<()> {
             Ok(())
         })
         // Keep in sync with COMMANDS in build.rs.
-        .invoke_handler(tauri::generate_handler![commands::app::app_info])
+        .invoke_handler(tauri::generate_handler![commands::app::app_info, commands::market::market_status])
         .run(tauri::generate_context!())
         .context("running tauri app")
 }

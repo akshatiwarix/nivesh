@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 use ts_rs::{Config, ExportError, TS};
 
 use crate::commands::app::AppInfo;
+use crate::commands::market::MarketStatusDto;
 use crate::ipc::IpcError;
 
 /// The committed bindings directory.
@@ -25,5 +26,6 @@ pub fn export(dir: &Path) -> Result<(), ExportError> {
 
     IpcError::export_all(&cfg)?;
     AppInfo::export_all(&cfg)?;
+    MarketStatusDto::export_all(&cfg)?;
     Ok(())
 }
