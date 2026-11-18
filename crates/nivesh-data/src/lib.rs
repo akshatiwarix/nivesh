@@ -5,6 +5,7 @@
 //! Every value leaves this crate as a `Sourced<T>` carrying its provenance.
 
 mod error;
+pub mod http;
 pub mod mock;
 mod provider;
 
