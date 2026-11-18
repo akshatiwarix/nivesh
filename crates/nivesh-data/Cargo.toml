@@ -10,6 +10,7 @@ publish.workspace = true
 async-trait.workspace = true
 chrono = { workspace = true, features = ["clock"] }
 futures.workspace = true
+feed-rs.workspace = true
 governor.workspace = true
 moka.workspace = true
 nivesh-core = { path = "../nivesh-core" }

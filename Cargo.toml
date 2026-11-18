@@ -14,6 +14,7 @@ anyhow = "1.0.104"
 async-trait = "0.1.92"
 chrono = { version = "0.4.45", default-features = false, features = ["serde", "std"] }
 futures = { version = "0.3.34", default-features = false, features = ["std"] }
+feed-rs = "3.0.0"
 governor = "0.10.4"
 reqwest = { version = "0.13.5", features = ["brotli", "cookies", "gzip"] }
 moka = { version = "0.12.16", default-features = false, features = ["sync"] }

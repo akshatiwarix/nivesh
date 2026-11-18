@@ -19,6 +19,7 @@ pub mod instruments;
 pub mod markets;
 pub mod mock;
 pub mod movers;
+pub mod news;
 pub mod nse;
 mod provider;
 mod singleflight;

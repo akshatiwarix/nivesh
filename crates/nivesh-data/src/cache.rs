@@ -22,7 +22,7 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 
 use crate::clock::Clock;
-use crate::{DataError, HistoryRequest, MarketData, Movers, MoversRequest};
+use crate::{DataError, HistoryRequest, MarketData, Movers, MoversRequest, NewsItem};
 
 /// How long an entry is fresh, and how long after that it may still be served
 /// while it is refreshed in the background.
@@ -437,6 +437,19 @@ pub(crate) async fn movers(
         fetch,
     )
     .await
+}
+
+pub(crate) async fn news(
+    md: &MarketData,
+    layer: &Arc<CacheLayer>,
+) -> Result<Sourced<Vec<NewsItem>>, DataError> {
+    let md = md.clone();
+    let fetch: Fetch<Sourced<Vec<NewsItem>>> = Arc::new(move || {
+        let md = md.clone();
+        async move { md.fetch_news().await }.boxed()
+    });
+    let ttl = Ttl::new(Duration::from_secs(300), Duration::from_secs(1800));
+    get_or_fetch(layer, "news".to_owned(), "news", ttl, fetch).await
 }
 
 /// NSE closes at 15:30 IST = 10:00 UTC.

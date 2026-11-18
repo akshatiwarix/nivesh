@@ -18,6 +18,7 @@ use nivesh_core::{
 
 use crate::{
     Capabilities, DataError, DataProvider, HistoryRange, HistoryRequest, Movers, MoversRequest,
+    NewsItem, NewsRequest,
 };
 
 struct Script<T> {
@@ -53,6 +54,8 @@ pub struct MockProvider {
     index: Mutex<Script<Sourced<IndexSnapshot>>>,
     all_indices: Mutex<Script<Vec<Sourced<IndexQuote>>>>,
     movers: Mutex<Script<Sourced<Movers>>>,
+    news: Mutex<Script<Vec<NewsItem>>>,
+    pub news_calls: AtomicUsize,
     index_history: Mutex<Script<Sourced<Vec<Candle>>>>,
     echo_history: Mutex<Option<Vec<Candle>>>,
     pub quote_calls: AtomicUsize,
@@ -79,6 +82,8 @@ impl MockProvider {
             index: Mutex::new(Script::new()),
             all_indices: Mutex::new(Script::new()),
             movers: Mutex::new(Script::new()),
+            news: Mutex::new(Script::new()),
+            news_calls: AtomicUsize::new(0),
             index_history: Mutex::new(Script::new()),
             echo_history: Mutex::new(None),
             quote_calls: AtomicUsize::new(0),
@@ -137,6 +142,10 @@ impl MockProvider {
     /// and interval was asked, stamped as this provider's data as of now.
     pub fn echo_history(&self, candles: Vec<Candle>) {
         *lock(&self.echo_history) = Some(candles);
+    }
+
+    pub fn repeat_news(&self, result: Result<Vec<NewsItem>, DataError>) {
+        lock(&self.news).repeat = Some(result);
     }
 
     pub fn repeat_movers(&self, result: Result<Sourced<Movers>, DataError>) {
@@ -216,6 +225,12 @@ impl DataProvider for MockProvider {
         self.all_indices_calls.fetch_add(1, Ordering::SeqCst);
         self.pause().await;
         lock(&self.all_indices).next()
+    }
+
+    async fn news(&self, _req: &NewsRequest) -> Result<Vec<NewsItem>, DataError> {
+        self.news_calls.fetch_add(1, Ordering::SeqCst);
+        self.pause().await;
+        lock(&self.news).next()
     }
 
     async fn movers(&self, _req: &MoversRequest) -> Result<Sourced<Movers>, DataError> {

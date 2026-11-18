@@ -20,8 +20,15 @@ use crate::clock::{Clock, SystemClock};
 use crate::constituents::ConstituentsList;
 use crate::health::{Breaker, HealthConfig, Permit, ProviderStatus};
 use crate::movers::compute_movers;
+use crate::news::TagIndex;
 use crate::singleflight::SingleFlight;
-use crate::{Capabilities, DataError, DataProvider, HistoryRequest, Movers, MoversRequest};
+use crate::{
+    Capabilities, DataError, DataProvider, HistoryRequest, Movers, MoversRequest, NewsItem,
+    NewsRequest,
+};
+
+/// Headlines kept in the cached list; requests filter and trim it.
+const NEWS_KEPT: usize = 200;
 
 /// Which providers to try, in order, for each capability. Providers named here
 /// but not registered (Kite before it's connected) are skipped.
@@ -30,15 +37,17 @@ pub struct Routing {
     pub quotes: Vec<ProviderId>,
     pub history: Vec<ProviderId>,
     pub index: Vec<ProviderId>,
+    pub news: Vec<ProviderId>,
 }
 
 impl Default for Routing {
     fn default() -> Self {
-        use ProviderId::{Kite, Nse, Yahoo};
+        use ProviderId::{Kite, Nse, Rss, Yahoo};
         Self {
             quotes: vec![Kite, Nse, Yahoo],
             history: vec![Kite, Yahoo, Nse],
             index: vec![Nse, Yahoo],
+            news: vec![Rss],
         }
     }
 }
@@ -56,6 +65,8 @@ pub(crate) struct Inner {
     status_tx: broadcast::Sender<ProviderStatus>,
     cache: Option<Arc<CacheLayer>>,
     constituents: Option<Arc<ConstituentsList>>,
+    tagger: Option<Arc<TagIndex>>,
+    news_flight: SingleFlight<(), Sourced<Vec<NewsItem>>>,
     quotes_flight: SingleFlight<Vec<InstrumentId>, Vec<Sourced<Quote>>>,
     index_flight: SingleFlight<IndexId, Sourced<IndexSnapshot>>,
     all_indices_flight: SingleFlight<(), Vec<Sourced<IndexQuote>>>,
@@ -75,6 +86,7 @@ pub struct MarketDataBuilder {
     clock: Arc<dyn Clock>,
     cache: Option<CacheConfig>,
     constituents: Option<Arc<ConstituentsList>>,
+    tagger: Option<Arc<TagIndex>>,
 }
 
 impl MarketDataBuilder {
@@ -111,6 +123,12 @@ impl MarketDataBuilder {
         self
     }
 
+    /// Tags headlines with the companies they mention.
+    pub fn tagger(mut self, tagger: Arc<TagIndex>) -> Self {
+        self.tagger = Some(tagger);
+        self
+    }
+
     pub fn build(self) -> MarketData {
         let breakers = self
             .providers
@@ -131,6 +149,8 @@ impl MarketDataBuilder {
                 status_tx,
                 cache,
                 constituents: self.constituents,
+                tagger: self.tagger,
+                news_flight: SingleFlight::new(),
                 quotes_flight: SingleFlight::new(),
                 index_flight: SingleFlight::new(),
                 all_indices_flight: SingleFlight::new(),
@@ -166,6 +186,7 @@ impl MarketData {
             clock: Arc::new(SystemClock::new()),
             cache: None,
             constituents: None,
+            tagger: None,
         }
     }
 
@@ -400,6 +421,55 @@ impl MarketData {
             .await
     }
 
+    /// Recent headlines, newest first, optionally only those about
+    /// `req.query`: a symbol the headline is tagged with, or text in its title.
+    /// The whole feed set is fetched once and cached; a query only filters it.
+    pub async fn news(&self, req: &NewsRequest) -> Result<Sourced<Vec<NewsItem>>, DataError> {
+        let mut all = match &self.inner.cache {
+            Some(cache) => crate::cache::news(self, cache).await?,
+            None => self.fetch_news().await?,
+        };
+        if let Some(query) = req
+            .query
+            .as_deref()
+            .map(str::trim)
+            .filter(|q| !q.is_empty())
+        {
+            let upper = query.to_ascii_uppercase();
+            all.data.retain(|item| {
+                item.tags.contains(&upper) || item.title.to_ascii_uppercase().contains(&upper)
+            });
+        }
+        all.data.truncate(req.limit);
+        Ok(all)
+    }
+
+    pub(crate) async fn fetch_news(&self) -> Result<Sourced<Vec<NewsItem>>, DataError> {
+        let this = self.clone();
+        self.inner
+            .news_flight
+            .run((), move || async move {
+                let order = this.inner.routing.news.clone();
+                let request = NewsRequest {
+                    query: None,
+                    limit: NEWS_KEPT,
+                };
+                let mut items = this
+                    .route(Capabilities::NEWS, &order, |p| {
+                        let request = request.clone();
+                        async move { p.news(&request).await }
+                    })
+                    .await?;
+                if let Some(tagger) = &this.inner.tagger {
+                    for item in &mut items {
+                        item.tags = tagger.tag(&item.title);
+                    }
+                }
+                Ok(crate::news::sourced(items, chrono::Utc::now()))
+            })
+            .await
+    }
+
     /// A candle series, whole, from a single provider.
     pub async fn history(&self, req: &HistoryRequest) -> Result<Sourced<CandleSeries>, DataError> {
         match &self.inner.cache {
@@ -589,6 +659,7 @@ mod tests {
     use crate::clock::ManualClock;
     use crate::health::HealthState;
     use crate::mock::MockProvider;
+    use crate::news::TagIndex;
     use crate::{HistoryRange, Mover};
 
     fn id(s: &str) -> InstrumentId {
@@ -1127,6 +1198,117 @@ mod tests {
         r.nse.repeat_index(Err(DataError::Blocked));
         r.yahoo.repeat_index(Err(DataError::Timeout));
         assert!(r.md.movers(&REQ).await.is_err());
+    }
+
+    fn headline(title: &str, minute: u32) -> NewsItem {
+        use chrono::TimeZone as _;
+        NewsItem {
+            title: title.into(),
+            source: "ET".into(),
+            url: format!("https://example.com/{minute}"),
+            published: Utc.with_ymd_and_hms(2026, 11, 18, 9, minute, 0).unwrap(),
+            tags: vec![],
+        }
+    }
+
+    fn news_market(rss: &Arc<MockProvider>) -> MarketData {
+        let entries = vec![
+            (
+                "RELIANCE".to_owned(),
+                "Reliance Industries Limited".to_owned(),
+                0,
+            ),
+            (
+                "TCS".to_owned(),
+                "Tata Consultancy Services Limited".to_owned(),
+                0,
+            ),
+        ];
+        MarketData::builder()
+            .provider(rss.clone())
+            .tagger(Arc::new(TagIndex::new(&entries)))
+            .cache(crate::CacheConfig::default())
+            .build()
+    }
+
+    fn rss_mock() -> Arc<MockProvider> {
+        let rss = Arc::new(MockProvider::new(ProviderId::Rss, Capabilities::NEWS));
+        rss.repeat_news(Ok(vec![
+            headline("Reliance Industries hits record high", 30),
+            headline("Sensex ends higher", 20),
+            headline("TCS bags big contract", 10),
+        ]));
+        rss
+    }
+
+    #[tokio::test]
+    async fn news_is_tagged_labelled_delayed_and_fetched_once() {
+        let rss = rss_mock();
+        let md = news_market(&rss);
+        let req = NewsRequest {
+            query: None,
+            limit: 10,
+        };
+        let news = md.news(&req).await.unwrap();
+        assert_eq!(news.provenance.provider, ProviderId::Rss);
+        assert_eq!(news.provenance.feed, FeedKind::Delayed);
+        assert_eq!(news.data[0].tags, ["RELIANCE"]);
+        assert_eq!(news.data[2].tags, ["TCS"]);
+        assert!(news.data[1].tags.is_empty());
+        // As of the newest headline.
+        assert_eq!(news.provenance.as_of, news.data[0].published);
+        md.news(&NewsRequest {
+            query: Some("tcs".into()),
+            limit: 10,
+        })
+        .await
+        .unwrap();
+        assert_eq!(
+            MockProvider::calls(&rss.news_calls),
+            1,
+            "queries filter the cached list"
+        );
+    }
+
+    #[tokio::test]
+    async fn news_can_be_filtered_by_symbol_tag_or_title_text_and_limited() {
+        let md = news_market(&rss_mock());
+        let ask = |q: Option<&str>, limit| NewsRequest {
+            query: q.map(str::to_owned),
+            limit,
+        };
+        let titles =
+            |n: Sourced<Vec<NewsItem>>| n.data.into_iter().map(|i| i.title).collect::<Vec<_>>();
+        assert_eq!(
+            titles(md.news(&ask(Some("RELIANCE"), 10)).await.unwrap()),
+            ["Reliance Industries hits record high"]
+        );
+        assert_eq!(
+            titles(md.news(&ask(Some("sensex"), 10)).await.unwrap()),
+            ["Sensex ends higher"]
+        );
+        assert!(
+            md.news(&ask(Some("nothing"), 10))
+                .await
+                .unwrap()
+                .data
+                .is_empty()
+        );
+        assert_eq!(md.news(&ask(None, 2)).await.unwrap().data.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn news_errors_when_the_feeds_are_unreachable_and_nothing_is_cached() {
+        let rss = Arc::new(MockProvider::new(ProviderId::Rss, Capabilities::NEWS));
+        rss.repeat_news(Err(DataError::Timeout));
+        let err = news_market(&rss)
+            .news(&NewsRequest {
+                query: None,
+                limit: 5,
+            })
+            .await
+            .unwrap_err();
+        assert_eq!(err, DataError::Timeout);
     }
 
     #[tokio::test]

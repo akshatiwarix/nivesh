@@ -171,6 +171,9 @@ pub struct NewsItem {
     pub source: String,
     pub url: String,
     pub published: DateTime<Utc>,
+    /// NSE symbols of the listed companies the headline mentions.
+    #[serde(default)]
+    pub tags: Vec<String>,
 }
 
 /// A source of market data. Every method defaults to
