@@ -25,7 +25,7 @@ pub const MIN_PLAUSIBLE_ROWS: usize = 500;
 // ---- CSV ------------------------------------------------------------------
 
 /// Splits one CSV line, honouring double quotes (`"A, B"`, `""` escapes).
-fn split_csv_line(line: &str) -> Vec<String> {
+pub(crate) fn split_csv_line(line: &str) -> Vec<String> {
     let mut fields = Vec::new();
     let mut cur = String::new();
     let mut in_quotes = false;

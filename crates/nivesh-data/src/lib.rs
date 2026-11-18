@@ -7,6 +7,7 @@
 mod cache;
 mod chain;
 pub mod clock;
+pub mod constituents;
 mod error;
 pub mod health;
 pub mod http;

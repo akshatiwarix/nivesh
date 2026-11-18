@@ -525,6 +525,7 @@ pub fn parse_stock_indices(
         IndexSnapshot {
             quote,
             constituents,
+            constituents_info: None,
         },
         provenance(as_of),
     ))

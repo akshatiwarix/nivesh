@@ -454,6 +454,7 @@ mod tests {
             IndexSnapshot {
                 quote: level,
                 constituents: vec![],
+                constituents_info: None,
             },
             prov(false),
         );

@@ -441,6 +441,7 @@ impl DataProvider for YahooProvider {
         Ok(parse_index_quote(&body, index)?.map(|quote| IndexSnapshot {
             quote,
             constituents: Vec::new(),
+            constituents_info: None,
         }))
     }
 

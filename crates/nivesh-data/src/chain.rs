@@ -789,6 +789,7 @@ mod tests {
             IndexSnapshot {
                 quote: index_quote(ProviderId::Yahoo, IndexId::Sensex).data,
                 constituents: vec![],
+                constituents_info: None,
             },
             prov(ProviderId::Yahoo),
         )));

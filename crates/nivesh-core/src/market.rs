@@ -198,12 +198,27 @@ impl IndexQuote {
     }
 }
 
+/// Where a constituent *list* (the membership, not the prices) came from, when
+/// it is not the live source's own list: a dated file bundled with the app or
+/// last downloaded from the index publisher.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ConstituentsInfo {
+    /// The date the list was taken, `YYYY-MM-DD`.
+    pub as_of: String,
+    /// Who published it, e.g. `niftyindices.com`.
+    pub source: String,
+}
+
 /// An index level plus its constituents (empty when the provider only has the
 /// level, as Yahoo does).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct IndexSnapshot {
     pub quote: IndexQuote,
     pub constituents: Vec<Quote>,
+    /// `Some` when the membership came from a dated list rather than from the
+    /// provider that supplied the prices. Old cache entries lack it.
+    #[serde(default)]
+    pub constituents_info: Option<ConstituentsInfo>,
 }
 
 /// One OHLCV bar. `t` is the bar's start, UTC epoch milliseconds.
