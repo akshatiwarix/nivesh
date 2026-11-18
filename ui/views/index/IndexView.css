@@ -31,3 +31,10 @@
   margin: 0 var(--pad-x) 0 0;
   color: var(--c-fg);
 }
+
+.idx__note {
+  margin: 0;
+  padding: 0 var(--pad-x) var(--pad-x);
+  color: var(--c-amber);
+  font-size: var(--fs-sm);
+}

@@ -4,6 +4,7 @@
 import { type Accessor, batch, createEffect, createSignal, onCleanup } from "solid-js";
 import { createStore, produce, reconcile, type SetStoreFunction } from "solid-js/store";
 import type {
+  ConstituentsInfoDto,
   HubUpdateDto,
   IndexQuoteDto,
   IpcError,
@@ -32,6 +33,8 @@ export function topicKey(t: TopicDto): string {
 export interface IndexHeader {
   quote: IndexQuoteDto;
   provenance: ProvenanceDto;
+  /** Set when the constituent list is a dated one, not the source's own. */
+  constituentsInfo: ConstituentsInfoDto | null;
 }
 
 export interface FeedState {
@@ -95,7 +98,14 @@ export function applyUpdate(set: SetStoreFunction<FeedState>, update: HubUpdateD
       case "index": {
         const s = update.snapshot;
         const order = s.constituents.map((c) => c.symbol);
-        set("header", reconcile({ quote: s.quote, provenance: s.provenance }));
+        set(
+          "header",
+          reconcile({
+            quote: s.quote,
+            provenance: s.provenance,
+            constituentsInfo: s.constituentsInfo,
+          }),
+        );
         for (const c of s.constituents) set("constituents", c.symbol, reconcile(c));
         // Drop constituents that left the index.
         set(produce((s) => dropOthers(s.constituents, order)));

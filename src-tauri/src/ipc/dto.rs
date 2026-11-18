@@ -178,7 +178,19 @@ impl From<&Sourced<IndexQuote>> for SourcedIndexQuoteDto {
 pub struct IndexSnapshotDto {
     pub quote: IndexQuoteDto,
     pub constituents: Vec<QuoteDto>,
+    /// Set when the membership came from a dated list (not the source's own),
+    /// so the view can say "constituents as of <date>".
+    pub constituents_info: Option<ConstituentsInfoDto>,
     pub provenance: ProvenanceDto,
+}
+
+/// Date and publisher of a bundled or downloaded membership list.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ConstituentsInfoDto {
+    /// `YYYY-MM-DD`.
+    pub as_of: String,
+    pub source: String,
 }
 
 impl From<&Sourced<IndexSnapshot>> for IndexSnapshotDto {
@@ -186,6 +198,14 @@ impl From<&Sourced<IndexSnapshot>> for IndexSnapshotDto {
         Self {
             quote: (&s.data.quote).into(),
             constituents: s.data.constituents.iter().map(Into::into).collect(),
+            constituents_info: s
+                .data
+                .constituents_info
+                .as_ref()
+                .map(|i| ConstituentsInfoDto {
+                    as_of: i.as_of.clone(),
+                    source: i.source.clone(),
+                }),
             provenance: (&s.provenance).into(),
         }
     }
@@ -267,7 +287,7 @@ pub enum HubUpdateDto {
         quotes: Vec<SourcedQuoteDto>,
     },
     Index {
-        snapshot: IndexSnapshotDto,
+        snapshot: Box<IndexSnapshotDto>,
     },
     AllIndices {
         rows: Vec<SourcedIndexQuoteDto>,
@@ -285,7 +305,9 @@ impl From<&HubUpdate> for HubUpdateDto {
             HubUpdate::Quotes(q) => Self::Quotes {
                 quotes: q.iter().map(Into::into).collect(),
             },
-            HubUpdate::Index(s) => Self::Index { snapshot: s.into() },
+            HubUpdate::Index(s) => Self::Index {
+                snapshot: Box::new(s.into()),
+            },
             HubUpdate::AllIndices(rows) => Self::AllIndices {
                 rows: rows.iter().map(Into::into).collect(),
             },
@@ -463,6 +485,37 @@ mod tests {
         assert_eq!(json["quote"]["title"], "NIFTY 50");
         assert_eq!(json["quote"]["advances"], 11);
         assert_eq!(json["constituents"], serde_json::json!([]));
+        assert_eq!(json["constituentsInfo"], serde_json::Value::Null);
+    }
+
+    #[test]
+    fn dated_constituents_carry_their_as_of_and_source() {
+        let level = IndexQuote {
+            index: IndexId::NiftyBank,
+            last: 1.0,
+            prev_close: 1.0,
+            open: None,
+            high: None,
+            low: None,
+            week52_high: None,
+            week52_low: None,
+            advances: None,
+            declines: None,
+        };
+        let snap = Sourced::new(
+            IndexSnapshot {
+                quote: level,
+                constituents: vec![],
+                constituents_info: Some(nivesh_core::ConstituentsInfo {
+                    as_of: "2026-11-18".into(),
+                    source: "NSE Indices".into(),
+                }),
+            },
+            prov(false),
+        );
+        let json = serde_json::to_value(IndexSnapshotDto::from(&snap)).unwrap();
+        assert_eq!(json["constituentsInfo"]["asOf"], "2026-11-18");
+        assert_eq!(json["constituentsInfo"]["source"], "NSE Indices");
     }
 
     #[test]

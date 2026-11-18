@@ -79,6 +79,29 @@ describe("IndexView", () => {
     expect(root.querySelector(".idx__stats")?.textContent).toContain("Adv/Dec");
   });
 
+  it("labels a dated constituent list with its as-of date and source", async () => {
+    await tick();
+    push(
+      indexUpdate("NIFTY50", "NIFTY 50", 25000, ["RELIANCE", "TCS"], "yahoo", {
+        asOf: "2026-11-18",
+        source: "NSE Indices (niftyindices.com)",
+      }),
+    );
+    await tick();
+    const note = root.querySelector(".idx__note")?.textContent ?? "";
+    expect(note).toBe("CONSTITUENTS AS OF 2026-11-18, NSE Indices (niftyindices.com)");
+    // Prices are still labelled by their own source, and the rows are shown.
+    expect(root.querySelector(".datapanel__bar")?.textContent).toContain("YAHOO");
+    expect(rows()).toHaveLength(2);
+  });
+
+  it("shows no as-of label for the source's own live constituents", async () => {
+    await tick();
+    push(indexUpdate("NIFTY50", "NIFTY 50", 25000, ["RELIANCE"]));
+    await tick();
+    expect(root.querySelector(".idx__note")).toBeNull();
+  });
+
   it("updates constituents in place", async () => {
     await tick();
     push(indexUpdate("NIFTY50", "NIFTY 50", 25000, ["RELIANCE", "TCS"]));
