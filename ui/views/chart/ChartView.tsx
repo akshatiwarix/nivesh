@@ -93,6 +93,18 @@ interface ChartHandle {
   extra: ISeriesApi<SeriesType>[];
 }
 
+/** Runs `run` on the next animation frame (a timer where there are none, as in tests). */
+function schedule(run: () => void): number {
+  return typeof requestAnimationFrame === "function"
+    ? requestAnimationFrame(() => run())
+    : (setTimeout(run, 16) as unknown as number);
+}
+
+function cancelFrame(id: number): void {
+  if (typeof cancelAnimationFrame === "function") cancelAnimationFrame(id);
+  else clearTimeout(id);
+}
+
 const ZOOM_STEP = 0.75;
 const PAN_STEP = 0.2;
 
@@ -203,9 +215,13 @@ export const ChartView: Component<{ view: ChartViewDef }> = (props) => {
   });
 
   // Draw a freshly loaded series and reset the view to its newest bars.
+  const [renderMs, setRenderMs] = createSignal<number>();
   createEffect(
     on([ready, data], ([isReady, h]) => {
       if (!isReady || !h || !handle) return;
+      const began = performance.now();
+      // Time from handing over the data to the first painted frame (dev builds show it).
+      schedule(() => schedule(() => setRenderMs(performance.now() - began)));
       handle.candles.setData(candlePoints(h) as never);
       handle.volume.setData(volumePoints(h, handle.colors) as never);
       const r = initialRange(h.t.length);
@@ -357,8 +373,15 @@ export const ChartView: Component<{ view: ChartViewDef }> = (props) => {
       if (!isReady || !h) return;
       let stop: (() => void) | undefined;
       let closed = false;
-      subscribeFormingBar(h.exchange, h.symbol, h.interval, h.range, (b: BarDto) => {
-        if (closed || !handle) return;
+      // Bars can arrive faster than frames; only the newest is drawn, once per
+      // animation frame.
+      let latest: BarDto | undefined;
+      let frame: number | undefined;
+      const draw = () => {
+        frame = undefined;
+        const b = latest;
+        latest = undefined;
+        if (closed || !handle || !b) return;
         const time = (b.t / 1000) as UTCTimestamp;
         handle.candles.update({ time, open: b.o, high: b.h, low: b.l, close: b.c });
         handle.volume.update({
@@ -367,6 +390,10 @@ export const ChartView: Component<{ view: ChartViewDef }> = (props) => {
           color: b.c >= b.o ? handle.colors.upDim : handle.colors.downDim,
         });
         setLive({ bar: b, provenance: b.provenance });
+      };
+      subscribeFormingBar(h.exchange, h.symbol, h.interval, h.range, (b: BarDto) => {
+        latest = b;
+        frame ??= schedule(draw);
       })
         .then((unsubscribe) => {
           if (closed) unsubscribe();
@@ -376,6 +403,7 @@ export const ChartView: Component<{ view: ChartViewDef }> = (props) => {
       onCleanup(() => {
         closed = true;
         stop?.();
+        if (frame !== undefined) cancelFrame(frame);
       });
     }),
   );
@@ -491,7 +519,14 @@ export const ChartView: Component<{ view: ChartViewDef }> = (props) => {
             )}
           </For>
           <Show when={data()}>
-            {(h) => <span class="chart__range">{h().range.toUpperCase()}</span>}
+            {(h) => (
+              <span class="chart__range" data-testid="chart-size">
+                {h().range.toUpperCase()} · {formatCount(h().t.length)} bars
+                <Show when={renderMs() !== undefined && import.meta.env.DEV}>
+                  {` · drawn in ${renderMs()?.toFixed(0)} ms`}
+                </Show>
+              </span>
+            )}
           </Show>
         </div>
         <Show when={specs().length > 0}>

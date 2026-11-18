@@ -56,3 +56,8 @@
 .table__cell.stale {
   color: var(--c-stale);
 }
+
+.table__spacer {
+  padding: 0;
+  border: 0;
+}

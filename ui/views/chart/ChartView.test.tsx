@@ -210,6 +210,9 @@ describe("ChartView", () => {
         fetchedAtMs: AS_OF,
       },
     });
+    // Drawn on the next animation frame, not synchronously.
+    expect(calls.updates).toHaveLength(0);
+    await tick();
     expect(calls.updates).toContainEqual({
       name: "candles",
       p: { time: t / 1000, open: 120, high: 125, low: 119, close: 124 },
@@ -219,6 +222,31 @@ describe("ChartView", () => {
     await tick();
     expect(stop).toHaveBeenCalled();
     expect(calls.removed).toBe(1);
+  });
+
+  it("coalesces bars that arrive within one frame into a single draw of the newest", async () => {
+    getHistoryMock.mockResolvedValue(history());
+    mount(view());
+    await tick();
+    const provenance = {
+      provider: "yahoo",
+      freshness: "DELAYED" as const,
+      asOfMs: AS_OF,
+      fetchedAtMs: AS_OF,
+    };
+    const t = Date.UTC(2026, 6, 20);
+    for (const c of [121, 122, 123]) push({ t, o: 120, h: c, l: 119, c, v: 0, provenance });
+    await tick();
+    const candleUpdates = calls.updates.filter((u) => (u as { name: string }).name === "candles");
+    expect(candleUpdates).toHaveLength(1);
+    expect((candleUpdates[0] as { p: { close: number } }).p.close).toBe(123);
+  });
+
+  it("shows how many bars were loaded", async () => {
+    getHistoryMock.mockResolvedValue(history());
+    mount(view());
+    await tick();
+    expect(root.querySelector('[data-testid="chart-size"]')?.textContent).toContain("200 bars");
   });
 
   it("view keys zoom, pan and step the interval", async () => {
