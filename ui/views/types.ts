@@ -5,6 +5,7 @@ export type View =
   | { kind: "empty" }
   | { kind: "quote"; exchange: Exchange; symbol: string }
   | { kind: "index"; id: string; title: string }
+  | { kind: "mkt" }
   | { kind: "help" };
 
 export const EMPTY_VIEW: View = { kind: "empty" };
@@ -18,6 +19,8 @@ export function viewTitle(view: View): string {
       return `${view.symbol} · ${view.exchange}`;
     case "index":
       return view.title;
+    case "mkt":
+      return "MKT · Indices";
     case "help":
       return "Help";
   }

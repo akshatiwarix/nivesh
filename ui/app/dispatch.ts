@@ -29,6 +29,9 @@ export function runCommand(id: string, ws: Workspace): string | undefined {
       // Opening HELP twice shouldn't stack two help views.
       if (ws.currentView(ws.state.focused).kind !== "help") ws.open({ kind: "help" });
       return undefined;
+    case "mkt":
+      if (ws.currentView(ws.state.focused).kind !== "mkt") ws.open({ kind: "mkt" });
+      return undefined;
     default:
       return `${id.toUpperCase()} is not available yet.`;
   }

@@ -41,16 +41,45 @@ export const COMMANDS: readonly CommandDef[] = [
     usage: "HELP",
     fkey: 1,
   },
+  {
+    id: "mkt",
+    names: ["MKT", "MARKETS"],
+    summary: "Index dashboard: NIFTY 50, SENSEX, NIFTY BANK and sector indices",
+    usage: "MKT",
+    fkey: 2,
+  },
 ];
 
 /** Functions valid after an instrument. Empty until charts land in Part 3. */
 export const FUNCTIONS: readonly FunctionDef[] = [];
 
-/** Index aliases take precedence over stock symbols of the same name. */
+/**
+ * Index aliases take precedence over stock symbols of the same name.
+ * Mirrors the catalogue in `nivesh-core` (ids are its codes); a Rust test
+ * checks the two stay in sync.
+ */
 export const INDICES: readonly IndexDef[] = [
   { id: "NIFTY50", aliases: ["NIFTY", "NIFTY50", "NSEI"], title: "NIFTY 50" },
-  { id: "SENSEX", aliases: ["SENSEX"], title: "SENSEX" },
-  { id: "BANKNIFTY", aliases: ["BANKNIFTY", "NIFTYBANK", "BANKEX"], title: "NIFTY BANK" },
+  { id: "SENSEX", aliases: ["SENSEX", "BSESN"], title: "SENSEX" },
+  { id: "BANKNIFTY", aliases: ["BANKNIFTY", "NIFTYBANK", "NSEBANK"], title: "NIFTY BANK" },
+  { id: "NIFTYIT", aliases: ["NIFTYIT", "CNXIT"], title: "NIFTY IT" },
+  { id: "NIFTYAUTO", aliases: ["NIFTYAUTO", "CNXAUTO"], title: "NIFTY AUTO" },
+  { id: "NIFTYPHARMA", aliases: ["NIFTYPHARMA", "CNXPHARMA"], title: "NIFTY PHARMA" },
+  { id: "NIFTYFMCG", aliases: ["NIFTYFMCG", "CNXFMCG"], title: "NIFTY FMCG" },
+  { id: "NIFTYMETAL", aliases: ["NIFTYMETAL", "CNXMETAL"], title: "NIFTY METAL" },
+  { id: "NIFTYREALTY", aliases: ["NIFTYREALTY", "CNXREALTY"], title: "NIFTY REALTY" },
+  { id: "NIFTYENERGY", aliases: ["NIFTYENERGY", "CNXENERGY"], title: "NIFTY ENERGY" },
+  {
+    id: "NIFTYPSUBANK",
+    aliases: ["NIFTYPSUBANK", "PSUBANK", "CNXPSUBANK"],
+    title: "NIFTY PSU BANK",
+  },
+  {
+    id: "NIFTYFINSERVICE",
+    aliases: ["NIFTYFINSERVICE", "FINNIFTY", "NIFTYFIN"],
+    title: "NIFTY FIN SERVICE",
+  },
+  { id: "NIFTYMEDIA", aliases: ["NIFTYMEDIA", "CNXMEDIA"], title: "NIFTY MEDIA" },
 ];
 
 export function findCommand(name: string): CommandDef | undefined {

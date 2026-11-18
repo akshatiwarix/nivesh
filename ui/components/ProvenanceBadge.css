@@ -1,0 +1,15 @@
+.prov {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--pad-x);
+  white-space: nowrap;
+}
+
+.prov__src {
+  color: var(--c-fg-dim);
+  font-size: var(--fs-sm);
+}
+
+.prov[data-freshness="STALE"] .prov__src {
+  color: var(--c-stale);
+}

@@ -14,6 +14,8 @@ export interface CommandBarProps {
   onSubmit: (line: string) => string | undefined;
   /** Esc pressed on an empty bar: go back. */
   onBack: () => void;
+  /** Enter pressed on an empty bar: act on the focused view's selection. */
+  onEmptyEnter?: () => void;
 }
 
 const isEditable = (el: Element | null) =>
@@ -56,7 +58,10 @@ export const CommandBar: Component<CommandBarProps> = (props) => {
       case "Enter": {
         e.preventDefault();
         const line = text().trim();
-        if (line === "") return;
+        if (line === "") {
+          props.onEmptyEnter?.();
+          return;
+        }
         const err = props.onSubmit(line);
         props.history.push(line);
         if (err) {

@@ -54,7 +54,12 @@ export function createWorkspace(initial?: Partial<WorkspaceState>) {
     },
     /** Opens a view in the focused panel. */
     open(view: View) {
-      setState("stacks", state.focused, (stack) => [...stack, view].slice(-MAX_STACK));
+      this.openIn(state.focused, view);
+    },
+    /** Opens a view in a specific panel. */
+    openIn(panel: number, view: View) {
+      if (panel < 0 || panel >= PANEL_COUNT) return;
+      setState("stacks", panel, (stack) => [...stack, view].slice(-MAX_STACK));
     },
     /** Pops the focused panel's view. Returns false when already at the bottom. */
     back(): boolean {

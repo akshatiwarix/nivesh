@@ -71,4 +71,46 @@ describe("resolveKey", () => {
     const names = KEYMAP.flatMap((b) => b.keys);
     expect(new Set(names).size).toBe(names.length);
   });
+
+  describe("view keys", () => {
+    const e = ev;
+
+    it("Alt+Up/Down select rows even while the command bar has focus", () => {
+      expect(resolveKey(e({ key: "ArrowUp", altKey: true }), true)?.action).toEqual({
+        type: "view",
+        op: "up",
+      });
+      expect(resolveKey(e({ key: "ArrowDown", altKey: true }), true)?.action).toEqual({
+        type: "view",
+        op: "down",
+      });
+    });
+
+    it("plain arrows stay with the command bar's history", () => {
+      expect(resolveKey(e({ key: "ArrowUp" }), true)).toBeUndefined();
+      expect(resolveKey(e({ key: "ArrowDown" }), true)).toBeUndefined();
+    });
+
+    it("Alt+Shift+Arrow reorders and Alt+Left/Right switch lists", () => {
+      const op = (init: Partial<KeyLike>) => {
+        const a = resolveKey(e(init), true)?.action;
+        return a?.type === "view" ? a.op : undefined;
+      };
+      expect(op({ key: "ArrowUp", altKey: true, shiftKey: true })).toBe("moveUp");
+      expect(op({ key: "ArrowDown", altKey: true, shiftKey: true })).toBe("moveDown");
+      expect(op({ key: "ArrowLeft", altKey: true })).toBe("prevList");
+      expect(op({ key: "ArrowRight", altKey: true })).toBe("nextList");
+    });
+
+    it("Delete removes a row only when the input is empty", () => {
+      const del = e({ key: "Delete" });
+      expect(resolveKey(del, true, undefined, false)).toBeUndefined();
+      expect(resolveKey(del, true, undefined, true)?.action).toEqual({
+        type: "view",
+        op: "remove",
+      });
+      // Not in an input at all: fine.
+      expect(resolveKey(del, false)?.action).toEqual({ type: "view", op: "remove" });
+    });
+  });
 });

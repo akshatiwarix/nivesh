@@ -5,6 +5,7 @@ import { CommandBar } from "../components/CommandBar";
 import { Panel } from "../components/Panel";
 import { appInfo, inTauri } from "../ipc";
 import { resolveKey } from "../keys/keymap";
+import { sendViewOp } from "../views/context";
 import { viewTitle } from "../views/types";
 import { ViewHost } from "../views/ViewHost";
 import "./App.css";
@@ -35,7 +36,10 @@ export const App: Component = () => {
   const onKey = (e: KeyboardEvent) => {
     // The command bar claims keys it handles itself (Tab with text, Esc, ...).
     if (e.defaultPrevented) return;
-    const binding = resolveKey(e, isTextInput(document.activeElement));
+    const active = document.activeElement;
+    const inInput = isTextInput(active);
+    const inputEmpty = !(active instanceof HTMLInputElement) || active.value === "";
+    const binding = resolveKey(e, inInput, undefined, inputEmpty);
     if (!binding) return;
     e.preventDefault();
     runAction(binding.action, ws);
@@ -56,13 +60,24 @@ export const App: Component = () => {
                 focused={ws.state.focused === i}
                 onMouseDown={() => ws.focus(i)}
               >
-                <ViewHost view={ws.currentView(i)} />
+                <ViewHost
+                  view={ws.currentView(i)}
+                  panel={i}
+                  focused={ws.state.focused === i}
+                  open={(view) => ws.openIn(i, view)}
+                />
               </Panel>
             </Show>
           )}
         </For>
       </main>
-      <CommandBar history={history} words={words} onSubmit={run} onBack={() => ws.back()} />
+      <CommandBar
+        history={history}
+        words={words}
+        onSubmit={run}
+        onBack={() => ws.back()}
+        onEmptyEnter={() => sendViewOp(ws.state.focused, "open")}
+      />
       <StatusBar
         layout={ws.state.layout}
         focused={ws.state.focused}

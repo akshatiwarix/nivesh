@@ -1,12 +1,15 @@
 // Table-driven keymap. HELP renders this table, so the two cannot drift,
 // and a later settings screen can remap it by swapping the table.
 
+import type { ViewOp } from "../views/context";
+
 export type Action =
   | { type: "layout"; layout: 1 | 2 | 4 }
   | { type: "focus"; delta: 1 | -1 }
   | { type: "fkey"; n: number }
   | { type: "help" }
-  | { type: "back" };
+  | { type: "back" }
+  | { type: "view"; op: ViewOp };
 
 /** A key chord. `code` is physical (immune to macOS Option remapping); `key` is logical. */
 export interface Chord {
@@ -29,6 +32,8 @@ export interface Binding {
    * chords that can't produce text (F-keys, Ctrl/Alt combos) are safe.
    */
   inInput: boolean;
+  /** With an input focused, fire only while it is empty (e.g. Delete). */
+  emptyInputOnly?: boolean;
 }
 
 const FKEYS: readonly Binding[] = Array.from({ length: 10 }, (_, i): Binding => {
@@ -43,6 +48,59 @@ const FKEYS: readonly Binding[] = Array.from({ length: 10 }, (_, i): Binding => 
     inInput: true,
   };
 });
+
+/**
+ * Keys that act on the focused panel's view (lists, watchlists). They use
+ * modifiers or non-printing keys, so they never collide with typing, and the
+ * command bar keeps Up/Down for history.
+ */
+const VIEW_KEYS: readonly Binding[] = [
+  viewKey("up", "Alt+Up", { key: "ArrowUp", alt: true }, "Select the previous row"),
+  viewKey("down", "Alt+Down", { key: "ArrowDown", alt: true }, "Select the next row"),
+  {
+    id: "view.open",
+    keys: ["Enter"],
+    // Handled by the command bar: Enter on an empty bar.
+    chords: [],
+    action: { type: "view", op: "open" },
+    summary: "Open the selected row (command bar empty)",
+    inInput: true,
+  },
+  {
+    ...viewKey(
+      "remove",
+      "Delete",
+      { key: "Delete" },
+      "Remove the selected row (command bar empty)",
+    ),
+    emptyInputOnly: true,
+  },
+  viewKey(
+    "moveUp",
+    "Alt+Shift+Up",
+    { key: "ArrowUp", alt: true, shift: true },
+    "Move the selected row up",
+  ),
+  viewKey(
+    "moveDown",
+    "Alt+Shift+Down",
+    { key: "ArrowDown", alt: true, shift: true },
+    "Move the selected row down",
+  ),
+  viewKey("prevList", "Alt+Left", { key: "ArrowLeft", alt: true }, "Previous watchlist"),
+  viewKey("nextList", "Alt+Right", { key: "ArrowRight", alt: true }, "Next watchlist"),
+];
+
+function viewKey(op: ViewOp, label: string, chord: Chord, summary: string): Binding {
+  return {
+    id: `view.${op}`,
+    keys: [label],
+    chords: [chord],
+    action: { type: "view", op },
+    summary,
+    inInput: true,
+  };
+}
 
 export const KEYMAP: readonly Binding[] = [
   ...FKEYS,
@@ -80,6 +138,7 @@ export const KEYMAP: readonly Binding[] = [
       inInput: true,
     }),
   ),
+  ...VIEW_KEYS,
   {
     id: "back",
     keys: ["Esc"],
@@ -114,11 +173,18 @@ function matches(e: KeyLike, c: Chord): boolean {
 /**
  * Finds the binding for a key press. `inInput` is true when a text input
  * has focus; bindings that could collide with typing are skipped then.
+ * `inputEmpty` says whether that input has no text.
  */
 export function resolveKey(
   e: KeyLike,
   inInput: boolean,
   keymap: readonly Binding[] = KEYMAP,
+  inputEmpty = false,
 ): Binding | undefined {
-  return keymap.find((b) => (!inInput || b.inInput) && b.chords.some((c) => matches(e, c)));
+  return keymap.find(
+    (b) =>
+      (!inInput || b.inInput) &&
+      !(inInput && b.emptyInputOnly && !inputEmpty) &&
+      b.chords.some((c) => matches(e, c)),
+  );
 }

@@ -14,14 +14,6 @@ export const QuoteView: Component<{ view: Of<"quote"> }> = (props) => (
   </div>
 );
 
-export const IndexView: Component<{ view: Of<"index"> }> = (props) => (
-  <div class="view" data-view="index">
-    <h2 class="view__title">{props.view.title}</h2>
-    <p class="view__note">Index view placeholder. Constituents arrive in Part 2.</p>
-    <p class="view__note">Esc goes back.</p>
-  </div>
-);
-
 export const EmptyView: Component = () => (
   <div class="view" data-view="empty">
     <p class="view__note">Type a command, e.g. RELIANCE or NIFTY.</p>

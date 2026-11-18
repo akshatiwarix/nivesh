@@ -18,6 +18,11 @@ describe("parse", () => {
     ["NIFTY", { kind: "index", id: "NIFTY50", title: "NIFTY 50", args: [] }],
     ["banknifty", { kind: "index", id: "BANKNIFTY", title: "NIFTY BANK", args: [] }],
     ["Sensex", { kind: "index", id: "SENSEX", title: "SENSEX", args: [] }],
+    ["niftyit", { kind: "index", id: "NIFTYIT", title: "NIFTY IT", args: [] }],
+    ["psubank", { kind: "index", id: "NIFTYPSUBANK", title: "NIFTY PSU BANK", args: [] }],
+    ["finnifty", { kind: "index", id: "NIFTYFINSERVICE", title: "NIFTY FIN SERVICE", args: [] }],
+    ["mkt", { kind: "command", id: "mkt", args: [] }],
+    ["Markets", { kind: "command", id: "mkt", args: [] }],
   ])("%j", (input, expected) => {
     expect(parse(input)).toEqual(expected);
   });
