@@ -148,10 +148,14 @@ pub struct Mover {
     pub quote: Quote,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+/// Top movers of one index universe. The three lists come from one source.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct Movers {
     pub gainers: Vec<Mover>,
     pub losers: Vec<Mover>,
+    /// By traded volume. Empty when the source gives no volume per stock.
+    #[serde(default)]
+    pub most_active: Vec<Mover>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

@@ -16,6 +16,7 @@ pub mod http;
 pub mod hub;
 pub mod instruments;
 pub mod mock;
+pub mod movers;
 pub mod nse;
 mod provider;
 mod singleflight;

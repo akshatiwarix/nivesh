@@ -16,7 +16,7 @@ use nivesh_core::{
     Sourced,
 };
 
-use crate::{Capabilities, DataError, DataProvider, HistoryRequest};
+use crate::{Capabilities, DataError, DataProvider, HistoryRequest, Movers, MoversRequest};
 
 struct Script<T> {
     queue: VecDeque<Result<T, DataError>>,
@@ -50,10 +50,12 @@ pub struct MockProvider {
     history: Mutex<Script<Sourced<CandleSeries>>>,
     index: Mutex<Script<Sourced<IndexSnapshot>>>,
     all_indices: Mutex<Script<Vec<Sourced<IndexQuote>>>>,
+    movers: Mutex<Script<Sourced<Movers>>>,
     pub quote_calls: AtomicUsize,
     pub history_calls: AtomicUsize,
     pub index_calls: AtomicUsize,
     pub all_indices_calls: AtomicUsize,
+    pub movers_calls: AtomicUsize,
     quote_requests: Mutex<Vec<Vec<InstrumentId>>>,
 }
 
@@ -72,10 +74,12 @@ impl MockProvider {
             history: Mutex::new(Script::new()),
             index: Mutex::new(Script::new()),
             all_indices: Mutex::new(Script::new()),
+            movers: Mutex::new(Script::new()),
             quote_calls: AtomicUsize::new(0),
             history_calls: AtomicUsize::new(0),
             index_calls: AtomicUsize::new(0),
             all_indices_calls: AtomicUsize::new(0),
+            movers_calls: AtomicUsize::new(0),
             quote_requests: Mutex::new(Vec::new()),
         }
     }
@@ -117,6 +121,10 @@ impl MockProvider {
 
     pub fn repeat_all_indices(&self, result: Result<Vec<Sourced<IndexQuote>>, DataError>) {
         lock(&self.all_indices).repeat = Some(result);
+    }
+
+    pub fn repeat_movers(&self, result: Result<Sourced<Movers>, DataError>) {
+        lock(&self.movers).repeat = Some(result);
     }
 
     /// Ids asked for in each `quotes` call, in order.
@@ -172,6 +180,12 @@ impl DataProvider for MockProvider {
         self.all_indices_calls.fetch_add(1, Ordering::SeqCst);
         self.pause().await;
         lock(&self.all_indices).next()
+    }
+
+    async fn movers(&self, _req: &MoversRequest) -> Result<Sourced<Movers>, DataError> {
+        self.movers_calls.fetch_add(1, Ordering::SeqCst);
+        self.pause().await;
+        lock(&self.movers).next()
     }
 }
 

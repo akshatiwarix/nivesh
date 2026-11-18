@@ -22,7 +22,7 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 
 use crate::clock::Clock;
-use crate::{DataError, HistoryRequest, MarketData};
+use crate::{DataError, HistoryRequest, MarketData, Movers, MoversRequest};
 
 /// How long an entry is fresh, and how long after that it may still be served
 /// while it is refreshed in the background.
@@ -399,6 +399,26 @@ pub(crate) async fn all_indices(
         "ai".to_owned(),
         "index",
         layer.policy.all_indices,
+        fetch,
+    )
+    .await
+}
+
+pub(crate) async fn movers(
+    md: &MarketData,
+    layer: &Arc<CacheLayer>,
+    req: &MoversRequest,
+) -> Result<Sourced<Movers>, DataError> {
+    let (md, request) = (md.clone(), *req);
+    let fetch: Fetch<Sourced<Movers>> = Arc::new(move || {
+        let md = md.clone();
+        async move { md.fetch_movers(&request).await }.boxed()
+    });
+    get_or_fetch(
+        layer,
+        format!("m:{}:{}", req.index.code(), req.limit),
+        "movers",
+        layer.policy.index,
         fetch,
     )
     .await

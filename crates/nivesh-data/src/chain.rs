@@ -19,8 +19,9 @@ use crate::cache::{CacheConfig, CacheLayer};
 use crate::clock::{Clock, SystemClock};
 use crate::constituents::ConstituentsList;
 use crate::health::{Breaker, HealthConfig, Permit, ProviderStatus};
+use crate::movers::compute_movers;
 use crate::singleflight::SingleFlight;
-use crate::{Capabilities, DataError, DataProvider, HistoryRequest};
+use crate::{Capabilities, DataError, DataProvider, HistoryRequest, Movers, MoversRequest};
 
 /// Which providers to try, in order, for each capability. Providers named here
 /// but not registered (Kite before it's connected) are skipped.
@@ -59,6 +60,7 @@ pub(crate) struct Inner {
     index_flight: SingleFlight<IndexId, Sourced<IndexSnapshot>>,
     all_indices_flight: SingleFlight<(), Vec<Sourced<IndexQuote>>>,
     history_flight: SingleFlight<HistoryRequest, Sourced<CandleSeries>>,
+    movers_flight: SingleFlight<MoversRequest, Sourced<Movers>>,
 }
 
 #[derive(Clone)]
@@ -133,6 +135,7 @@ impl MarketDataBuilder {
                 index_flight: SingleFlight::new(),
                 all_indices_flight: SingleFlight::new(),
                 history_flight: SingleFlight::new(),
+                movers_flight: SingleFlight::new(),
             }),
         }
     }
@@ -326,6 +329,65 @@ impl MarketData {
         }
     }
 
+    /// Top gainers, losers and most active stocks of an index universe, all
+    /// from one source.
+    pub async fn movers(&self, req: &MoversRequest) -> Result<Sourced<Movers>, DataError> {
+        match &self.inner.cache {
+            Some(cache) => crate::cache::movers(self, cache, req).await,
+            None => self.fetch_movers(req).await,
+        }
+    }
+
+    /// NSE's own gainers/losers where it has them for this index, with the
+    /// most-active list ranked from the same source's constituent volumes.
+    /// Otherwise everything is ranked from the index's constituent quotes
+    /// (whoever priced them, with their provenance), so the three lists never
+    /// mix providers.
+    pub(crate) async fn fetch_movers(
+        &self,
+        req: &MoversRequest,
+    ) -> Result<Sourced<Movers>, DataError> {
+        let this = self.clone();
+        let request = *req;
+        self.inner
+            .movers_flight
+            .run(request, move || async move {
+                let order = this.inner.routing.index.clone();
+                let direct = this
+                    .route(Capabilities::MOVERS, &order, |p| async move {
+                        p.movers(&request).await
+                    })
+                    .await;
+                match direct {
+                    Ok(mut movers) => {
+                        // Same provider only: a different one would splice sources.
+                        if let Ok(snap) = this.index_snapshot(request.index).await
+                            && snap.provenance.provider == movers.provenance.provider
+                        {
+                            movers.data.most_active =
+                                compute_movers(&snap.data.constituents, request.limit).most_active;
+                        }
+                        Ok(movers)
+                    }
+                    Err(direct_error) => {
+                        let snap = this.index_snapshot(request.index).await.map_err(|e| {
+                            // Prefer the more informative of the two failures.
+                            pick_error(vec![direct_error, e])
+                        })?;
+                        if snap.data.constituents.is_empty() {
+                            return Err(DataError::NotFound);
+                        }
+                        let movers = compute_movers(&snap.data.constituents, request.limit);
+                        Ok(Sourced {
+                            data: movers,
+                            provenance: snap.provenance,
+                        })
+                    }
+                }
+            })
+            .await
+    }
+
     /// A candle series, whole, from a single provider.
     pub async fn history(&self, req: &HistoryRequest) -> Result<Sourced<CandleSeries>, DataError> {
         match &self.inner.cache {
@@ -512,10 +574,10 @@ mod tests {
     use nivesh_core::{Candle, FeedKind, Interval, Provenance};
 
     use super::*;
-    use crate::HistoryRange;
     use crate::clock::ManualClock;
     use crate::health::HealthState;
     use crate::mock::MockProvider;
+    use crate::{HistoryRange, Mover};
 
     fn id(s: &str) -> InstrumentId {
         InstrumentId::parse(s).unwrap()
@@ -586,7 +648,10 @@ mod tests {
     fn mock(p: ProviderId) -> Arc<MockProvider> {
         Arc::new(MockProvider::new(
             p,
-            Capabilities::QUOTE | Capabilities::HISTORY | Capabilities::INDEX,
+            Capabilities::QUOTE
+                | Capabilities::HISTORY
+                | Capabilities::INDEX
+                | Capabilities::MOVERS,
         ))
     }
 
@@ -948,6 +1013,108 @@ mod tests {
         let snap = r.md.index_snapshot(IndexId::Nifty50).await.unwrap();
         assert!(snap.data.constituents.is_empty());
         assert_eq!(MockProvider::calls(&r.yahoo.quote_calls), 0);
+    }
+
+    fn snapshot_with(p: ProviderId, rows: &[(&str, f64, Option<u64>)]) -> Sourced<IndexSnapshot> {
+        let mut snap = level_only(p, IndexId::Nifty50);
+        snap.data.constituents = rows
+            .iter()
+            .map(|(sym, ltp, volume)| Quote {
+                ltp: *ltp,
+                volume: *volume,
+                ..quote(p, sym).data
+            })
+            .collect();
+        snap
+    }
+
+    fn nse_movers(gainer: &str) -> Sourced<Movers> {
+        let m = Mover {
+            quote: Quote {
+                ltp: 110.0,
+                ..quote(ProviderId::Nse, gainer).data
+            },
+        };
+        Sourced::new(
+            Movers {
+                gainers: vec![m],
+                ..Movers::default()
+            },
+            prov(ProviderId::Nse),
+        )
+    }
+
+    const REQ: MoversRequest = MoversRequest {
+        index: IndexId::Nifty50,
+        limit: 5,
+    };
+
+    #[tokio::test]
+    async fn movers_use_nses_lists_and_rank_most_active_from_the_same_source() {
+        let r = rig();
+        r.nse.repeat_movers(Ok(nse_movers("TATASTEEL")));
+        r.nse.repeat_index(Ok(snapshot_with(
+            ProviderId::Nse,
+            &[("A", 101.0, Some(10)), ("B", 102.0, Some(99))],
+        )));
+        let m = r.md.movers(&REQ).await.unwrap();
+        assert_eq!(m.provenance.provider, ProviderId::Nse);
+        assert_eq!(m.data.gainers[0].quote.id.symbol(), "TATASTEEL");
+        assert_eq!(m.data.most_active[0].quote.id.symbol(), "B");
+    }
+
+    #[tokio::test]
+    async fn movers_never_splice_a_second_source_into_nses_lists() {
+        let r = rig();
+        r.nse.repeat_movers(Ok(nse_movers("TATASTEEL")));
+        // NSE's index snapshot fails, so only Yahoo could price the constituents.
+        r.nse.repeat_index(Err(DataError::Blocked));
+        r.yahoo.repeat_index(Ok(snapshot_with(
+            ProviderId::Yahoo,
+            &[("A", 101.0, Some(10)), ("B", 102.0, Some(99))],
+        )));
+        let m = r.md.movers(&REQ).await.unwrap();
+        assert_eq!(m.provenance.provider, ProviderId::Nse);
+        assert!(m.data.most_active.is_empty());
+    }
+
+    #[tokio::test]
+    async fn movers_fall_back_to_ranking_the_constituents_with_their_provenance() {
+        let r = rig();
+        r.nse.repeat_movers(Err(DataError::Blocked));
+        r.nse.repeat_index(Err(DataError::Blocked));
+        r.yahoo.repeat_index(Ok(snapshot_with(
+            ProviderId::Yahoo,
+            &[("UP", 105.0, None), ("DOWN", 95.0, None)],
+        )));
+        let m = r.md.movers(&REQ).await.unwrap();
+        assert_eq!(m.provenance.provider, ProviderId::Yahoo);
+        assert_eq!(m.data.gainers[0].quote.id.symbol(), "UP");
+        assert_eq!(m.data.losers[0].quote.id.symbol(), "DOWN");
+        assert!(m.data.most_active.is_empty(), "no volume from this source");
+    }
+
+    #[tokio::test]
+    async fn an_index_nse_publishes_no_movers_for_is_ranked_from_constituents() {
+        let r = rig();
+        r.nse.repeat_movers(Err(DataError::Unsupported));
+        r.nse.repeat_index(Ok(snapshot_with(
+            ProviderId::Nse,
+            &[("A", 103.0, Some(5)), ("B", 98.0, Some(9))],
+        )));
+        let m = r.md.movers(&REQ).await.unwrap();
+        assert_eq!(m.provenance.provider, ProviderId::Nse);
+        assert_eq!(m.data.gainers[0].quote.id.symbol(), "A");
+        assert_eq!(m.data.most_active[0].quote.id.symbol(), "B");
+    }
+
+    #[tokio::test]
+    async fn movers_fail_when_nothing_can_be_priced() {
+        let r = rig();
+        r.nse.repeat_movers(Err(DataError::Blocked));
+        r.nse.repeat_index(Err(DataError::Blocked));
+        r.yahoo.repeat_index(Err(DataError::Timeout));
+        assert!(r.md.movers(&REQ).await.is_err());
     }
 
     #[tokio::test]

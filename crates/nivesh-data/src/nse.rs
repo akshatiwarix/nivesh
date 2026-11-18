@@ -27,7 +27,7 @@ use tokio::sync::Mutex;
 
 use crate::http::HttpClient;
 use crate::util::{percent_encode, settle};
-use crate::{Capabilities, DataError, DataProvider, HistoryRequest};
+use crate::{Capabilities, DataError, DataProvider, HistoryRequest, Mover, Movers, MoversRequest};
 
 pub const DEFAULT_BASE_URL: &str = "https://www.nseindia.com";
 /// Static files (equity list) live on a separate archive host.
@@ -231,7 +231,7 @@ impl DataProvider for NseProvider {
     }
 
     fn capabilities(&self) -> Capabilities {
-        Capabilities::QUOTE | Capabilities::INDEX | Capabilities::INSTRUMENTS
+        Capabilities::QUOTE | Capabilities::INDEX | Capabilities::INSTRUMENTS | Capabilities::MOVERS
     }
 
     fn feed_kind(&self) -> FeedKind {
@@ -275,6 +275,21 @@ impl DataProvider for NseProvider {
 
     async fn all_indices(&self) -> Result<Vec<Sourced<IndexQuote>>, DataError> {
         parse_all_indices(&self.api_get("allIndices").await?)
+    }
+
+    /// Gainers and losers from `live-analysis-variations`, which NSE publishes
+    /// for NIFTY 50 and NIFTY BANK only. Other indices are `Unsupported`, and
+    /// the chain computes them from their constituents instead. Most-active is
+    /// not here: NSE's list is market-wide, not per index.
+    async fn movers(&self, req: &MoversRequest) -> Result<Sourced<Movers>, DataError> {
+        let key = variations_key(req.index).ok_or(DataError::Unsupported)?;
+        let gainers = self
+            .api_get("live-analysis-variations?index=gainers")
+            .await?;
+        let losers = self
+            .api_get("live-analysis-variations?index=loosers")
+            .await?;
+        parse_variations(&gainers, &losers, key, req.limit)
     }
 
     /// NSE's list of equities. A static file on the archive host: it needs no
@@ -531,6 +546,79 @@ pub fn parse_stock_indices(
     ))
 }
 
+/// The key NSE files an index's movers under in `live-analysis-variations`.
+fn variations_key(index: IndexId) -> Option<&'static str> {
+    match index {
+        IndexId::Nifty50 => Some("NIFTY"),
+        IndexId::NiftyBank => Some("BANKNIFTY"),
+        _ => None,
+    }
+}
+
+fn variation_rows(
+    body: &Value,
+    key: &str,
+    limit: usize,
+) -> Result<(Vec<Mover>, String), DataError> {
+    let section = body
+        .get(key)
+        .ok_or_else(|| parse_err("variations has no section for the index"))?;
+    let rows = section
+        .get("data")
+        .and_then(Value::as_array)
+        .ok_or_else(|| parse_err("variations section has no data array"))?;
+    let stamp =
+        text(section, "timestamp").ok_or_else(|| parse_err("variations has no timestamp"))?;
+    let movers = rows
+        .iter()
+        .filter_map(|row| {
+            let id = InstrumentId::new(Exchange::Nse, row.get("symbol")?.as_str()?).ok()?;
+            Some(Mover {
+                quote: Quote {
+                    id,
+                    name: None,
+                    ltp: field(row, "ltp")?,
+                    prev_close: field(row, "prev_price")?,
+                    open: field(row, "open_price"),
+                    high: field(row, "high_price"),
+                    low: field(row, "low_price"),
+                    // `trade_quantity`'s unit is unverified (see `parse_quote`).
+                    volume: None,
+                    week52_high: None,
+                    week52_low: None,
+                    upper_band: None,
+                    lower_band: None,
+                },
+            })
+        })
+        .take(limit)
+        .collect();
+    Ok((movers, stamp))
+}
+
+/// `/api/live-analysis-variations?index=gainers|loosers`: one section per
+/// index universe, each with its rows already ranked by NSE.
+pub fn parse_variations(
+    gainers: &Value,
+    losers: &Value,
+    key: &str,
+    limit: usize,
+) -> Result<Sourced<Movers>, DataError> {
+    let (gainers, stamp) = variation_rows(gainers, key, limit)?;
+    let (losers, _) = variation_rows(losers, key, limit)?;
+    if gainers.is_empty() && losers.is_empty() {
+        return Err(parse_err("variations has no rows"));
+    }
+    Ok(Sourced::new(
+        Movers {
+            gainers,
+            losers,
+            most_active: Vec::new(),
+        },
+        provenance(parse_nse_time(&stamp)?),
+    ))
+}
+
 /// `/api/marketStatus`.
 pub fn parse_market_status(body: &Value) -> Result<NseMarketStatus, DataError> {
     let states = body
@@ -564,6 +652,8 @@ mod tests {
     const QUOTE: &str = include_str!("../tests/fixtures/nse/quote_equity_reliance.synthetic.json");
     const QUOTE_STRINGS: &str =
         include_str!("../tests/fixtures/nse/quote_equity_band_strings.synthetic.json");
+    const GAINERS: &str = include_str!("../tests/fixtures/nse/variations_gainers.synthetic.json");
+    const LOSERS: &str = include_str!("../tests/fixtures/nse/variations_losers.synthetic.json");
     const STOCK_INDICES: &str =
         include_str!("../tests/fixtures/nse/stock_indices_nifty50.synthetic.json");
 
@@ -696,6 +786,41 @@ mod tests {
             Some("Tata Consultancy Services Limited")
         );
         assert_eq!(snap.provenance.provider, ProviderId::Nse);
+    }
+
+    #[test]
+    fn parses_gainers_and_losers_for_the_index_universe() {
+        let m = parse_variations(&json(GAINERS), &json(LOSERS), "NIFTY", 10).unwrap();
+        let symbols = |l: &[Mover]| {
+            l.iter()
+                .map(|m| m.quote.id.symbol().to_owned())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            symbols(&m.data.gainers),
+            ["TATASTEEL", "ADANIENT", "HINDALCO"]
+        );
+        assert_eq!(symbols(&m.data.losers), ["BAJFINANCE", "TITAN"]);
+        assert!(m.data.most_active.is_empty());
+        assert_eq!(m.provenance.provider, ProviderId::Nse);
+        // 15:30 IST is 10:00 UTC.
+        assert_eq!(m.provenance.as_of.to_rfc3339(), "2026-11-18T10:00:00+00:00");
+        let top = &m.data.gainers[0].quote;
+        assert_eq!((top.ltp, top.prev_close), (171.4, 163.2));
+        assert!(top.change_pct() > 5.0);
+        // Another universe's section, and the limit.
+        let bank = parse_variations(&json(GAINERS), &json(LOSERS), "BANKNIFTY", 10).unwrap();
+        assert_eq!(symbols(&bank.data.gainers), ["SBIN"]);
+        let one = parse_variations(&json(GAINERS), &json(LOSERS), "NIFTY", 1).unwrap();
+        assert_eq!(one.data.gainers.len(), 1);
+    }
+
+    #[test]
+    fn variations_reject_a_missing_section_or_garbage() {
+        assert!(parse_variations(&json(GAINERS), &json(LOSERS), "NIFTYIT", 5).is_err());
+        let html = json("{\"NIFTY\":{\"data\":\"<html>\",\"timestamp\":\"x\"}}");
+        assert!(parse_variations(&html, &html, "NIFTY", 5).is_err());
+        assert_eq!(variations_key(IndexId::NiftyIt), None);
     }
 
     #[test]
