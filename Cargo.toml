@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/*"]
+members = ["crates/*", "src-tauri"]
 
 [workspace.package]
 version = "0.1.0"
@@ -10,9 +10,16 @@ publish = false
 
 # One version of every dependency, shared by all members.
 [workspace.dependencies]
+anyhow = "1.0.104"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
+tauri = { version = "2.12.6", features = [] }
+tauri-build = { version = "2.7.5", features = [] }
+tauri-plugin-single-instance = "2.5.5"
 thiserror = "2.0.21"
+tracing = "0.1.44"
+tracing-appender = "0.2.5"
+tracing-subscriber = { version = "0.3.23", default-features = false, features = ["ansi", "env-filter", "fmt", "registry", "smallvec", "std"] }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

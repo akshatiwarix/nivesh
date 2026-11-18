@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <title>Nivesh</title>
+  <!-- Placeholder app icon: amber "N" on black. Regenerate PNG/ICNS/ICO with `pnpm tauri icon`. -->
+  <rect x="64" y="64" width="896" height="896" rx="160" fill="#000000"/>
+  <rect x="96" y="96" width="832" height="832" rx="132" fill="none" stroke="#ffb000" stroke-width="24"/>
+  <polygon fill="#ffb000" points="272,256 392,256 392,768 272,768"/>
+  <polygon fill="#ffb000" points="632,256 752,256 752,768 632,768"/>
+  <polygon fill="#ffb000" points="272,256 392,256 752,768 632,768"/>
+</svg>
