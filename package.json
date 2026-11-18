@@ -17,9 +17,11 @@
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.node.json",
     "test": "vitest run",
     "test:watch": "vitest",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "gen:bindings": "cargo run -q -p nivesh-app --example gen_bindings"
   },
   "dependencies": {
+    "@tauri-apps/api": "^2.12.5",
     "solid-js": "^1.9.19"
   },
   "devDependencies": {

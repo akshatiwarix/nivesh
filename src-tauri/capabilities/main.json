@@ -3,5 +3,5 @@
   "identifier": "main",
   "description": "The main window. Grants only Nivesh's own commands; no core plugin APIs are exposed to the webview.",
   "windows": ["main"],
-  "permissions": []
+  "permissions": ["allow-app-info"]
 }

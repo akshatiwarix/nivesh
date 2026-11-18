@@ -4,6 +4,8 @@
 //! plugins and commands, and owns process-level concerns such as logging and
 //! the main window. Business logic lives in the `nivesh-*` library crates.
 
+mod commands;
+pub mod ipc;
 mod logging;
 
 use anyhow::Context as _;
@@ -38,6 +40,8 @@ pub fn run() -> anyhow::Result<()> {
             window.show().context("showing main window")?;
             Ok(())
         })
+        // Keep in sync with COMMANDS in build.rs.
+        .invoke_handler(tauri::generate_handler![commands::app::app_info])
         .run(tauri::generate_context!())
         .context("running tauri app")
 }
