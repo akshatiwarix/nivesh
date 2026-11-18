@@ -491,4 +491,157 @@ mod tests {
         );
         services.hub.shutdown();
     }
+
+    /// Live check of the Part 3 views against the real providers. By hand:
+    /// `cargo test -p nivesh-app live_part3 -- --ignored --nocapture`.
+    /// Each view is reported separately, so one blocked source doesn't hide the rest.
+    #[tokio::test]
+    #[ignore = "network"]
+    async fn live_part3_views() {
+        use nivesh_core::{IndexId, Interval};
+        use nivesh_data::{DmaUniverse, HistoryRange, HistoryRequest, MoversRequest, NewsRequest};
+        use nivesh_indicators::{IndicatorSpec, Ohlcv, compute};
+
+        let store = Arc::new(Store::open_in_memory().unwrap());
+        let services = build(store, &Overrides::default()).unwrap();
+        let m = &services.market;
+        let id = nivesh_core::InstrumentId::parse("NSE:RELIANCE").unwrap();
+
+        for (interval, range) in [
+            (Interval::D1, HistoryRange::Y5),
+            (Interval::M5, HistoryRange::M1),
+            (Interval::H4, HistoryRange::M6),
+            (Interval::W1, HistoryRange::Max),
+            (Interval::M1, HistoryRange::M3),
+        ] {
+            let req = HistoryRequest {
+                id: id.clone(),
+                interval,
+                range,
+            };
+            match m.history(&req).await {
+                Ok(h) => {
+                    let c = &h.data.candles;
+                    println!(
+                        "CHART {interval}/{range:?}: {} bars from {} ({:?}), last close {:?}",
+                        c.len(),
+                        h.provenance.provider,
+                        h.provenance.freshness(),
+                        c.last().map(|x| x.c)
+                    );
+                    if interval == Interval::D1 {
+                        let t: Vec<i64> = c.iter().map(|x| x.t).collect();
+                        let col = |f: fn(&nivesh_core::Candle) -> f64| -> Vec<f64> {
+                            c.iter().map(f).collect()
+                        };
+                        let (h_, l, cl, v) =
+                            (col(|x| x.h), col(|x| x.l), col(|x| x.c), col(|x| x.v));
+                        let d = Ohlcv {
+                            t: &t,
+                            h: &h_,
+                            l: &l,
+                            c: &cl,
+                            v: &v,
+                        };
+                        for spec in ["SMA 50", "RSI 14", "MACD", "BOLL", "ATR", "VWAP"] {
+                            let o = compute(&spec.parse::<IndicatorSpec>().unwrap(), &d);
+                            let last = o.lines[0].values.last().copied();
+                            println!("  {spec}: last {last:?}");
+                        }
+                    }
+                }
+                Err(e) => println!("CHART {interval}/{range:?}: ERROR {e}"),
+            }
+        }
+        for index in [IndexId::Nifty50, IndexId::NiftyBank, IndexId::NiftyIt] {
+            match m.movers(&MoversRequest { index, limit: 5 }).await {
+                Ok(mv) => println!(
+                    "MOVERS {}: from {} ({:?}); top gainer {:?}, top loser {:?}, most active {:?}",
+                    index.code(),
+                    mv.provenance.provider,
+                    mv.provenance.freshness(),
+                    mv.data
+                        .gainers
+                        .first()
+                        .map(|g| (g.quote.id.symbol().to_owned(), g.quote.change_pct())),
+                    mv.data
+                        .losers
+                        .first()
+                        .map(|g| (g.quote.id.symbol().to_owned(), g.quote.change_pct())),
+                    mv.data
+                        .most_active
+                        .first()
+                        .map(|g| g.quote.id.symbol().to_owned()),
+                ),
+                Err(e) => println!("MOVERS {}: ERROR {e}", index.code()),
+            }
+        }
+        match m.index_breadth(IndexId::Nifty50).await {
+            Ok(b) => println!(
+                "BREADTH NIFTY50: {:?} from {}",
+                b.data.breadth, b.provenance.provider
+            ),
+            Err(e) => println!("BREADTH NIFTY50: ERROR {e}"),
+        }
+        let started = std::time::Instant::now();
+        match m
+            .dma_breadth(DmaUniverse::Nifty50, Arc::new(|_, _| {}))
+            .await
+        {
+            Ok(d) => println!(
+                "DMA NIFTY50: {:?} from {} in {:?}",
+                d.data.periods,
+                d.provenance.provider,
+                started.elapsed()
+            ),
+            Err(e) => println!("DMA NIFTY50: ERROR {e} after {:?}", started.elapsed()),
+        }
+        match m.sector_performance().await {
+            Ok(sp) => {
+                println!(
+                    "SECTORS: {} rows from {}",
+                    sp.data.rows.len(),
+                    sp.provenance.provider
+                );
+                for r in sp.data.rows.iter().take(4) {
+                    println!("  {} last {:.1} {:?}", r.index.code(), r.last, r.returns);
+                }
+            }
+            Err(e) => println!("SECTORS: ERROR {e}"),
+        }
+        match m
+            .news(&NewsRequest {
+                query: None,
+                limit: 200,
+            })
+            .await
+        {
+            Ok(n) => {
+                let tagged = n.data.iter().filter(|i| !i.tags.is_empty()).count();
+                let mut by: std::collections::BTreeMap<&str, usize> = Default::default();
+                for i in &n.data {
+                    *by.entry(i.source.as_str()).or_default() += 1;
+                }
+                println!(
+                    "NEWS: {} items ({tagged} tagged) from {} {:?}; by source {by:?}",
+                    n.data.len(),
+                    n.provenance.provider,
+                    n.provenance.freshness()
+                );
+                for i in n.data.iter().filter(|i| !i.tags.is_empty()).take(3) {
+                    println!("  {:?} {}", i.tags, i.title);
+                }
+            }
+            Err(e) => println!("NEWS: ERROR {e}"),
+        }
+        let rel = m
+            .news(&NewsRequest {
+                query: Some("RELIANCE".into()),
+                limit: 5,
+            })
+            .await
+            .map(|n| n.data.len());
+        println!("NEWS RELIANCE: {rel:?}");
+        services.hub.shutdown();
+    }
 }
