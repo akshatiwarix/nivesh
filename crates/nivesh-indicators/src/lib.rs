@@ -17,9 +17,15 @@
 //! seeded with the SMA of the first `n` values, RSI and ATR use Wilder
 //! smoothing, Bollinger bands use the population standard deviation.
 
+mod bands;
 mod ma;
+mod momentum;
+mod vwap;
 
+pub use bands::{Atr, Bollinger, BollingerPoint, BollingerSeries, atr, bollinger};
 pub use ma::{Ema, Sma, Wma, ema, sma, wma};
+pub use momentum::{Macd, MacdPoint, MacdSeries, Rsi, macd, rsi};
+pub use vwap::{IST_OFFSET_SECS, Vwap, vwap};
 
 /// The "not yet defined" marker used in batch output.
 #[inline]

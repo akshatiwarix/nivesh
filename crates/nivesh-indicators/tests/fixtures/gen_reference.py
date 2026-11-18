@@ -63,11 +63,86 @@ def ema(x, n, start=0):
     return out
 
 
+def rsi(x, n):
+    """Wilder RSI written from the definition: seed with the mean of the first
+    n changes, then smooth. Returns None until index n."""
+    out = [nan] * len(x)
+    if len(x) <= n:
+        return out
+    ch = [x[i] - x[i - 1] for i in range(1, len(x))]
+    ag = sum(max(d, 0) for d in ch[:n]) / n
+    al = sum(max(-d, 0) for d in ch[:n]) / n
+
+    def val(ag, al):
+        if al == 0:
+            return 50.0 if ag == 0 else 100.0
+        return 100 - 100 / (1 + ag / al)
+
+    out[n] = val(ag, al)
+    for i in range(n, len(ch)):
+        ag = (ag * (n - 1) + max(ch[i], 0)) / n
+        al = (al * (n - 1) + max(-ch[i], 0)) / n
+        out[i + 1] = val(ag, al)
+    return out
+
+
+def macd(x, f, s, g):
+    ef, es = ema(x, f), ema(x, s)
+    m = [nan if a is None or b is None else a - b for a, b in zip(ef, es)]
+    first = next(i for i, v in enumerate(m) if v is not None)
+    sig = ema(m, g, start=first)
+    hist = [nan if a is None or b is None else a - b for a, b in zip(m, sig)]
+    return m, sig, hist
+
+
+def boll(x, n, k):
+    mid, up, lo = [], [], []
+    for i in range(len(x)):
+        if i + 1 < n:
+            mid.append(nan); up.append(nan); lo.append(nan)
+            continue
+        w = x[i + 1 - n : i + 1]
+        mu = sum(w) / n
+        sd = math.sqrt(sum((a - mu) ** 2 for a in w) / n)
+        mid.append(mu); up.append(mu + k * sd); lo.append(mu - k * sd)
+    return mid, up, lo
+
+
+def atr(h, l, c, n):
+    tr = [h[0] - l[0]] + [
+        max(h[i] - l[i], abs(h[i] - c[i - 1]), abs(l[i] - c[i - 1]))
+        for i in range(1, len(c))
+    ]
+    out = [nan] * len(c)
+    out[n - 1] = sum(tr[:n]) / n
+    for i in range(n, len(c)):
+        out[i] = (out[i - 1] * (n - 1) + tr[i]) / n
+    return out
+
+
+def vwap(t, h, l, c, v):
+    out, day, pv, vol = [], None, 0.0, 0.0
+    for i in range(len(t)):
+        d = (t[i] + IST) // 86400
+        if d != day:
+            day, pv, vol = d, 0.0, 0.0
+        pv += (h[i] + l[i] + c[i]) / 3 * v[i]
+        vol += v[i]
+        out.append(pv / vol if vol > 0 else nan)
+    return out
+
+
 ref = {
-    "t": t, "o": o, "h": h, "l": l, "c": c, "v": v,
+    "t": [x * 1000 for x in t], "o": o, "h": h, "l": l, "c": c, "v": v,
     "sma_5": sma(c, 5), "sma_20": sma(c, 20),
     "ema_5": ema(c, 5), "ema_20": ema(c, 20),
     "wma_5": wma(c, 5), "wma_20": wma(c, 20),
 }
+ref["rsi_14"] = rsi(c, 14)
+ref["rsi_5"] = rsi(c, 5)
+ref["macd_line"], ref["macd_signal"], ref["macd_hist"] = macd(c, 12, 26, 9)
+ref["boll_mid"], ref["boll_up"], ref["boll_lo"] = boll(c, 20, 2.0)
+ref["atr_14"] = atr(h, l, c, 14)
+ref["vwap"] = vwap(t, h, l, c, v)
 with open(os.path.join(os.path.dirname(__file__), "reference.json"), "w") as f:
     json.dump(ref, f, separators=(",", ":"))

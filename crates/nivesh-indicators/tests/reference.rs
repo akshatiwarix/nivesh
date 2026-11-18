@@ -70,3 +70,56 @@ fn moving_averages_match_the_reference() {
         );
     }
 }
+
+#[test]
+fn rsi_matches_the_reference() {
+    use nivesh_indicators::rsi;
+    let r = Reference::load();
+    let c = r.column("c");
+    assert_matches("rsi_14", &rsi(&c, 14), &r.column("rsi_14"));
+    assert_matches("rsi_5", &rsi(&c, 5), &r.column("rsi_5"));
+}
+
+#[test]
+fn macd_matches_the_reference() {
+    use nivesh_indicators::macd;
+    let r = Reference::load();
+    let m = macd(&r.column("c"), 12, 26, 9);
+    assert_matches("macd", &m.macd, &r.column("macd_line"));
+    assert_matches("signal", &m.signal, &r.column("macd_signal"));
+    assert_matches("hist", &m.hist, &r.column("macd_hist"));
+}
+
+#[test]
+fn bollinger_matches_the_reference() {
+    use nivesh_indicators::bollinger;
+    let r = Reference::load();
+    let b = bollinger(&r.column("c"), 20, 2.0);
+    assert_matches("middle", &b.middle, &r.column("boll_mid"));
+    assert_matches("upper", &b.upper, &r.column("boll_up"));
+    assert_matches("lower", &b.lower, &r.column("boll_lo"));
+}
+
+#[test]
+fn atr_matches_the_reference() {
+    use nivesh_indicators::atr;
+    let r = Reference::load();
+    let out = atr(&r.column("h"), &r.column("l"), &r.column("c"), 14);
+    assert_matches("atr_14", &out, &r.column("atr_14"));
+}
+
+#[test]
+fn session_vwap_matches_the_reference() {
+    use nivesh_indicators::{IST_OFFSET_SECS, vwap};
+    let r = Reference::load();
+    let t: Vec<i64> = r.column("t").iter().map(|x| *x as i64).collect();
+    let out = vwap(
+        &t,
+        &r.column("h"),
+        &r.column("l"),
+        &r.column("c"),
+        &r.column("v"),
+        IST_OFFSET_SECS,
+    );
+    assert_matches("vwap", &out, &r.column("vwap"));
+}
