@@ -1,6 +1,6 @@
 .shell {
   display: grid;
-  grid-template-rows: var(--bar-h) 1fr var(--bar-h);
+  grid-template-rows: var(--bar-h) 1fr var(--bar-h) var(--bar-h);
   height: 100%;
 }
 

@@ -1,5 +1,8 @@
 import { type Component, createResource, For, onCleanup, onMount, Show } from "solid-js";
+import { completionWords, parse } from "../commands";
+import { createHistory } from "../commands/history";
 import { Badge } from "../components/Badge";
+import { CommandBar } from "../components/CommandBar";
 import { Panel } from "../components/Panel";
 import { appInfo, inTauri } from "../ipc";
 import "./App.css";
@@ -15,9 +18,17 @@ export const App: Component = () => {
   const [info] = createResource(inTauri, () => appInfo());
   const now = createClock();
   const ws = createWorkspace();
+  const history = createHistory();
+  const words = completionWords();
+
+  const run = (line: string): string | undefined => {
+    const parsed = parse(line);
+    return parsed.kind === "error" ? parsed.message : undefined;
+  };
 
   // Interim layout/focus keys; replaced by the table-driven keymap later.
   const onKey = (e: KeyboardEvent) => {
+    if (e.defaultPrevented) return;
     if (e.key === "Tab") {
       e.preventDefault();
       ws.cycleFocus(e.shiftKey ? -1 : 1);
@@ -48,6 +59,7 @@ export const App: Component = () => {
           )}
         </For>
       </main>
+      <CommandBar history={history} words={words} onSubmit={run} onBack={() => {}} />
       <StatusBar
         layout={ws.state.layout}
         focused={ws.state.focused}
