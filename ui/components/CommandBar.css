@@ -1,4 +1,5 @@
 .cmdbar {
+  position: relative;
   display: flex;
   flex: none;
   align-items: center;
@@ -47,4 +48,49 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* Opens upward from the bar. Fixed row height; no shadow or animation. */
+.suggest {
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  right: 0;
+  z-index: 10;
+  background: var(--c-bg-bar);
+  border-top: 1px solid var(--c-amber);
+}
+
+.suggest__row {
+  display: flex;
+  gap: calc(var(--pad-x) * 2);
+  align-items: center;
+  height: var(--row-h);
+  padding: 0 var(--pad-x);
+  cursor: default;
+}
+
+.suggest__row--selected {
+  background: var(--c-bg-select);
+}
+
+.suggest__symbol {
+  flex: none;
+  width: 16ch;
+  color: var(--c-amber);
+  font-weight: var(--fw-bold);
+}
+
+.suggest__name {
+  flex: 1;
+  min-width: 0;
+  color: var(--c-fg-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.suggest__tag {
+  color: var(--c-fg-faint);
+  font-size: var(--fs-xs);
 }

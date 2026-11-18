@@ -3,7 +3,7 @@ import { completionWords, parse } from "../commands";
 import { Badge } from "../components/Badge";
 import { CommandBar } from "../components/CommandBar";
 import { Panel } from "../components/Panel";
-import { appInfo, inTauri } from "../ipc";
+import { appInfo, inTauri, searchInstruments } from "../ipc";
 import { resolveKey } from "../keys/keymap";
 import { sendViewOp } from "../views/context";
 import { viewTitle } from "../views/types";
@@ -73,6 +73,7 @@ export const App: Component = () => {
       </main>
       <CommandBar
         history={history}
+        search={inTauri() ? (q) => searchInstruments(q, 8) : undefined}
         words={words}
         onSubmit={run}
         onBack={() => ws.back()}
