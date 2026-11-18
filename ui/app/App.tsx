@@ -1,28 +1,62 @@
-import { type Component, createResource, Show } from "solid-js";
+import { type Component, createResource, For, onCleanup, onMount, Show } from "solid-js";
 import { Badge } from "../components/Badge";
-import { KeyHint } from "../components/KeyHint";
 import { Panel } from "../components/Panel";
 import { appInfo, inTauri } from "../ipc";
 import "./App.css";
+import { createClock } from "./clock";
+import { Header } from "./Header";
+import { StatusBar } from "./StatusBar";
+import { createWorkspace, PANEL_COUNT } from "./workspace";
+
+const PANELS = Array.from({ length: PANEL_COUNT }, (_, i) => i);
 
 export const App: Component = () => {
   // Outside the app (browser, tests) there is no backend to ask.
   const [info] = createResource(inTauri, () => appInfo());
+  const now = createClock();
+  const ws = createWorkspace();
+
+  // Interim layout/focus keys; replaced by the table-driven keymap later.
+  const onKey = (e: KeyboardEvent) => {
+    if (e.key === "Tab") {
+      e.preventDefault();
+      ws.cycleFocus(e.shiftKey ? -1 : 1);
+    } else if (e.altKey && (e.key === "1" || e.key === "2" || e.key === "4")) {
+      e.preventDefault();
+      ws.setLayout(Number(e.key) as 1 | 2 | 4);
+    }
+  };
+  onMount(() => window.addEventListener("keydown", onKey));
+  onCleanup(() => window.removeEventListener("keydown", onKey));
+
   return (
-    <main class="app">
-      <Panel
-        title="NIVESH"
-        focused
+    <div class="shell">
+      <Header now={now()} />
+      <main class="shell__grid" data-layout={ws.state.layout}>
+        <For each={PANELS}>
+          {(i) => (
+            <Show when={i < ws.state.layout}>
+              <Panel
+                title="Empty"
+                index={i + 1}
+                focused={ws.state.focused === i}
+                onMouseDown={() => ws.focus(i)}
+              >
+                <p class="shell__welcome">Type a command. F1 for help.</p>
+              </Panel>
+            </Show>
+          )}
+        </For>
+      </main>
+      <StatusBar
+        layout={ws.state.layout}
+        focused={ws.state.focused}
         extra={
           <Show when={info.state === "ready" && info()}>
             {(i) => <Badge tone="neutral">{`v${i().version} ${i().build}`}</Badge>}
           </Show>
         }
-      >
-        <p class="app__welcome">
-          Keyboard-driven terminal for Indian markets. <KeyHint keys={["F1"]} label="Help" />
-        </p>
-      </Panel>
-    </main>
+      />
+    </div>
   );
 };
