@@ -169,6 +169,18 @@ impl MarketData {
         }
     }
 
+    pub(crate) fn history_order(&self) -> Vec<ProviderId> {
+        self.inner.routing.history.clone()
+    }
+
+    pub(crate) fn constituent_lists(&self) -> Option<&Arc<ConstituentsList>> {
+        self.inner.constituents.as_ref()
+    }
+
+    pub(crate) fn cache_layer(&self) -> Option<&Arc<CacheLayer>> {
+        self.inner.cache.as_ref()
+    }
+
     /// Health changes, for the `provider:status` event.
     pub fn subscribe_status(&self) -> broadcast::Receiver<ProviderStatus> {
         self.inner.status_tx.subscribe()
@@ -196,7 +208,7 @@ impl MarketData {
     }
 
     /// Runs `call` against `order`'s providers until one succeeds.
-    async fn route<T, F, Fut>(
+    pub(crate) async fn route<T, F, Fut>(
         &self,
         need: Capabilities,
         order: &[ProviderId],

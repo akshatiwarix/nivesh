@@ -241,7 +241,7 @@ impl CacheLayer {
     }
 }
 
-type Fetch<V> = Arc<dyn Fn() -> BoxFuture<'static, Result<V, DataError>> + Send + Sync>;
+pub(crate) type Fetch<V> = Arc<dyn Fn() -> BoxFuture<'static, Result<V, DataError>> + Send + Sync>;
 
 /// Serves one keyed value with the fresh / revalidate / refresh / stale logic.
 async fn get_or_fetch<V>(
@@ -277,6 +277,21 @@ where
         }
         Err(err) => layer.stale::<V>(&key).ok_or(err),
     }
+}
+
+/// Serves any serialisable value through the cache. For the derived views
+/// (sectors, breadth, news) that are not quotes, indices or candles.
+pub(crate) async fn cached<V>(
+    layer: &Arc<CacheLayer>,
+    key: String,
+    kind: &'static str,
+    ttl: Ttl,
+    fetch: Fetch<V>,
+) -> Result<V, DataError>
+where
+    V: Clone + Serialize + DeserializeOwned + MarkStale + Send + Sync + 'static,
+{
+    get_or_fetch(layer, key, kind, ttl, fetch).await
 }
 
 fn quote_key(id: &InstrumentId) -> String {

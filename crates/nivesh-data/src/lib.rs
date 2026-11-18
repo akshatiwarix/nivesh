@@ -4,6 +4,7 @@
 //! `MarketData` facade (added in a later commit), never to a provider directly.
 //! Every value leaves this crate as a `Sourced<T>` carrying its provenance.
 
+pub mod analytics;
 pub mod bse;
 mod cache;
 mod chain;
@@ -15,6 +16,7 @@ pub mod health;
 pub mod http;
 pub mod hub;
 pub mod instruments;
+pub mod markets;
 pub mod mock;
 pub mod movers;
 pub mod nse;
@@ -30,6 +32,9 @@ pub use health::{HealthConfig, HealthState, ProviderStatus};
 pub use hub::{HubConfig, HubUpdate, QuoteHub, SubscriptionId, Topic};
 pub use instruments::{
     InstrumentIndex, InstrumentMaster, parse_equity_csv, parse_list_csv, write_list_csv,
+};
+pub use markets::{
+    DMA_PERIODS, DmaBreadth, DmaUniverse, IndexBreadth, Progress, SectorPerformance, SectorRow,
 };
 pub use provider::{
     Capabilities, DataProvider, HistoryRange, HistoryRequest, Mover, Movers, MoversRequest,

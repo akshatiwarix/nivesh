@@ -20,6 +20,33 @@ const OPEN_SECS: i64 = 9 * 3600 + 15 * 60;
 const CLOSE_SECS: i64 = 15 * 3600 + 30 * 60;
 const SESSION_SECS: i64 = CLOSE_SECS - OPEN_SECS;
 
+/// The IST calendar day (days since 1970-01-01) containing `t_ms`.
+pub fn ist_day_number(t_ms: i64) -> i64 {
+    (t_ms.div_euclid(1000) + IST_OFFSET_SECS).div_euclid(DAY_SECS)
+}
+
+/// Days since 1970-01-01 of a calendar date. `day` past the month's end rolls
+/// into the next month; callers clamp first.
+pub fn day_number(year: i32, month: u32, day: u32) -> i64 {
+    days_from_civil(year, month, day)
+}
+
+/// `(year, month, day)` of a day number.
+pub fn ymd(day_number: i64) -> (i32, u32, u32) {
+    let d = civil_from_days(day_number);
+    (d.year, d.month, d.day)
+}
+
+/// Number of days in a month (Gregorian).
+pub fn days_in_month(year: i32, month: u32) -> u32 {
+    let next = if month == 12 {
+        days_from_civil(year + 1, 1, 1)
+    } else {
+        days_from_civil(year, month + 1, 1)
+    };
+    u32::try_from(next - days_from_civil(year, month, 1)).unwrap_or(30)
+}
+
 /// The start (UTC epoch ms) of the bar of width `interval` that contains
 /// `t_ms`. Times before the open or after the close of a session belong to
 /// that session's first or last bar (pre-open and closing-session prints).
@@ -134,6 +161,18 @@ mod tests {
                 "{interval} at day {d} {h}:{m:02}"
             );
         }
+    }
+
+    #[test]
+    fn calendar_helpers_round_trip() {
+        let day = ist_day_number(ist(0, 9, 15));
+        assert_eq!(ymd(day), (2026, 11, 16));
+        assert_eq!(day_number(2026, 11, 16), day);
+        // 02:00 IST is still the 16th in IST though it is the 15th in UTC.
+        assert_eq!(ist_day_number(ist(0, 2, 0)), day);
+        assert_eq!(days_in_month(2026, 2), 28);
+        assert_eq!(days_in_month(2028, 2), 29);
+        assert_eq!(days_in_month(2026, 12), 31);
     }
 
     #[test]

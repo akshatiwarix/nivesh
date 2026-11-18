@@ -13,6 +13,7 @@ futures.workspace = true
 governor.workspace = true
 moka.workspace = true
 nivesh-core = { path = "../nivesh-core" }
+nivesh-indicators = { path = "../nivesh-indicators" }
 nivesh-store = { path = "../nivesh-store" }
 reqwest.workspace = true
 serde.workspace = true

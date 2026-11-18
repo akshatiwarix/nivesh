@@ -359,11 +359,8 @@ pub fn parse_index_quote(body: &[u8], index: IndexId) -> Result<Sourced<IndexQuo
     Ok(Sourced::new(quote, provenance(l.as_of)))
 }
 
-pub fn parse_history(
-    body: &[u8],
-    req: &HistoryRequest,
-) -> Result<Sourced<CandleSeries>, DataError> {
-    let result = parse_chart(body)?;
+/// The OHLCV rows of a chart response, oldest first, without null rows.
+fn parse_candles(result: &ChartResult) -> Result<Vec<Candle>, DataError> {
     let bars = result
         .indicators
         .as_ref()
@@ -401,23 +398,42 @@ pub fn parse_history(
             v,
         });
     }
+    if !candles.windows(2).all(|w| w[0].t < w[1].t) {
+        return Err(DataError::Parse(
+            "yahoo chart: timestamps are not increasing".into(),
+        ));
+    }
+    Ok(candles)
+}
+
+/// The data is as of the last trade Yahoo reports (a daily bar is stamped at
+/// the 09:15 open but holds the whole day), never earlier than the last bar.
+fn history_as_of(result: &ChartResult, candles: &[Candle]) -> Result<DateTime<Utc>, DataError> {
+    let last = candles.last().ok_or(DataError::NotFound)?;
+    utc_from_secs((last.t / 1000).max(result.meta.regular_market_time.unwrap_or(0)))
+}
+
+pub fn parse_history(
+    body: &[u8],
+    req: &HistoryRequest,
+) -> Result<Sourced<CandleSeries>, DataError> {
+    let result = parse_chart(body)?;
+    let candles = parse_candles(&result)?;
+    let as_of = history_as_of(&result, &candles)?;
     let series = CandleSeries {
         id: req.id.clone(),
         interval: req.interval,
         candles,
     };
-    if !series.is_ordered() {
-        return Err(DataError::Parse(
-            "yahoo chart: timestamps are not increasing".into(),
-        ));
-    }
-    // The data is as of the last trade Yahoo reports (a daily bar is stamped at
-    // the 09:15 open but holds the whole day), never earlier than the last bar.
-    let as_of = match series.candles.last() {
-        Some(c) => utc_from_secs((c.t / 1000).max(result.meta.regular_market_time.unwrap_or(0)))?,
-        None => return Err(DataError::NotFound),
-    };
     Ok(Sourced::new(series, provenance(as_of)))
+}
+
+/// Daily candles of an index chart response.
+pub fn parse_index_history(body: &[u8]) -> Result<Sourced<Vec<Candle>>, DataError> {
+    let result = parse_chart(body)?;
+    let candles = parse_candles(&result)?;
+    let as_of = history_as_of(&result, &candles)?;
+    Ok(Sourced::new(candles, provenance(as_of)))
 }
 
 // ---- provider -------------------------------------------------------------
@@ -535,6 +551,19 @@ impl DataProvider for YahooProvider {
             )
             .await?;
         parse_history(&body, req)
+    }
+
+    async fn index_history(
+        &self,
+        index: IndexId,
+        range: HistoryRange,
+    ) -> Result<Sourced<Vec<Candle>>, DataError> {
+        check_limits(Interval::D1, range)?;
+        let ticker = index_ticker(index).ok_or(DataError::Unsupported)?;
+        let body = self
+            .fetch(ticker, yahoo_range(range), yahoo_interval(Interval::D1))
+            .await?;
+        parse_index_history(&body)
     }
 
     async fn index_snapshot(&self, index: IndexId) -> Result<Sourced<IndexSnapshot>, DataError> {
@@ -789,6 +818,36 @@ mod tests {
                 .timestamp(),
             20
         );
+    }
+
+    #[test]
+    fn index_history_is_plain_candles_with_the_last_trade_as_of() {
+        let s = parse_index_history(HISTORY).unwrap();
+        assert!(s.data.len() > 10 && s.data.windows(2).all(|w| w[0].t < w[1].t));
+        assert_eq!(s.provenance.provider, ProviderId::Yahoo);
+        assert_eq!(s.provenance.as_of.timestamp(), 1_794_980_395);
+        assert!(matches!(
+            parse_index_history(NOT_FOUND).unwrap_err(),
+            DataError::NotFound
+        ));
+    }
+
+    #[tokio::test]
+    async fn index_history_asks_for_the_index_ticker_and_daily_bars() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/v8/finance/chart/%5ENSEI"))
+            .and(query_param("interval", "1d"))
+            .and(query_param("range", "1y"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(HISTORY))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let got = provider_for(&server)
+            .index_history(IndexId::Nifty50, HistoryRange::Y1)
+            .await
+            .unwrap();
+        assert!(!got.data.is_empty());
     }
 
     #[test]

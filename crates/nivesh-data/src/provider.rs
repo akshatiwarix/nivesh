@@ -5,8 +5,8 @@ use std::ops::BitOr;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use nivesh_core::{
-    CandleSeries, Exchange, FeedKind, IndexId, IndexQuote, IndexSnapshot, Instrument, InstrumentId,
-    Interval, ProviderId, Quote, Sourced,
+    Candle, CandleSeries, Exchange, FeedKind, IndexId, IndexQuote, IndexSnapshot, Instrument,
+    InstrumentId, Interval, ProviderId, Quote, Sourced,
 };
 use serde::{Deserialize, Serialize};
 
@@ -212,6 +212,16 @@ pub trait DataProvider: Send + Sync + 'static {
     /// on NSE instead of one per index. Each level has its own provenance so
     /// the chain can fill indices one provider lacks (SENSEX) from another.
     async fn all_indices(&self) -> Result<Vec<Sourced<IndexQuote>>, DataError> {
+        Err(DataError::Unsupported)
+    }
+
+    /// Daily candles of an index, for sector returns and the like. Candles
+    /// only: an index has no instrument id.
+    async fn index_history(
+        &self,
+        _index: IndexId,
+        _range: HistoryRange,
+    ) -> Result<Sourced<Vec<Candle>>, DataError> {
         Err(DataError::Unsupported)
     }
 
