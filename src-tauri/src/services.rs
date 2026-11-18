@@ -430,4 +430,55 @@ mod tests {
         assert_eq!(q.provenance.provider, ProviderId::Yahoo);
         services.hub.shutdown();
     }
+
+    /// Live check against the real providers. Hits the network, so it is run by
+    /// hand: `cargo test -p nivesh-app live_ -- --ignored --nocapture`.
+    #[tokio::test]
+    #[ignore = "network"]
+    async fn live_nifty_constituents_and_relia_search() {
+        use nivesh_core::IndexId;
+
+        for forced in [Vec::new(), vec![ProviderId::Nse]] {
+            let store = Arc::new(Store::open_in_memory().unwrap());
+            let overrides = Overrides {
+                force_fail: forced.clone(),
+                ..Overrides::default()
+            };
+            let services = build(store, &overrides).unwrap();
+            let snap = services
+                .market
+                .index_snapshot(IndexId::Nifty50)
+                .await
+                .unwrap();
+            let priced = snap.data.constituents.len();
+            let info = snap.data.constituents_info.as_ref();
+            println!(
+                "forced_fail={forced:?}: NIFTY 50 level {} from {} ({} constituents with quotes, list as of {:?}, first {:?})",
+                snap.data.quote.last,
+                snap.provenance.provider,
+                priced,
+                info.map(|i| (&i.as_of, &i.source)),
+                snap.data
+                    .constituents
+                    .first()
+                    .map(|q| (&q.id, q.ltp, q.prev_close)),
+            );
+            assert_eq!(priced, 50);
+            assert!(snap.data.constituents.iter().all(|q| q.ltp > 0.0));
+            services.hub.shutdown();
+        }
+
+        let store = Arc::new(Store::open_in_memory().unwrap());
+        let services = build(store, &Overrides::default()).unwrap();
+        let hits = services.instruments.search("relia", 5);
+        let tags: Vec<_> = hits.iter().map(|i| i.id.to_string()).collect();
+        println!("relia -> {tags:?}");
+        assert_eq!(tags[0], "NSE:RELIANCE");
+        let samor = services.instruments.search("samor", 3);
+        println!(
+            "samor -> {:?}",
+            samor.iter().map(|i| i.id.to_string()).collect::<Vec<_>>()
+        );
+        services.hub.shutdown();
+    }
 }
