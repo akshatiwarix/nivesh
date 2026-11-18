@@ -5,6 +5,7 @@
 //! wants anyway. Timestamps are UTC epoch milliseconds.
 
 use nivesh_core::{Candle, CandleSeries, Sourced};
+use nivesh_indicators::{LineStyle, Output, Placement};
 use serde::Serialize;
 use ts_rs::TS;
 
@@ -81,6 +82,75 @@ impl BarDto {
     }
 }
 
+/// One indicator's drawable lines, aligned to `IndicatorsDto::t`. A `null`
+/// value means the indicator is not defined there yet (warm-up).
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct IndicatorDto {
+    /// Canonical spec text: `SMA 50`, `MACD 12 26 9`.
+    pub id: String,
+    /// `SMA`, `RSI`, ... (what `RM` takes).
+    pub kind: String,
+    /// `overlay` on the price pane, or `pane` for its own.
+    pub placement: String,
+    pub lines: Vec<IndicatorLineDto>,
+    /// Fixed value range of its pane, e.g. RSI 0 to 100.
+    pub bounds: Option<(f64, f64)>,
+    /// Reference levels to draw, e.g. RSI 30 and 70.
+    pub guides: Vec<f64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct IndicatorLineDto {
+    pub name: String,
+    /// `line` or `histogram`.
+    pub style: String,
+    pub values: Vec<Option<f64>>,
+}
+
+/// Indicators for one candle series. `t` is the series' bar times, so the view
+/// can align the lines to the candles it drew even if a refresh moved them.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct IndicatorsDto {
+    pub t: Vec<i64>,
+    pub indicators: Vec<IndicatorDto>,
+}
+
+impl From<&Output> for IndicatorDto {
+    fn from(o: &Output) -> Self {
+        Self {
+            id: o.id.clone(),
+            kind: o.kind.code().to_owned(),
+            placement: match o.placement {
+                Placement::Overlay => "overlay",
+                Placement::Pane => "pane",
+            }
+            .to_owned(),
+            lines: o
+                .lines
+                .iter()
+                .map(|l| IndicatorLineDto {
+                    name: l.name.clone(),
+                    style: match l.style {
+                        LineStyle::Line => "line",
+                        LineStyle::Histogram => "histogram",
+                    }
+                    .to_owned(),
+                    values: l
+                        .values
+                        .iter()
+                        .map(|v| v.is_finite().then_some(*v))
+                        .collect(),
+                })
+                .collect(),
+            bounds: o.bounds,
+            guides: o.guides.clone(),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use chrono::Utc;
@@ -114,5 +184,28 @@ mod tests {
         assert_eq!(dto.provenance.provider, "yahoo");
         let json = serde_json::to_value(&dto).unwrap();
         assert!(json["t"].is_array() && json["asOf"].is_null());
+    }
+
+    #[test]
+    fn indicator_gaps_become_null_not_nan() {
+        use nivesh_indicators::{IndicatorSpec, Ohlcv, compute};
+        let t = [0, 1, 2, 3];
+        let c = [1.0, 2.0, 3.0, 4.0];
+        let spec: IndicatorSpec = "SMA 3".parse().unwrap();
+        let out = compute(
+            &spec,
+            &Ohlcv {
+                t: &t,
+                h: &c,
+                l: &c,
+                c: &c,
+                v: &c,
+            },
+        );
+        let dto = IndicatorDto::from(&out);
+        assert_eq!(dto.placement, "overlay");
+        assert_eq!(dto.lines[0].values, [None, None, Some(2.0), Some(3.0)]);
+        let json = serde_json::to_string(&dto).unwrap();
+        assert!(json.contains("null") && !json.contains("NaN"));
     }
 }

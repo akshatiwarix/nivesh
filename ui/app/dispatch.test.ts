@@ -78,6 +78,22 @@ describe("dispatch", () => {
     });
   });
 
+  describe("indicators", () => {
+    it("ADD and RM need a chart in the focused panel", () => {
+      const ws = createWorkspace();
+      expect(dispatch(parse("add sma 50"), ws)).toMatch(/works on a chart/);
+      expect(dispatch(parse("rm rsi"), ws)).toMatch(/works on a chart/);
+      dispatch(parse("reliance"), ws);
+      expect(dispatch(parse("add rsi"), ws)).toMatch(/works on a chart/);
+    });
+
+    it("on a chart with no listener it asks to try again instead of failing silently", () => {
+      const ws = createWorkspace();
+      dispatch(parse("reliance ch"), ws);
+      expect(dispatch(parse("add rsi"), ws)).toMatch(/still loading/);
+    });
+  });
+
   describe("WL", () => {
     const setup = () => {
       const ws = createWorkspace();

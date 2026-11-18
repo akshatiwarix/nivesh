@@ -62,6 +62,19 @@ export const COMMANDS: readonly CommandDef[] = [
     usage: "CH [INTERVAL] [RANGE]",
     fkey: 4,
   },
+  {
+    id: "add",
+    names: ["ADD"],
+    summary:
+      "Add an indicator to the focused chart: SMA EMA WMA BOLL VWAP (on price), RSI MACD ATR (own pane)",
+    usage: "ADD <INDICATOR> [PERIOD…], e.g. ADD SMA 50, ADD RSI 14",
+  },
+  {
+    id: "rm",
+    names: ["RM", "REMOVE"],
+    summary: "Remove an indicator from the focused chart: RM RSI, or RM SMA 50 for one of several",
+    usage: "RM <INDICATOR> [PERIOD…]",
+  },
 ];
 
 /** Functions valid after an instrument: `RELIANCE CH 5M`. */

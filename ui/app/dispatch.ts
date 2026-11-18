@@ -7,6 +7,7 @@ import {
   watchlistStore,
 } from "../data/watchlists";
 import { parseChartArgs } from "../views/chart/model";
+import { sendViewCommand } from "../views/context";
 import type { Workspace } from "./workspace";
 
 /** What a command returns: an error message for the command bar, or nothing. */
@@ -82,6 +83,14 @@ export function runCommand(
       return undefined;
     case "wl":
       return runWatchlist(ws, args, watchlists);
+    case "add":
+    case "rm": {
+      if (ws.currentView(ws.state.focused).kind !== "chart") {
+        return `${id.toUpperCase()} works on a chart. Open one first, e.g. RELIANCE CH`;
+      }
+      const result = sendViewCommand(ws.state.focused, id, args);
+      return result === "unhandled" ? "The chart is still loading. Try again." : result;
+    }
     case "ch": {
       const target = focusedInstrument(ws);
       if (!target) return "Open an instrument first, e.g. RELIANCE CH 5M";

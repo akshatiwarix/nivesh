@@ -3,6 +3,7 @@ import type {
   ISeriesApi,
   LogicalRange as LibRange,
   MouseEventParams,
+  SeriesType,
   UTCTimestamp,
 } from "lightweight-charts";
 import {
@@ -20,11 +21,26 @@ import {
 import { DataPanel } from "../../components/DataPanel";
 import { describeError } from "../../data/errors";
 import type { BarDto, HistoryDto, ProvenanceDto } from "../../ipc";
-import { getHistory, inTauri, subscribeFormingBar } from "../../ipc";
+import {
+  chartIndicators,
+  computeIndicators,
+  getHistory,
+  inTauri,
+  saveChartIndicators,
+  subscribeFormingBar,
+} from "../../ipc";
 import { changeTone, formatCount, formatMovePct, formatPrice } from "../../lib/format";
-import { useViewOps } from "../context";
+import { useViewCommands, useViewOps } from "../context";
 import type { View } from "../types";
 import "./ChartView.css";
+import {
+  histogramPoints,
+  linePoints,
+  paletteColor,
+  removeSpecs,
+  specText,
+  splitByPlacement,
+} from "./indicators";
 import { type ChartLib, loadChartLib } from "./lib";
 import {
   axisLabel,
@@ -66,10 +82,15 @@ function themeColors() {
 }
 
 interface ChartHandle {
+  lib: ChartLib;
   chart: IChartApi;
   candles: ISeriesApi<"Candlestick">;
   volume: ISeriesApi<"Histogram">;
   colors: Colors;
+  /** Line colours for indicators, in the order they are handed out. */
+  palette: string[];
+  /** Series drawn for indicators, removed and rebuilt when they change. */
+  extra: ISeriesApi<SeriesType>[];
 }
 
 const ZOOM_STEP = 0.75;
@@ -163,7 +184,21 @@ export const ChartView: Component<{ view: ChartViewDef }> = (props) => {
       if (!h) return;
       setHover(barAt(h, indexOfTime(h.t, (p.time as number) * 1000)));
     });
-    handle = { chart, candles, volume, colors: theme.colors };
+    handle = {
+      lib,
+      chart,
+      candles,
+      volume,
+      colors: theme.colors,
+      palette: [
+        theme.amber,
+        css("--c-info", "#5cb8ff"),
+        css("--c-paper", "#c792ea"),
+        css("--c-orange", "#ff7a1a"),
+        css("--c-warn", "#ffd04d"),
+      ],
+      extra: [],
+    };
     setReady(true);
   });
 
@@ -179,6 +214,142 @@ export const ChartView: Component<{ view: ChartViewDef }> = (props) => {
       setHover(undefined);
     }),
   );
+
+  // Indicators are saved per symbol, so they follow it across intervals.
+  const [specs, setSpecs] = createSignal<string[]>([]);
+  const [specsLoaded, setSpecsLoaded] = createSignal(false);
+  onMount(() => {
+    if (!inTauri()) return;
+    chartIndicators(props.view.exchange, props.view.symbol)
+      .then(setSpecs)
+      .catch(() => undefined)
+      .finally(() => setSpecsLoaded(true));
+  });
+  const persist = (next: string[]) => {
+    setSpecs(next);
+    void saveChartIndicators(props.view.exchange, props.view.symbol, next).catch(() => undefined);
+  };
+
+  const [indicators] = createResource(
+    () => {
+      const h = data();
+      return h && specsLoaded() && specs().length > 0 ? { h, specs: specs() } : false;
+    },
+    ({ h, specs: list }) => computeIndicators(h.exchange, h.symbol, h.interval, h.range, list),
+  );
+
+  // Rebuild indicator series whenever the candles or the indicator set change.
+  createEffect(
+    on([ready, data, () => indicators.latest, specs], ([isReady, h, result, list]) => {
+      if (!isReady || !handle || !h) return;
+      const hd = handle;
+      for (const s of hd.extra) hd.chart.removeSeries(s);
+      hd.extra = [];
+      if (!result || list.length === 0 || result.t.length !== h.t.length) return;
+      const { lib, chart } = hd;
+      const { overlays, panes } = splitByPlacement(result.indicators);
+      let color = 0;
+      for (const ind of overlays) {
+        for (const line of ind.lines) {
+          const dim = ind.kind === "BOLL" && line.name !== ind.id;
+          const s = chart.addSeries(
+            lib.LineSeries,
+            {
+              color: dim ? `${paletteColor(hd.palette, color)}99` : paletteColor(hd.palette, color),
+              lineWidth: 1,
+              priceLineVisible: false,
+              lastValueVisible: !dim,
+              crosshairMarkerVisible: false,
+              title: dim ? "" : line.name,
+            },
+            0,
+          );
+          s.setData(linePoints(result.t, line) as never);
+          hd.extra.push(s);
+        }
+        color++;
+      }
+      // Volume is pane 1, so indicator panes start at 2.
+      panes.forEach((ind, k) => {
+        const paneIndex = 2 + k;
+        ind.lines.forEach((line, n) => {
+          const common = {
+            priceLineVisible: false,
+            lastValueVisible: n > 0 || ind.lines.length === 1,
+          };
+          const s =
+            line.style === "histogram"
+              ? chart.addSeries(
+                  lib.HistogramSeries,
+                  { ...common, lastValueVisible: false },
+                  paneIndex,
+                )
+              : chart.addSeries(
+                  lib.LineSeries,
+                  {
+                    ...common,
+                    color: paletteColor(hd.palette, color + n),
+                    lineWidth: 1,
+                    title: line.name,
+                    ...(ind.bounds
+                      ? {
+                          autoscaleInfoProvider: () => ({
+                            priceRange: {
+                              minValue: ind.bounds?.[0] ?? 0,
+                              maxValue: ind.bounds?.[1] ?? 100,
+                            },
+                          }),
+                        }
+                      : {}),
+                  },
+                  paneIndex,
+                );
+          s.setData(
+            (line.style === "histogram"
+              ? histogramPoints(result.t, line, { up: hd.colors.upDim, down: hd.colors.downDim })
+              : linePoints(result.t, line)) as never,
+          );
+          if (n === 0 || ind.lines.length === 1) {
+            for (const g of ind.guides) {
+              s.createPriceLine({
+                price: g,
+                color: themeColors().line,
+                lineWidth: 1,
+                lineStyle: 2,
+                axisLabelVisible: false,
+                title: "",
+              });
+            }
+          }
+          hd.extra.push(s);
+        });
+        color++;
+        hd.chart.panes()[paneIndex]?.setStretchFactor(0.2);
+      });
+    }),
+  );
+
+  useViewCommands((name, args) => {
+    if (name === "add") {
+      const text = specText(args);
+      if (text === "") return "ADD needs an indicator, e.g. ADD SMA 50";
+      return computeIndicators(props.view.exchange, props.view.symbol, interval(), range(), [
+        text,
+      ]).then(
+        (r) => {
+          const id = r.indicators[0]?.id ?? text;
+          if (specs().includes(id)) return `${id} is already on this chart`;
+          persist([...specs(), id]);
+          return undefined;
+        },
+        (err) => describeError(err),
+      );
+    }
+    const result = removeSpecs(specs(), args);
+    if ("error" in result) return result.error;
+    persist(result.remaining);
+    return undefined;
+  });
 
   // The forming bar: built in Rust from the quote stream, only drawn here.
   createEffect(
@@ -323,6 +494,16 @@ export const ChartView: Component<{ view: ChartViewDef }> = (props) => {
             {(h) => <span class="chart__range">{h().range.toUpperCase()}</span>}
           </Show>
         </div>
+        <Show when={specs().length > 0}>
+          <div class="chart__legend" data-testid="indicators">
+            <For each={specs()}>{(id) => <span class="chart__chip">{id}</span>}</For>
+            <Show when={indicators.error}>
+              <span class="chart__chip chart__chip--bad" role="alert">
+                {describeError(indicators.error)}
+              </span>
+            </Show>
+          </div>
+        </Show>
         <Show when={shown()}>
           {(b) => (
             <div class="chart__readout" data-testid="readout">

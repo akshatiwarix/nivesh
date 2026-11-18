@@ -2,6 +2,7 @@
 import { Channel } from "@tauri-apps/api/core";
 import type { BarDto } from "./bindings/BarDto";
 import type { HistoryDto } from "./bindings/HistoryDto";
+import type { IndicatorsDto } from "./bindings/IndicatorsDto";
 import { call } from "./core";
 
 /**
@@ -44,4 +45,32 @@ export async function subscribeFormingBar(
     done = true;
     void call<void>("unsubscribe", { id }).catch(() => undefined);
   };
+}
+
+/**
+ * Indicator lines for the series the chart shows, computed in Rust. `specs`
+ * are canonical texts such as `SMA 50`. The result carries the bar times it
+ * was computed for.
+ */
+export function computeIndicators(
+  exchange: string,
+  symbol: string,
+  interval: string,
+  range: string | undefined,
+  specs: readonly string[],
+): Promise<IndicatorsDto> {
+  return call<IndicatorsDto>("compute_indicators", { exchange, symbol, interval, range, specs });
+}
+
+/** The indicators saved for a symbol (they follow it across intervals). */
+export function chartIndicators(exchange: string, symbol: string): Promise<string[]> {
+  return call<string[]>("chart_indicators", { exchange, symbol });
+}
+
+export function saveChartIndicators(
+  exchange: string,
+  symbol: string,
+  specs: readonly string[],
+): Promise<void> {
+  return call<void>("save_chart_indicators", { exchange, symbol, specs });
 }

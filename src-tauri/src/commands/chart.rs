@@ -5,13 +5,15 @@ use std::sync::Arc;
 use nivesh_core::{Interval, Sourced};
 use nivesh_data::forming::FormingBar;
 use nivesh_data::{HistoryRange, HistoryRequest, HubUpdate, Topic};
+use nivesh_indicators::{IndicatorSpec, Ohlcv, compute};
+use nivesh_store::Store;
 use tauri::State;
 use tauri::ipc::Channel;
 use tokio::sync::mpsc;
 
 use crate::commands::data::instrument_id;
 use crate::ipc::IpcError;
-use crate::ipc::chart::{BarDto, HistoryDto};
+use crate::ipc::chart::{BarDto, HistoryDto, IndicatorDto, IndicatorsDto};
 use crate::ipc::dto::ProvenanceDto;
 use crate::services::Services;
 
@@ -99,10 +101,122 @@ pub async fn subscribe_forming_bar(
     });
     Ok(id.0)
 }
+/// Most indicators one chart may carry.
+const MAX_INDICATORS: usize = 8;
+
+fn parse_specs(specs: &[String]) -> Result<Vec<IndicatorSpec>, IpcError> {
+    if specs.len() > MAX_INDICATORS {
+        return Err(IpcError::invalid_argument(format!(
+            "at most {MAX_INDICATORS} indicators per chart"
+        )));
+    }
+    specs
+        .iter()
+        .map(|s| {
+            s.parse().map_err(|e: nivesh_indicators::SpecError| {
+                IpcError::invalid_argument(e.to_string())
+            })
+        })
+        .collect()
+}
+
+/// Indicator lines for a chart's series, computed in Rust from the cached
+/// candles. The result carries the bar times it was computed for.
+#[tauri::command]
+pub async fn compute_indicators(
+    exchange: String,
+    symbol: String,
+    interval: String,
+    range: Option<String>,
+    specs: Vec<String>,
+    services: Svc<'_>,
+) -> Result<IndicatorsDto, IpcError> {
+    let specs = parse_specs(&specs)?;
+    let req = parse_request(&exchange, &symbol, &interval, range.as_deref())?;
+    let series = services.market.history(&req).await?;
+    let candles = &series.data.candles;
+    let t: Vec<i64> = candles.iter().map(|c| c.t).collect();
+    let column =
+        |f: fn(&nivesh_core::Candle) -> f64| -> Vec<f64> { candles.iter().map(f).collect() };
+    let (h, l, c, v) = (
+        column(|c| c.h),
+        column(|c| c.l),
+        column(|c| c.c),
+        column(|c| c.v),
+    );
+    let data = Ohlcv {
+        t: &t,
+        h: &h,
+        l: &l,
+        c: &c,
+        v: &v,
+    };
+    let indicators = specs
+        .iter()
+        .map(|spec| IndicatorDto::from(&compute(spec, &data)))
+        .collect();
+    Ok(IndicatorsDto { t, indicators })
+}
+
+fn indicators_key(exchange: &str, symbol: &str) -> Result<String, IpcError> {
+    let id = instrument_id(exchange, symbol)?;
+    Ok(format!("chart.indicators.{id}"))
+}
+
+/// The indicators saved for this symbol, in the order they were added. Entries
+/// that no longer parse are dropped.
+#[tauri::command]
+pub async fn chart_indicators(
+    exchange: String,
+    symbol: String,
+    store: State<'_, Arc<Store>>,
+) -> Result<Vec<String>, IpcError> {
+    let key = indicators_key(&exchange, &symbol)?;
+    let saved: Vec<String> = store
+        .setting(&key)?
+        .and_then(|json| serde_json::from_str(&json).ok())
+        .unwrap_or_default();
+    Ok(saved
+        .iter()
+        .filter_map(|s| s.parse::<IndicatorSpec>().ok())
+        .map(|s| s.id())
+        .take(MAX_INDICATORS)
+        .collect())
+}
+
+#[tauri::command]
+pub async fn save_chart_indicators(
+    exchange: String,
+    symbol: String,
+    specs: Vec<String>,
+    store: State<'_, Arc<Store>>,
+) -> Result<(), IpcError> {
+    let key = indicators_key(&exchange, &symbol)?;
+    let canonical: Vec<String> = parse_specs(&specs)?.iter().map(IndicatorSpec::id).collect();
+    let json = serde_json::to_string(&canonical)
+        .map_err(|e| IpcError::internal(format!("cannot encode indicators: {e}")))?;
+    Ok(store.set_setting(&key, &json)?)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::ipc::ErrorCode;
+
+    #[test]
+    fn indicator_specs_are_validated_and_bounded() {
+        let ok = parse_specs(&["sma 50".into(), "RSI".into()]).unwrap();
+        assert_eq!(
+            ok.iter().map(IndicatorSpec::id).collect::<Vec<_>>(),
+            ["SMA 50", "RSI 14"]
+        );
+        assert_eq!(
+            parse_specs(&["FOO".into()]).unwrap_err().code,
+            ErrorCode::InvalidArgument
+        );
+        let many = vec!["SMA 5".to_owned(); MAX_INDICATORS + 1];
+        assert!(parse_specs(&many).is_err());
+    }
 
     #[test]
     fn requests_parse_and_default_the_range() {

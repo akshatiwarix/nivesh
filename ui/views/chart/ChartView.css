@@ -75,3 +75,19 @@
   min-height: 120px;
   contain: strict;
 }
+
+.chart__legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 var(--pad-x);
+  padding: 0 var(--pad-x);
+  font-size: var(--fs-sm);
+}
+
+.chart__chip {
+  color: var(--c-amber);
+}
+
+.chart__chip--bad {
+  color: var(--c-stale);
+}

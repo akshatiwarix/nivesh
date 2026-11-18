@@ -411,8 +411,10 @@ pub fn parse_history(
             "yahoo chart: timestamps are not increasing".into(),
         ));
     }
+    // The data is as of the last trade Yahoo reports (a daily bar is stamped at
+    // the 09:15 open but holds the whole day), never earlier than the last bar.
     let as_of = match series.candles.last() {
-        Some(c) => utc_from_secs(c.t / 1000)?,
+        Some(c) => utc_from_secs((c.t / 1000).max(result.meta.regular_market_time.unwrap_or(0)))?,
         None => return Err(DataError::NotFound),
     };
     Ok(Sourced::new(series, provenance(as_of)))
@@ -750,12 +752,42 @@ mod tests {
         assert_eq!(s.data.candles.len(), 21);
         assert!(s.data.is_ordered());
         assert_eq!(s.data.candles[0].t, 1_792_381_500_000);
-        assert_eq!(s.provenance.as_of.timestamp(), 1_794_973_500);
+        // The fixture's meta.regularMarketTime (the last trade) is later than its
+        // last bar's 09:15 stamp.
+        assert_eq!(s.provenance.as_of.timestamp(), 1_794_980_395);
         assert!(
             s.data
                 .candles
                 .iter()
                 .all(|c| c.l <= c.o && c.o <= c.h && c.l <= c.c && c.c <= c.h)
+        );
+    }
+
+    #[test]
+    fn history_is_as_of_the_last_trade_not_the_last_bars_stamp() {
+        let body = br#"{"chart":{"result":[{"meta":{"regularMarketTime":99},"timestamp":[10,20],"indicators":{"quote":[{"open":[1.0,2.0],"high":[2.0,3.0],"low":[0.5,1.5],"close":[1.5,2.5],"volume":[100,200]}]}}],"error":null}}"#;
+        let req = HistoryRequest {
+            id: id("X"),
+            interval: Interval::D1,
+            range: HistoryRange::D5,
+        };
+        assert_eq!(
+            parse_history(body, &req)
+                .unwrap()
+                .provenance
+                .as_of
+                .timestamp(),
+            99
+        );
+        // A reported time before the last bar can't make the data older than the bar.
+        let early = String::from_utf8_lossy(body).replace("99", "5");
+        assert_eq!(
+            parse_history(early.as_bytes(), &req)
+                .unwrap()
+                .provenance
+                .as_of
+                .timestamp(),
+            20
         );
     }
 

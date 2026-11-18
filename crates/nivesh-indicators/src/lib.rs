@@ -20,11 +20,15 @@
 mod bands;
 mod ma;
 mod momentum;
+mod spec;
 mod vwap;
 
 pub use bands::{Atr, Bollinger, BollingerPoint, BollingerSeries, atr, bollinger};
 pub use ma::{Ema, Sma, Wma, ema, sma, wma};
 pub use momentum::{Macd, MacdPoint, MacdSeries, Rsi, macd, rsi};
+pub use spec::{
+    IndicatorSpec, Kind, Line, LineStyle, MAX_PERIOD, Ohlcv, Output, Placement, SpecError, compute,
+};
 pub use vwap::{IST_OFFSET_SECS, Vwap, vwap};
 
 /// The "not yet defined" marker used in batch output.

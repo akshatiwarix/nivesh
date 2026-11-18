@@ -9,6 +9,9 @@ export type { HistoryDto } from "./bindings/HistoryDto";
 export type { HubUpdateDto } from "./bindings/HubUpdateDto";
 export type { IndexQuoteDto } from "./bindings/IndexQuoteDto";
 export type { IndexSnapshotDto } from "./bindings/IndexSnapshotDto";
+export type { IndicatorDto } from "./bindings/IndicatorDto";
+export type { IndicatorLineDto } from "./bindings/IndicatorLineDto";
+export type { IndicatorsDto } from "./bindings/IndicatorsDto";
 export type { InstrumentDto } from "./bindings/InstrumentDto";
 export type { IpcError } from "./bindings/IpcError";
 export type { MarketStatusDto } from "./bindings/MarketStatusDto";
@@ -23,7 +26,13 @@ export type { UiState } from "./bindings/UiState";
 export type { WatchItemDto } from "./bindings/WatchItemDto";
 export type { WatchlistDto } from "./bindings/WatchlistDto";
 export type { WatchlistsDto } from "./bindings/WatchlistsDto";
-export { getHistory, subscribeFormingBar } from "./chart";
+export {
+  chartIndicators,
+  computeIndicators,
+  getHistory,
+  saveChartIndicators,
+  subscribeFormingBar,
+} from "./chart";
 export { IpcFailure, inTauri, toIpcError } from "./core";
 export {
   allIndices,

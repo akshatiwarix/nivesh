@@ -65,7 +65,10 @@ pub fn run() -> anyhow::Result<()> {
         // Keep in sync with COMMANDS in build.rs.
         .invoke_handler(tauri::generate_handler![
             commands::app::app_info,
+            commands::chart::chart_indicators,
+            commands::chart::compute_indicators,
             commands::chart::get_history,
+            commands::chart::save_chart_indicators,
             commands::chart::subscribe_forming_bar,
             commands::data::all_indices,
             commands::data::get_quote,

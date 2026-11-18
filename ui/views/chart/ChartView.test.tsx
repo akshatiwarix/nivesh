@@ -2,8 +2,14 @@ import { render } from "solid-js/web";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { pinClock, unpinClock } from "../../data/testClock";
 import type { BarDto, HistoryDto } from "../../ipc";
-import { getHistory, subscribeFormingBar } from "../../ipc";
-import { hasViewOps, PanelContext, sendViewOp } from "../context";
+import {
+  chartIndicators,
+  computeIndicators,
+  getHistory,
+  saveChartIndicators,
+  subscribeFormingBar,
+} from "../../ipc";
+import { hasViewOps, PanelContext, sendViewCommand, sendViewOp } from "../context";
 import type { View } from "../types";
 import { ChartView } from "./ChartView";
 
@@ -11,6 +17,9 @@ vi.mock("../../ipc", () => ({
   inTauri: () => true,
   getHistory: vi.fn(),
   subscribeFormingBar: vi.fn(),
+  chartIndicators: vi.fn(),
+  computeIndicators: vi.fn(),
+  saveChartIndicators: vi.fn(),
   toIpcError: (e: unknown) => ({ code: "INTERNAL", message: String(e), retryable: false }),
   IpcFailure: class extends Error {},
 }));
@@ -23,6 +32,8 @@ const calls = vi.hoisted(() => ({
   ranges: [] as unknown[],
   created: 0,
   removed: 0,
+  added: [] as { kind: string; pane: number | undefined; data?: unknown[] }[],
+  removedSeries: 0,
 }));
 let visible = { from: 100, to: 200 };
 
@@ -30,6 +41,7 @@ vi.mock("./lib", () => {
   const series = (name: string) => ({
     setData: (data: unknown[]) => calls.setData.push({ name, data }),
     update: (p: unknown) => calls.updates.push({ name, p }),
+    createPriceLine: () => {},
   });
   return {
     loadChartLib: async () => ({
@@ -37,11 +49,22 @@ vi.mock("./lib", () => {
       CrosshairMode: { Normal: 0 },
       CandlestickSeries: "candles",
       HistogramSeries: "histogram",
+      LineSeries: "line",
       createChart: () => {
         calls.created++;
         return {
-          addSeries: (kind: string) => series(kind),
-          panes: () => [{ setStretchFactor() {} }, { setStretchFactor() {} }],
+          addSeries: (kind: string, _opts: unknown, pane?: number) => {
+            calls.added.push({ kind, pane });
+            return series(kind === "line" ? `line@${pane}` : kind);
+          },
+          removeSeries: () => {
+            calls.removedSeries++;
+          },
+          panes: () => [
+            { setStretchFactor() {} },
+            { setStretchFactor() {} },
+            { setStretchFactor() {} },
+          ],
           subscribeCrosshairMove() {},
           timeScale: () => ({
             getVisibleLogicalRange: () => visible,
@@ -115,6 +138,11 @@ describe("ChartView", () => {
     calls.ranges.length = 0;
     calls.created = 0;
     calls.removed = 0;
+    calls.added.length = 0;
+    calls.removedSeries = 0;
+    vi.mocked(chartIndicators).mockReset().mockResolvedValue([]);
+    vi.mocked(computeIndicators).mockReset();
+    vi.mocked(saveChartIndicators).mockReset().mockResolvedValue(undefined);
     visible = { from: 100, to: 200 };
   });
 
@@ -239,5 +267,99 @@ describe("ChartView", () => {
     await tick();
     expect(getHistoryMock).toHaveBeenLastCalledWith("NSE", "RELIANCE", "1h", undefined);
     expect(root.querySelector(".chart__interval--on")?.textContent).toBe("1H");
+  });
+
+  describe("indicators", () => {
+    const indicatorsFor = (h: HistoryDto, ids: string[]) => ({
+      t: h.t,
+      indicators: ids.map((id) => {
+        const rsi = id.startsWith("RSI");
+        return {
+          id,
+          kind: id.split(" ")[0] ?? "",
+          placement: rsi ? "pane" : "overlay",
+          lines: [
+            {
+              name: id,
+              style: "line",
+              values: h.t.map((_, i) => (i < 5 ? null : 100 + i)),
+            },
+          ],
+          bounds: rsi ? ([0, 100] as [number, number]) : null,
+          guides: rsi ? [30, 70] : [],
+        };
+      }),
+    });
+
+    function mountWithPanel() {
+      root = document.createElement("div");
+      document.body.append(root);
+      dispose = render(
+        () => (
+          <PanelContext.Provider
+            value={{ panel: 0, open: () => {}, openBeside: () => {}, focused: () => true }}
+          >
+            <ChartView view={view()} />
+          </PanelContext.Provider>
+        ),
+        root,
+      );
+    }
+
+    it("restores a symbol's saved indicators: overlays on price, RSI in its own pane", async () => {
+      const h = history();
+      getHistoryMock.mockResolvedValue(h);
+      vi.mocked(chartIndicators).mockResolvedValue(["SMA 50", "RSI 14"]);
+      vi.mocked(computeIndicators).mockImplementation(async (_e, _s, _i, _r, specs) =>
+        indicatorsFor(h, [...specs]),
+      );
+      mount(view());
+      await tick();
+      expect(chartIndicators).toHaveBeenCalledWith("NSE", "RELIANCE");
+      expect(computeIndicators).toHaveBeenCalledWith("NSE", "RELIANCE", "1d", "5y", [
+        "SMA 50",
+        "RSI 14",
+      ]);
+      const lines = calls.added.filter((a) => a.kind === "line");
+      // The SMA sits on the price pane (0); RSI in the first pane after volume (2).
+      expect(lines.map((l) => l.pane)).toEqual([0, 2]);
+      expect(root.querySelector('[data-testid="indicators"]')?.textContent).toContain("SMA 50");
+      expect(root.querySelector('[data-testid="indicators"]')?.textContent).toContain("RSI 14");
+    });
+
+    it("ADD validates through Rust, saves the canonical form, and RM removes it", async () => {
+      const h = history();
+      getHistoryMock.mockResolvedValue(h);
+      vi.mocked(computeIndicators).mockImplementation(async (_e, _s, _i, _r, specs) =>
+        indicatorsFor(
+          h,
+          specs.map((s) => s.replace(/^RSI$/, "RSI 14")),
+        ),
+      );
+      mountWithPanel();
+      await tick();
+
+      expect(await sendViewCommand(0, "add", ["rsi"])).toBeUndefined();
+      await tick();
+      expect(saveChartIndicators).toHaveBeenLastCalledWith("NSE", "RELIANCE", ["RSI 14"]);
+      expect(calls.added.some((a) => a.kind === "line" && a.pane === 2)).toBe(true);
+      // Adding it twice is refused with a message.
+      expect(await sendViewCommand(0, "add", ["rsi"])).toMatch(/already on this chart/);
+
+      expect(await sendViewCommand(0, "rm", ["RSI"])).toBeUndefined();
+      await tick();
+      expect(saveChartIndicators).toHaveBeenLastCalledWith("NSE", "RELIANCE", []);
+      expect(calls.removedSeries).toBeGreaterThan(0);
+      expect(await sendViewCommand(0, "rm", ["RSI"])).toMatch(/not on this chart/);
+    });
+
+    it("passes the backend's reason when an indicator is invalid", async () => {
+      getHistoryMock.mockResolvedValue(history());
+      vi.mocked(computeIndicators).mockRejectedValue(new Error("unknown indicator `FOO`"));
+      mountWithPanel();
+      await tick();
+      expect(await sendViewCommand(0, "add", ["foo"])).toMatch(/unknown indicator/);
+      expect(saveChartIndicators).not.toHaveBeenCalled();
+    });
   });
 });

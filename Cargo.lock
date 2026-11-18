@@ -2635,6 +2635,7 @@ dependencies = [
  "chrono",
  "nivesh-core",
  "nivesh-data",
+ "nivesh-indicators",
  "nivesh-store",
  "serde",
  "serde_json",

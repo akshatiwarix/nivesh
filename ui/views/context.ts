@@ -39,6 +39,34 @@ export function sendViewOp(panel: number, op: ViewOp): boolean {
   return true;
 }
 
+/** A typed command aimed at a view (`ADD SMA 50` at a chart). Returns an error message. */
+export type ViewCommandHandler = (
+  name: string,
+  args: readonly string[],
+) => string | undefined | Promise<string | undefined>;
+
+const commandHandlers = new Map<number, ViewCommandHandler>();
+
+/** Sends a typed command to the view in `panel`; `undefined` if it takes none. */
+export function sendViewCommand(
+  panel: number,
+  name: string,
+  args: readonly string[],
+): ReturnType<ViewCommandHandler> | "unhandled" {
+  const handler = commandHandlers.get(panel);
+  return handler ? handler(name, args) : "unhandled";
+}
+
+/** Receives typed commands (ADD, RM) for this panel while the calling view is mounted. */
+export function useViewCommands(handler: ViewCommandHandler): void {
+  const { panel } = usePanel();
+  if (panel < 0) return;
+  commandHandlers.set(panel, handler);
+  onCleanup(() => {
+    if (commandHandlers.get(panel) === handler) commandHandlers.delete(panel);
+  });
+}
+
 export interface PanelContextValue {
   /** 0-based panel index. */
   panel: number;
