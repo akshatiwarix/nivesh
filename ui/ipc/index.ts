@@ -1,5 +1,6 @@
 export { appInfo } from "./app";
 export type { AppInfo } from "./bindings/AppInfo";
+export type { ConstituentsInfoDto } from "./bindings/ConstituentsInfoDto";
 export type { ErrorCode } from "./bindings/ErrorCode";
 export type { FreshnessDto } from "./bindings/FreshnessDto";
 export type { HealthDto } from "./bindings/HealthDto";

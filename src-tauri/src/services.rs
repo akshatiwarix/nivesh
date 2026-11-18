@@ -7,6 +7,8 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::Context as _;
 use nivesh_core::{MarketCalendar, ProviderId, Session};
+use nivesh_data::bse::BseListProvider;
+use nivesh_data::constituents::{self, ConstituentsList};
 use nivesh_data::http::{HostLimits, HttpClient, HttpConfig};
 use nivesh_data::nse::{NseConfig, NseProvider};
 use nivesh_data::yahoo::YahooProvider;
@@ -25,8 +27,17 @@ pub struct Services {
     pub market: MarketData,
     pub hub: QuoteHub,
     pub instruments: Arc<InstrumentMaster>,
+    /// The index membership lists (bundled, or a newer download).
+    pub constituents: Arc<ConstituentsList>,
     /// Providers that can supply instrument lists, for the daily refresh.
     list_sources: Vec<Arc<dyn DataProvider>>,
+    /// How to download the membership lists; `None` in tests.
+    list_download: Option<ListDownload>,
+}
+
+struct ListDownload {
+    http: HttpClient,
+    bases: Vec<String>,
 }
 
 /// Cached market data older than this is pruned at startup.
@@ -97,6 +108,17 @@ pub fn build(store: Arc<Store>, overrides: &Overrides) -> anyhow::Result<Service
     .context("building NSE http client")?;
     let yahoo_http =
         HttpClient::new(HttpConfig::default(), limits).context("building Yahoo http client")?;
+    // Index membership files are static downloads: no cookies, own client.
+    let list_download = ListDownload {
+        http: yahoo_http.clone(),
+        bases: match &overrides.nse_url {
+            Some(url) => vec![format!("{}/content/indices", url.trim_end_matches('/'))],
+            None => constituents::DEFAULT_BASES
+                .iter()
+                .map(|b| (*b).to_owned())
+                .collect(),
+        },
+    };
 
     let nse = match &overrides.nse_url {
         Some(url) => {
@@ -110,7 +132,19 @@ pub fn build(store: Arc<Store>, overrides: &Overrides) -> anyhow::Result<Service
     };
     let nse: Arc<dyn DataProvider> = Arc::new(nse);
     let yahoo: Arc<dyn DataProvider> = Arc::new(yahoo);
-    build_with_providers(store, vec![nse, yahoo], &overrides.force_fail)
+    // BSE's list is a plain download, used only for the instrument master (BSE
+    // quotes come from Yahoo). Fixture mode (a local NSE URL) stays offline.
+    let list_only: Vec<Arc<dyn DataProvider>> = match &overrides.nse_url {
+        Some(_) => Vec::new(),
+        None => vec![Arc::new(BseListProvider::new(list_download.http.clone()))],
+    };
+    assemble(
+        store,
+        vec![nse, yahoo],
+        list_only,
+        &overrides.force_fail,
+        Some(list_download),
+    )
 }
 
 /// Wires services around any providers (tests pass mocks).
@@ -119,15 +153,30 @@ pub fn build_with_providers(
     providers: Vec<Arc<dyn DataProvider>>,
     force_fail: &[ProviderId],
 ) -> anyhow::Result<Services> {
+    assemble(store, providers, Vec::new(), force_fail, None)
+}
+
+fn assemble(
+    store: Arc<Store>,
+    providers: Vec<Arc<dyn DataProvider>>,
+    list_only: Vec<Arc<dyn DataProvider>>,
+    force_fail: &[ProviderId],
+    list_download: Option<ListDownload>,
+) -> anyhow::Result<Services> {
     let cutoff_ms = (now_secs() - i64::try_from(CACHE_KEEP.as_secs()).unwrap_or(i64::MAX)) * 1000;
     if let Err(err) = store.cache_prune(cutoff_ms) {
         tracing::warn!(%err, "pruning the data cache failed");
     }
 
-    let mut builder = MarketData::builder().cache(CacheConfig {
-        persistent: Some(Arc::clone(&store) as Arc<dyn nivesh_data::PersistentCache>),
-        ..CacheConfig::default()
-    });
+    let constituents = Arc::new(
+        ConstituentsList::open(Arc::clone(&store)).context("opening the constituent lists")?,
+    );
+    let mut builder = MarketData::builder()
+        .constituents(Arc::clone(&constituents))
+        .cache(CacheConfig {
+            persistent: Some(Arc::clone(&store) as Arc<dyn nivesh_data::PersistentCache>),
+            ..CacheConfig::default()
+        });
     for provider in &providers {
         builder = builder.provider(Arc::clone(provider));
     }
@@ -137,8 +186,10 @@ pub fn build_with_providers(
         market.force_failure(*provider, Some(DataError::Blocked));
     }
 
-    let instruments =
-        Arc::new(InstrumentMaster::open(store).context("opening the instrument master")?);
+    let instruments = Arc::new(
+        InstrumentMaster::open_ranked(store, constituents.popularity())
+            .context("opening the instrument master")?,
+    );
     let calendar = Arc::new(MarketCalendar::bundled());
     let hub = QuoteHub::spawn(market.clone(), HubConfig::default(), move || {
         calendar.status_at(now_secs()).session != Session::Closed
@@ -147,12 +198,15 @@ pub fn build_with_providers(
         market,
         hub,
         instruments,
-        list_sources: providers,
+        constituents,
+        list_sources: providers.into_iter().chain(list_only).collect(),
+        list_download,
     })
 }
 
 impl Services {
-    /// Background work: the daily instrument-list refresh.
+    /// Background work: the daily instrument-list refresh and the weekly
+    /// index-membership refresh.
     pub fn spawn_background_tasks(self: &Arc<Self>) {
         let services = Arc::clone(self);
         tauri::async_runtime::spawn(async move {
@@ -162,6 +216,19 @@ impl Services {
                     .instruments
                     .refresh_if_due(&services.list_sources, now_ms)
                     .await;
+                if let Some(download) = &services.list_download {
+                    let changed = services
+                        .constituents
+                        .refresh_if_due(&download.http, &download.bases, now_ms)
+                        .await;
+                    if changed
+                        && let Err(err) = services
+                            .instruments
+                            .set_popularity(services.constituents.popularity())
+                    {
+                        tracing::warn!(%err, "re-ranking search after a constituent refresh failed");
+                    }
+                }
                 tokio::time::sleep(LIST_CHECK_EVERY).await;
             }
         });
@@ -306,6 +373,51 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn blocked_nse_still_yields_nifty_constituents_from_the_bundled_list() {
+        use nivesh_core::{IndexId, IndexQuote, IndexSnapshot};
+
+        let nse = Arc::new(MockProvider::new(ProviderId::Nse, Capabilities::INDEX));
+        let yahoo = Arc::new(MockProvider::new(
+            ProviderId::Yahoo,
+            Capabilities::QUOTE | Capabilities::INDEX,
+        ));
+        let now = Utc::now();
+        let prov = Provenance::new(ProviderId::Yahoo, FeedKind::Delayed, now, now);
+        yahoo.repeat_index(Ok(Sourced::new(
+            IndexSnapshot {
+                quote: IndexQuote {
+                    index: IndexId::Nifty50,
+                    last: 25000.0,
+                    prev_close: 24900.0,
+                    open: None,
+                    high: None,
+                    low: None,
+                    week52_high: None,
+                    week52_low: None,
+                    advances: None,
+                    declines: None,
+                },
+                constituents: vec![],
+                constituents_info: None,
+            },
+            prov,
+        )));
+        yahoo.repeat_quotes(Ok(vec![quote(ProviderId::Yahoo, "RELIANCE")]));
+        let store = Arc::new(Store::open_in_memory().unwrap());
+        let services = build_with_providers(store, vec![nse, yahoo], &[ProviderId::Nse]).unwrap();
+        let snap = services
+            .market
+            .index_snapshot(IndexId::Nifty50)
+            .await
+            .unwrap();
+        assert_eq!(snap.provenance.provider, ProviderId::Yahoo);
+        assert_eq!(snap.data.constituents.len(), 1);
+        let info = snap.data.constituents_info.unwrap();
+        assert_eq!(info.as_of, services.constituents.snapshot().as_of);
+        services.hub.shutdown();
+    }
+
+    #[tokio::test]
     async fn a_forced_nse_failure_falls_back_to_yahoo() {
         let nse = Arc::new(MockProvider::new(ProviderId::Nse, Capabilities::QUOTE));
         nse.repeat_quotes(Ok(vec![quote(ProviderId::Nse, "TCS")]));
@@ -316,6 +428,57 @@ mod tests {
         let id = InstrumentId::new(Exchange::Nse, "TCS").unwrap();
         let q = services.market.quote(&id).await.unwrap();
         assert_eq!(q.provenance.provider, ProviderId::Yahoo);
+        services.hub.shutdown();
+    }
+
+    /// Live check against the real providers. Hits the network, so it is run by
+    /// hand: `cargo test -p nivesh-app live_ -- --ignored --nocapture`.
+    #[tokio::test]
+    #[ignore = "network"]
+    async fn live_nifty_constituents_and_relia_search() {
+        use nivesh_core::IndexId;
+
+        for forced in [Vec::new(), vec![ProviderId::Nse]] {
+            let store = Arc::new(Store::open_in_memory().unwrap());
+            let overrides = Overrides {
+                force_fail: forced.clone(),
+                ..Overrides::default()
+            };
+            let services = build(store, &overrides).unwrap();
+            let snap = services
+                .market
+                .index_snapshot(IndexId::Nifty50)
+                .await
+                .unwrap();
+            let priced = snap.data.constituents.len();
+            let info = snap.data.constituents_info.as_ref();
+            println!(
+                "forced_fail={forced:?}: NIFTY 50 level {} from {} ({} constituents with quotes, list as of {:?}, first {:?})",
+                snap.data.quote.last,
+                snap.provenance.provider,
+                priced,
+                info.map(|i| (&i.as_of, &i.source)),
+                snap.data
+                    .constituents
+                    .first()
+                    .map(|q| (&q.id, q.ltp, q.prev_close)),
+            );
+            assert_eq!(priced, 50);
+            assert!(snap.data.constituents.iter().all(|q| q.ltp > 0.0));
+            services.hub.shutdown();
+        }
+
+        let store = Arc::new(Store::open_in_memory().unwrap());
+        let services = build(store, &Overrides::default()).unwrap();
+        let hits = services.instruments.search("relia", 5);
+        let tags: Vec<_> = hits.iter().map(|i| i.id.to_string()).collect();
+        println!("relia -> {tags:?}");
+        assert_eq!(tags[0], "NSE:RELIANCE");
+        let samor = services.instruments.search("samor", 3);
+        println!(
+            "samor -> {:?}",
+            samor.iter().map(|i| i.id.to_string()).collect::<Vec<_>>()
+        );
         services.hub.shutdown();
     }
 }

@@ -1,5 +1,6 @@
 // Builders for market-data DTOs, shared by view and feed tests.
 import type {
+  ConstituentsInfoDto,
   HubUpdateDto,
   IndexQuoteDto,
   ProvenanceDto,
@@ -68,12 +69,14 @@ export function indexUpdate(
   last: number,
   symbols: string[],
   provider = "nse",
+  constituentsInfo: ConstituentsInfoDto | null = null,
 ): HubUpdateDto {
   return {
     kind: "index",
     snapshot: {
       quote: indexQuote(code, title, last),
       constituents: symbols.map((s, i) => quote(s, 1000 + i)),
+      constituentsInfo,
       provenance: prov(provider),
     },
   };

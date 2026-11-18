@@ -766,8 +766,8 @@ needs, can't accidentally grow order placement:
   to Yahoo. Back-off is per endpoint. Quote volume is left unset (unit
   unverified). `market_status` stays on the local calendar; the event
   `market:session` replaced the 15 s poll.
-- **BSE:** no instrument list (its endpoint refused the dev machine). BSE symbols
-  are typed explicitly and quoted via Yahoo `.BO`.
+- **BSE:** the first cut had no instrument list (superseded by the Part 2b notes
+  below). BSE quotes come from Yahoo `.BO`.
 - **Hub** topics also cover index snapshots and the dashboard list, not only quotes.
 - **UI:** `ProvenanceBadge` arrives with the first data view (commit 11);
   `DataPanel` (requires provenance) and provider health land in commit 15 as planned.
@@ -782,6 +782,64 @@ needs, can't accidentally grow order placement:
 - **Fixtures:** Yahoo and NSE `allIndices`/`marketStatus`/equity list are real
   recordings; NSE `quote-equity` and `equity-stockIndices` are hand-written
   (`*.synthetic.json`) because those endpoints refused the dev IP.
+
+### Part 2b gap fixes (branch `part-2b-gap-fixes`)
+
+Deviations from, and additions to, the Part 2 plan above:
+
+- **Index constituents fall back to a dated list.** NSE's `equity-stockIndices`
+  is unreachable from many networks (it 404'd on the dev machine), which left
+  `NIFTY` with a level and no rows. `nivesh-data/data/index_constituents.json`
+  bundles NSE Indices' public constituent files for NIFTY 50, NIFTY BANK and the
+  eleven sector indices in the catalogue, plus NIFTY NEXT 50 and NIFTY 500 (for
+  search ranking). **As of 2026-11-18**, from `niftyindices.com/IndexConstituent/
+  ind_*list.csv`; `archives.nseindia.com/content/indices/` serves identical files
+  and is the second host tried. SENSEX is a BSE index with no NSE file and has no
+  fallback list. The lists have no publication date of their own, so "as of" is
+  the day they were downloaded.
+  - The chain fills them in only when the provider that priced the level had no
+    constituents, and prices them through that same provider (never a splice).
+    The snapshot then carries `constituents_info` (date and source) and the
+    index view shows `CONSTITUENTS AS OF <date>, <source>` while prices keep their
+    DELAYED badge. Live NSE constituents carry no such label.
+  - Yahoo's chart endpoint would take 50 requests for NIFTY 50 (about 25 s under
+    its rate limit), so `DataProvider::constituent_quotes` (default: `quotes`)
+    lets Yahoo use its `spark` batch endpoint: 20 symbols per request, last price
+    and previous close only. Fallback rows therefore show no volume, high or low.
+  - **Refresh path:** `pnpm refresh:data` (the `refresh_seeds` example) rewrites
+    the bundled JSON and the BSE seed; at runtime the background task downloads the
+    lists weekly, all-or-nothing, and keeps the newest copy in the `settings` table.
+    A failed download changes nothing.
+- **Search ranking.** Within each match tier, popularity now breaks ties before
+  symbol length: NIFTY 50, then NIFTY NEXT 50, then the rest of NIFTY 500, then
+  unlisted (from the same bundled lists). Order: exact symbol, symbol prefix, name
+  word prefix, substring, fuzzy (where match tightness still comes first).
+  `relia` now gives RELIANCE, RELIABLE, ... Popularity applies to NSE rows only.
+- **BSE list.** BSE's scrip-master API answers 403 to ordinary clients, so the
+  list comes from the public daily bhavcopy (UDiFF,
+  `www.bseindia.com/download/BhavCopy/Equity/BhavCopy_BSE_CM_0_0_0_<date>_F_0000.CSV`).
+  A `BseListProvider` (new `ProviderId::Bse`, instruments only, outside quote
+  routing) takes the newest file, walking back over weekends and holidays. Only
+  company shares are kept (ISIN `INE...`, not debt groups `F`/`G`, funds or ETFs).
+  The bundled seed is 4,370 equities from the bhavcopy of **2026-11-17**, loaded
+  on first run and on installs that only had NSE; refreshed daily.
+  - BSE names are truncated to 30 characters by BSE.
+  - Search hides a BSE row whose ISIN an NSE row shares (dual-listed: one result,
+    NSE). A shared ticker on a different company is kept, NSE first. The hidden
+    row still resolves by id (`BSE:RELIANCE`).
+  - The seed adds about 210 KB to the binary.
+- **NSE dropouts (cheap tweaks only).** The Yahoo fallback is unchanged. A failed
+  half-open probe now doubles the breaker cool-down (30 s up to 10 min; reset on
+  success), and `ProviderStatus.blocked` lets the status bar say
+  `NSE BLOCKED -> YAHOO` instead of a bare `NSE DOWN`. NSE's own per-endpoint
+  back-off (60 s up to 15 min) already limited real requests and is untouched.
+- **Known gaps:** fallback constituent rows have no volume/high/low; the
+  fallback lists drift between refreshes (semi-annual rebalances) and the label
+  says so by date; the BSE seed holds only equities traded on its date, so a
+  stock suspended that day is absent until a later refresh; BSE index SENSEX still
+  has no constituents.
+- **Smoke test:** `cargo test -p nivesh-app live_ -- --ignored --nocapture` runs the
+  live NIFTY 50 and `relia` checks against the real providers.
 
 ---
 

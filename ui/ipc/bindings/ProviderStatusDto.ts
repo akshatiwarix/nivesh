@@ -4,4 +4,8 @@ import type { HealthDto } from "./HealthDto";
 /**
  * A provider's health, for the status bar (also the `provider:status` event).
  */
-export type ProviderStatusDto = { provider: string, state: HealthDto, consecutiveFailures: number, lastError: string | null, lastOkMs: number | null, };
+export type ProviderStatusDto = { provider: string, state: HealthDto, consecutiveFailures: number, lastError: string | null, lastOkMs: number | null, 
+/**
+ * The last failure was the provider refusing us, not a slow or dead link.
+ */
+blocked: boolean, };

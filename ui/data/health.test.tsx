@@ -18,6 +18,7 @@ const status = (provider: string, state: ProviderStatusDto["state"], extra = {})
     consecutiveFailures: state === "HEALTHY" ? 0 : 3,
     lastError: state === "HEALTHY" ? null : "blocked by the provider",
     lastOkMs: null,
+    blocked: false,
     ...extra,
   }) satisfies ProviderStatusDto;
 
@@ -64,16 +65,38 @@ describe("provider health in the status bar", () => {
     await tick();
     push(status("nse", "DOWN"));
     await tick();
-    expect(badges()).toEqual(["NSE DOWN", "YAHOO OK"]);
+    expect(badges()).toEqual(["NSE DOWN -> YAHOO", "YAHOO OK"]);
     const nse = root.querySelector(".badge--down");
     expect(nse?.getAttribute("title")).toContain("blocked by the provider");
-    expect(nse?.getAttribute("title")).toContain("other sources are used");
+    expect(nse?.getAttribute("title")).toContain("YAHOO is used instead");
     push(status("nse", "DEGRADED"));
     await tick();
     expect(badges()[0]).toBe("NSE SLOW");
     push(status("nse", "HEALTHY"));
     await tick();
     expect(badges()[0]).toBe("NSE OK");
+  });
+
+  it("says BLOCKED when the provider refuses us, and who covers for it", async () => {
+    await tick();
+    push(status("nse", "DOWN", { blocked: true }));
+    await tick();
+    expect(badges()).toEqual(["NSE BLOCKED -> YAHOO", "YAHOO OK"]);
+    const title = root.querySelector(".badge--down")?.getAttribute("title") ?? "";
+    expect(title).toContain("NSE is refusing requests from this network");
+    expect(title).toContain("YAHOO is used instead");
+  });
+
+  it("names no stand-in when the fallback is down too, or for a source with none", async () => {
+    await tick();
+    push(status("nse", "DOWN", { blocked: true }));
+    push(status("yahoo", "DOWN"));
+    await tick();
+    expect(badges()).toEqual(["NSE BLOCKED", "YAHOO DOWN"]);
+    // Yahoo being down is not "covered" by NSE: NSE is the primary, not a fallback.
+    push(status("nse", "HEALTHY"));
+    await tick();
+    expect(badges()).toEqual(["NSE OK", "YAHOO DOWN"]);
   });
 
   it("an event that beats the snapshot is not overwritten by it", async () => {

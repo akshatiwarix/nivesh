@@ -588,6 +588,7 @@ mod tests {
             IndexSnapshot {
                 quote: level.clone(),
                 constituents: vec![quote("TCS").data],
+                constituents_info: None,
             },
             prov.clone(),
         )));

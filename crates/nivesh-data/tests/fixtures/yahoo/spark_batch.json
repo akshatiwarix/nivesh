@@ -1,0 +1,53 @@
+{
+ "TCS.NS": {
+  "timestamp": [
+   1794995931
+  ],
+  "end": null,
+  "symbol": "TCS.NS",
+  "dataGranularity": 300,
+  "close": [
+   2379.5
+  ],
+  "start": null,
+  "previousClose": null,
+  "chartPreviousClose": 2406.6,
+  "fulldayChange": -27.1,
+  "fulldayChangePercent": -1.126,
+  "fulldayPrice": 2379.5
+ },
+ "RELIANCE.NS": {
+  "timestamp": [
+   1794995928
+  ],
+  "end": null,
+  "symbol": "RELIANCE.NS",
+  "dataGranularity": 300,
+  "close": [
+   1363.0
+  ],
+  "start": null,
+  "previousClose": null,
+  "chartPreviousClose": 1367.0,
+  "fulldayChange": -4.0,
+  "fulldayChangePercent": -0.293,
+  "fulldayPrice": 1363.0
+ },
+ "M&M.NS": {
+  "timestamp": [
+   1794995935
+  ],
+  "end": null,
+  "symbol": "M&M.NS",
+  "dataGranularity": 300,
+  "close": [
+   3359.1
+  ],
+  "start": null,
+  "previousClose": null,
+  "chartPreviousClose": 3399.0,
+  "fulldayChange": -39.9,
+  "fulldayChangePercent": -1.174,
+  "fulldayPrice": 3359.1
+ }
+}

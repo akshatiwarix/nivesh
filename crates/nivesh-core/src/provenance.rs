@@ -16,6 +16,8 @@ pub enum ProviderId {
     Nse,
     Yahoo,
     Rss,
+    /// BSE's public lists (scrip master). Supplies instrument lists only.
+    Bse,
     /// Broker-backed data (Part 4 onward).
     Kite,
 }
@@ -26,6 +28,7 @@ impl ProviderId {
             ProviderId::Nse => "nse",
             ProviderId::Yahoo => "yahoo",
             ProviderId::Rss => "rss",
+            ProviderId::Bse => "bse",
             ProviderId::Kite => "kite",
         }
     }

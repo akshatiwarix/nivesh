@@ -18,7 +18,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "tauri": "tauri",
-    "gen:bindings": "cargo run -q -p nivesh-app --example gen_bindings"
+    "gen:bindings": "cargo run -q -p nivesh-app --example gen_bindings",
+    "refresh:data": "cargo run -q -p nivesh-data --example refresh_seeds -- all"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.12.5",

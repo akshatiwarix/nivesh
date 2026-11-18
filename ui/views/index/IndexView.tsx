@@ -127,6 +127,13 @@ export const IndexView: Component<{ view: Extract<View, { kind: "index" }> }> = 
             </p>
           )}
         </Show>
+        <Show when={feed.state.header?.constituentsInfo}>
+          {(info) => (
+            <p class="idx__note" data-testid="constituents-asof">
+              CONSTITUENTS AS OF {info().asOf}, {info().source}
+            </p>
+          )}
+        </Show>
         <DataTable
           label={`${props.view.title} constituents`}
           columns={COLUMNS}
