@@ -23,6 +23,7 @@ serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 tempfile = "3.27.0"
 proptest = { version = "1.6.0", default-features = false, features = ["std"] }
+criterion = { version = "0.7.0", default-features = false, features = ["cargo_bench_support"] }
 tauri = { version = "2.12.6", features = [] }
 tauri-build = { version = "2.7.5", features = [] }
 tauri-plugin-single-instance = "2.5.5"
