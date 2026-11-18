@@ -20,6 +20,7 @@ use serde::Deserialize;
 use tokio::task::JoinSet;
 
 use crate::http::HttpClient;
+use crate::util::{percent_encode, settle};
 use crate::{Capabilities, DataError, DataProvider, HistoryRange, HistoryRequest};
 
 pub const DEFAULT_BASE_URL: &str = "https://query1.finance.yahoo.com";
@@ -57,18 +58,6 @@ pub fn equity_ticker(id: &InstrumentId) -> String {
         Exchange::Bse => "BO",
     };
     format!("{}.{suffix}", id.symbol())
-}
-
-/// Percent-encodes a ticker for use as a URL path segment (`^`, `&`).
-fn encode_segment(ticker: &str) -> String {
-    let mut out = String::with_capacity(ticker.len());
-    for b in ticker.bytes() {
-        match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' => out.push(char::from(b)),
-            _ => out.push_str(&format!("%{b:02X}")),
-        }
-    }
-    out
 }
 
 const fn yahoo_interval(interval: Interval) -> &'static str {
@@ -378,7 +367,7 @@ impl YahooProvider {
         format!(
             "{}/v8/finance/chart/{}?range={range}&interval={interval}",
             self.base_url,
-            encode_segment(ticker)
+            percent_encode(ticker)
         )
     }
 
@@ -390,31 +379,6 @@ impl YahooProvider {
             .get(&url, &[("Accept", "application/json")])
             .await?
             .body)
-    }
-}
-
-/// Collects per-item results: successes if there are any, otherwise the most
-/// informative failure (anything but NotFound wins over NotFound).
-fn settle<T>(results: Vec<Result<T, DataError>>) -> Result<Vec<T>, DataError> {
-    let mut ok = Vec::new();
-    let mut err: Option<DataError> = None;
-    for r in results {
-        match r {
-            Ok(v) => ok.push(v),
-            Err(DataError::NotFound) => {
-                err.get_or_insert(DataError::NotFound);
-            }
-            Err(e) => {
-                if matches!(err, None | Some(DataError::NotFound)) {
-                    err = Some(e);
-                }
-            }
-        }
-    }
-    if ok.is_empty() {
-        Err(err.unwrap_or(DataError::NotFound))
-    } else {
-        Ok(ok)
     }
 }
 
@@ -480,13 +444,26 @@ impl DataProvider for YahooProvider {
         }))
     }
 
-    async fn all_indices(&self) -> Result<Sourced<Vec<IndexQuote>>, DataError> {
+    async fn all_indices(&self) -> Result<Vec<Sourced<IndexQuote>>, DataError> {
+        // Probe one index first. If Yahoo is blocking us, rate-limiting us or
+        // unreachable, say so now instead of sending twelve more requests that
+        // will fail the same way (and, when throttled, make it worse).
+        let (probe_index, probe_ticker) = INDEX_TICKERS[0];
+        let probe = async {
+            let body = self.fetch(probe_ticker, "1d", "1d").await?;
+            parse_index_quote(&body, probe_index)
+        }
+        .await;
+        match &probe {
+            Err(DataError::NotFound) | Ok(_) => {}
+            Err(other) => return Err(other.clone()),
+        }
         let provider = Arc::new(YahooProvider {
             http: self.http.clone(),
             base_url: self.base_url.clone(),
         });
         let mut set = JoinSet::new();
-        for (index, ticker) in INDEX_TICKERS {
+        for (index, ticker) in INDEX_TICKERS.iter().skip(1) {
             let (provider, index, ticker) = (Arc::clone(&provider), *index, *ticker);
             set.spawn(async move {
                 let result = async {
@@ -497,7 +474,7 @@ impl DataProvider for YahooProvider {
                 (index, result)
             });
         }
-        let mut results = Vec::new();
+        let mut results = vec![(probe_index, probe)];
         while let Some(joined) = set.join_next().await {
             let (index, result) =
                 joined.map_err(|e| DataError::Upstream(format!("task failed: {e}")))?;
@@ -508,16 +485,7 @@ impl DataProvider for YahooProvider {
         }
         // Dashboard order, not completion order.
         results.sort_by_key(|(index, _)| *index);
-        let quotes = settle(results.into_iter().map(|(_, r)| r).collect())?;
-        let as_of = quotes
-            .iter()
-            .map(|q| q.provenance.as_of)
-            .max()
-            .unwrap_or_else(Utc::now);
-        Ok(Sourced::new(
-            quotes.into_iter().map(|q| q.data).collect(),
-            provenance(as_of),
-        ))
+        settle(results.into_iter().map(|(_, r)| r).collect())
     }
 }
 
@@ -557,9 +525,6 @@ mod tests {
     fn tickers_map_exchanges_and_encode_specials() {
         assert_eq!(equity_ticker(&id("RELIANCE")), "RELIANCE.NS");
         assert_eq!(equity_ticker(&id("BSE:500325")), "500325.BO");
-        assert_eq!(encode_segment("M&M.NS"), "M%26M.NS");
-        assert_eq!(encode_segment("^NSEI"), "%5ENSEI");
-        assert_eq!(encode_segment("BAJAJ-AUTO.NS"), "BAJAJ-AUTO.NS");
     }
 
     #[test]
@@ -787,6 +752,21 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn all_indices_gives_up_after_one_request_when_yahoo_is_refusing() {
+        let server = MockServer::start().await;
+        // Exactly one request, not thirteen.
+        Mock::given(method("GET"))
+            .respond_with(ResponseTemplate::new(403))
+            .expect(1)
+            .mount(&server)
+            .await;
+        assert_eq!(
+            provider_for(&server).all_indices().await.unwrap_err(),
+            DataError::Blocked
+        );
+    }
+
+    #[tokio::test]
     async fn all_indices_skips_failures_and_keeps_dashboard_order() {
         let server = MockServer::start().await;
         Mock::given(method("GET"))
@@ -804,7 +784,7 @@ mod tests {
             .mount(&server)
             .await;
         let all = provider_for(&server).all_indices().await.unwrap();
-        let ids: Vec<_> = all.data.iter().map(|q| q.index).collect();
+        let ids: Vec<_> = all.iter().map(|q| q.data.index).collect();
         assert_eq!(ids, [IndexId::Nifty50, IndexId::NiftyBank]);
     }
 

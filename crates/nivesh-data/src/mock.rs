@@ -49,7 +49,7 @@ pub struct MockProvider {
     quotes: Mutex<Script<Quotes>>,
     history: Mutex<Script<Sourced<CandleSeries>>>,
     index: Mutex<Script<Sourced<IndexSnapshot>>>,
-    all_indices: Mutex<Script<Sourced<Vec<IndexQuote>>>>,
+    all_indices: Mutex<Script<Vec<Sourced<IndexQuote>>>>,
     pub quote_calls: AtomicUsize,
     pub history_calls: AtomicUsize,
     pub index_calls: AtomicUsize,
@@ -115,7 +115,7 @@ impl MockProvider {
         lock(&self.index).repeat = Some(result);
     }
 
-    pub fn repeat_all_indices(&self, result: Result<Sourced<Vec<IndexQuote>>, DataError>) {
+    pub fn repeat_all_indices(&self, result: Result<Vec<Sourced<IndexQuote>>, DataError>) {
         lock(&self.all_indices).repeat = Some(result);
     }
 
@@ -168,7 +168,7 @@ impl DataProvider for MockProvider {
         lock(&self.index).next()
     }
 
-    async fn all_indices(&self) -> Result<Sourced<Vec<IndexQuote>>, DataError> {
+    async fn all_indices(&self) -> Result<Vec<Sourced<IndexQuote>>, DataError> {
         self.all_indices_calls.fetch_add(1, Ordering::SeqCst);
         self.pause().await;
         lock(&self.all_indices).next()

@@ -7,7 +7,9 @@
 mod error;
 pub mod http;
 pub mod mock;
+pub mod nse;
 mod provider;
+mod util;
 pub mod yahoo;
 
 pub use error::DataError;

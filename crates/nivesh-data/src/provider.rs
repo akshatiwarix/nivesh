@@ -140,8 +140,9 @@ pub trait DataProvider: Send + Sync + 'static {
 
     /// Levels of every catalogued index the provider carries, for the MKT
     /// dashboard. Added to the plan's trait so the dashboard costs one request
-    /// on NSE instead of one per index.
-    async fn all_indices(&self) -> Result<Sourced<Vec<IndexQuote>>, DataError> {
+    /// on NSE instead of one per index. Each level has its own provenance so
+    /// the chain can fill indices one provider lacks (SENSEX) from another.
+    async fn all_indices(&self) -> Result<Vec<Sourced<IndexQuote>>, DataError> {
         Err(DataError::Unsupported)
     }
 

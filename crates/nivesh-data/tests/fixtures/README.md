@@ -11,3 +11,14 @@ network.
 | `nse/*` | See the note in that directory. |
 
 Never put tokens, cookies, client ids or real account data in fixtures.
+
+## NSE
+
+NSE fixtures from the development machine's IP were only partly obtainable:
+
+- `nse/all_indices.json` (trimmed to the indices Nivesh uses) and
+  `nse/market_status.json` are **recordings**.
+- `nse/*.synthetic.json` are **hand-written** to NSE's documented shapes
+  (`quote-equity`, `equity-stockIndices`). `quote-equity` returned 403 and
+  `equity-stockIndices` returned 404 from that IP. Replace them with
+  recordings when you can reach those endpoints; the parsers must pass both.
