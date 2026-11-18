@@ -74,7 +74,20 @@ describe("registry", () => {
     expect([...words].sort()).toEqual(words);
   });
 
-  it("finds no functions yet", () => {
-    expect(findFunction("CH")).toBeUndefined();
+  it("finds the chart function by name or alias", () => {
+    expect(findFunction("ch")?.id).toBe("ch");
+    expect(findFunction("CHART")?.id).toBe("ch");
+    expect(findFunction("NOPE")).toBeUndefined();
+  });
+
+  it("keeps the chart function and its arguments on an instrument", () => {
+    expect(parse("reliance ch 5m 1mo")).toEqual({
+      kind: "instrument",
+      exchange: "NSE",
+      symbol: "RELIANCE",
+      fn: "ch",
+      args: ["5M", "1MO"],
+    });
+    expect(parse("ch 1h")).toEqual({ kind: "command", id: "ch", args: ["1H"] });
   });
 });

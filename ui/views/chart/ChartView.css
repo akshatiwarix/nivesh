@@ -1,0 +1,77 @@
+.chart {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 0;
+  min-height: 0;
+}
+
+.chart .datapanel {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.chart__bar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: var(--pad-y) var(--pad-x);
+  border-bottom: 1px solid var(--c-line);
+}
+
+.chart__interval {
+  height: var(--row-h);
+  padding: 0 var(--pad-x);
+  border: 1px solid transparent;
+  background: none;
+  color: var(--c-fg-dim);
+  font: inherit;
+  font-size: var(--fs-sm);
+  cursor: pointer;
+}
+
+.chart__interval--on {
+  border-color: var(--c-amber);
+  color: var(--c-amber);
+}
+
+.chart__range {
+  margin-left: auto;
+  color: var(--c-fg-faint);
+  font-size: var(--fs-sm);
+}
+
+.chart__readout {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 var(--pad-x);
+  padding: var(--pad-y) var(--pad-x);
+  color: var(--c-fg-dim);
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.chart__cell b {
+  color: var(--c-fg);
+  font-weight: var(--fw);
+}
+
+.chart__msg {
+  margin: 0;
+  padding: var(--pad-y) var(--pad-x);
+  color: var(--c-fg-dim);
+  font-size: var(--fs-sm);
+}
+
+.chart__msg[role="alert"] {
+  color: var(--c-stale);
+}
+
+.chart__host {
+  position: relative;
+  flex: 1;
+  min-height: 120px;
+  contain: strict;
+}

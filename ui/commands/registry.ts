@@ -55,10 +55,25 @@ export const COMMANDS: readonly CommandDef[] = [
     usage: "MKT",
     fkey: 2,
   },
+  {
+    id: "ch",
+    names: ["CH", "CHART"],
+    summary: "Chart of the instrument in the focused panel. CH 5M, CH 1D 5Y",
+    usage: "CH [INTERVAL] [RANGE]",
+    fkey: 4,
+  },
 ];
 
-/** Functions valid after an instrument. Empty until charts land in Part 3. */
-export const FUNCTIONS: readonly FunctionDef[] = [];
+/** Functions valid after an instrument: `RELIANCE CH 5M`. */
+export const FUNCTIONS: readonly FunctionDef[] = [
+  {
+    id: "ch",
+    names: ["CH", "CHART"],
+    summary:
+      "Candlestick chart. INTERVAL: 1M 5M 15M 30M 1H 4H 1D 1W 1MO. RANGE: 1D 5D 1MO 3MO 6MO 1Y 5Y MAX",
+    usage: "<SYMBOL> CH [INTERVAL] [RANGE]",
+  },
+];
 
 /**
  * Index aliases take precedence over stock symbols of the same name.

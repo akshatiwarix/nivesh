@@ -1,4 +1,5 @@
 import type { Component, JSX } from "solid-js";
+import { ChartView } from "./chart/ChartView";
 import { PanelContext } from "./context";
 import { HelpView } from "./help/HelpView";
 import { IndexView } from "./index/IndexView";
@@ -17,6 +18,8 @@ function renderView(view: View): JSX.Element {
       return <QuoteView view={view} />;
     case "index":
       return <IndexView view={view} />;
+    case "chart":
+      return <ChartView view={view} />;
     case "mkt":
       return <MktView />;
     case "wl":
@@ -33,6 +36,8 @@ export interface ViewHostProps {
   focused: boolean;
   /** Opens a view in this panel. */
   open: (view: View) => void;
+  /** Opens a view in another panel (see `PanelContextValue.openBeside`). */
+  openBeside: (view: View) => void;
 }
 
 /** Renders the view at the top of a panel's stack, with the panel's context. */
@@ -43,6 +48,7 @@ export const ViewHost: Component<ViewHostProps> = (props) => (
         return props.panel;
       },
       open: (view) => props.open(view),
+      openBeside: (view) => props.openBeside(view),
       focused: () => props.focused,
     }}
   >

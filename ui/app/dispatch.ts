@@ -1,11 +1,12 @@
-import type { Parsed } from "../commands";
+import type { Exchange, Parsed } from "../commands";
+import { describeError } from "../data/errors";
 import {
   type ItemRef,
   parseItemRef,
   type WatchlistStore,
   watchlistStore,
 } from "../data/watchlists";
-import { IpcFailure } from "../ipc";
+import { parseChartArgs } from "../views/chart/model";
 import type { Workspace } from "./workspace";
 
 /** What a command returns: an error message for the command bar, or nothing. */
@@ -23,14 +24,45 @@ export function dispatch(parsed: Parsed, ws: Workspace): CommandResult {
     case "error":
       return parsed.message;
     case "instrument":
-      ws.open({ kind: "quote", exchange: parsed.exchange, symbol: parsed.symbol });
-      return undefined;
+      return openInstrument(parsed.exchange, parsed.symbol, parsed.fn, parsed.args, ws);
     case "index":
       ws.open({ kind: "index", id: parsed.id, title: parsed.title });
       return undefined;
     case "command":
       return runCommand(parsed.id, ws, parsed.args);
   }
+}
+
+function openInstrument(
+  exchange: Exchange,
+  symbol: string,
+  fn: string | undefined,
+  args: readonly string[],
+  ws: Workspace,
+): CommandResult {
+  switch (fn) {
+    case undefined:
+      ws.open({ kind: "quote", exchange, symbol });
+      return undefined;
+    case "ch": {
+      const chart = parseChartArgs(args);
+      if (typeof chart === "string") return chart;
+      ws.open({ kind: "chart", exchange, symbol, ...chart });
+      return undefined;
+    }
+    default:
+      return `${fn.toUpperCase()} is not available yet.`;
+  }
+}
+
+/** The instrument the focused panel is showing, if it is showing one. */
+export function focusedInstrument(
+  ws: Workspace,
+): { exchange: Exchange; symbol: string } | undefined {
+  const view = ws.currentView(ws.state.focused);
+  return view.kind === "quote" || view.kind === "chart"
+    ? { exchange: view.exchange, symbol: view.symbol }
+    : undefined;
 }
 
 /** Runs a registered command by id (also used by function keys). */
@@ -50,6 +82,14 @@ export function runCommand(
       return undefined;
     case "wl":
       return runWatchlist(ws, args, watchlists);
+    case "ch": {
+      const target = focusedInstrument(ws);
+      if (!target) return "Open an instrument first, e.g. RELIANCE CH 5M";
+      const chart = parseChartArgs(args);
+      if (typeof chart === "string") return chart;
+      ws.open({ kind: "chart", ...target, ...chart });
+      return undefined;
+    }
     default:
       return `${id.toUpperCase()} is not available yet.`;
   }
@@ -59,10 +99,6 @@ export const WL_USAGE = "Usage: WL [ADD|RM SYMBOL… | NEW|USE|DEL NAME]";
 
 function showWatchlist(ws: Workspace) {
   if (ws.currentView(ws.state.focused).kind !== "wl") ws.open({ kind: "wl" });
-}
-
-function describe(err: unknown): string {
-  return err instanceof IpcFailure || err instanceof Error ? err.message : String(err);
 }
 
 /** `WL`, `WL ADD TCS INFY`, `WL RM TCS`, `WL NEW TECH`, `WL USE TECH`, `WL DEL TECH`. */
@@ -85,7 +121,7 @@ function runWatchlist(
       showWatchlist(ws);
       return undefined;
     } catch (err) {
-      return describe(err);
+      return describeError(err);
     }
   };
 

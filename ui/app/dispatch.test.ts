@@ -39,6 +39,45 @@ describe("dispatch", () => {
     ws.openIn(9, { kind: "mkt" }); // out of range: ignored
   });
 
+  describe("charts", () => {
+    it("SYMBOL CH [INTERVAL] [RANGE] opens a chart in the focused panel", () => {
+      const ws = createWorkspace();
+      expect(dispatch(parse("reliance ch"), ws)).toBeUndefined();
+      expect(ws.currentView(0)).toEqual({
+        kind: "chart",
+        exchange: "NSE",
+        symbol: "RELIANCE",
+        interval: "1d",
+      });
+      dispatch(parse("bse:tcs ch 5m 1mo"), ws);
+      expect(ws.currentView(0)).toEqual({
+        kind: "chart",
+        exchange: "BSE",
+        symbol: "TCS",
+        interval: "5m",
+        range: "1mo",
+      });
+    });
+
+    it("rejects an unknown interval or range with a message", () => {
+      const ws = createWorkspace();
+      expect(dispatch(parse("reliance ch 7m"), ws)).toMatch(/Unknown interval/);
+      expect(dispatch(parse("reliance ch 5m 2y"), ws)).toMatch(/Unknown range/);
+      expect(ws.currentView(0).kind).toBe("empty");
+    });
+
+    it("CH and F4 chart the instrument the panel is showing", () => {
+      const ws = createWorkspace();
+      expect(runCommand("ch", ws)).toMatch(/Open an instrument first/);
+      dispatch(parse("infy"), ws);
+      expect(runCommand("ch", ws, ["15M"])).toBeUndefined();
+      expect(ws.currentView(0)).toMatchObject({ kind: "chart", symbol: "INFY", interval: "15m" });
+      // From a chart, CH changes its interval.
+      runCommand("ch", ws, ["1H", "6MO"]);
+      expect(ws.currentView(0)).toMatchObject({ interval: "1h", range: "6mo" });
+    });
+  });
+
   describe("WL", () => {
     const setup = () => {
       const ws = createWorkspace();

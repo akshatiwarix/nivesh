@@ -38,7 +38,12 @@ describe("MktView", () => {
     dispose = render(
       () => (
         <PanelContext.Provider
-          value={{ panel: 0, open: (v) => opened.push(v), focused: () => true }}
+          value={{
+            panel: 0,
+            open: (v) => opened.push(v),
+            openBeside: () => {},
+            focused: () => true,
+          }}
         >
           <MktView />
         </PanelContext.Provider>

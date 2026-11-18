@@ -61,6 +61,14 @@ export function createWorkspace(initial?: Partial<WorkspaceState>) {
       if (panel < 0 || panel >= PANEL_COUNT) return;
       setState("stacks", panel, (stack) => [...stack, view].slice(-MAX_STACK));
     },
+    /**
+     * Opens a view in the panel after `panel`, wrapping around. With a single
+     * panel the layout widens to two first, so there is somewhere to put it.
+     */
+    openBeside(panel: number, view: View) {
+      if (state.layout === 1) setState({ layout: 2 });
+      this.openIn((panel + 1) % state.layout, view);
+    },
     /** Pops the focused panel's view. Returns false when already at the bottom. */
     back(): boolean {
       const stack = state.stacks[state.focused];
