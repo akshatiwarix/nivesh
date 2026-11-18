@@ -7,6 +7,7 @@ export type ViewOp =
   | "up"
   | "down"
   | "open"
+  | "openBeside"
   | "remove"
   | "moveUp"
   | "moveDown"

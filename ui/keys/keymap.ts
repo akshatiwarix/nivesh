@@ -66,6 +66,12 @@ const VIEW_KEYS: readonly Binding[] = [
     summary: "Open the selected row (command bar empty)",
     inInput: true,
   },
+  viewKey(
+    "openBeside",
+    "Alt+Enter",
+    { key: "Enter", alt: true },
+    "Open the selected row in the next panel",
+  ),
   {
     ...viewKey(
       "remove",

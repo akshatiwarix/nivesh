@@ -4,6 +4,7 @@ import { PanelContext } from "./context";
 import { HelpView } from "./help/HelpView";
 import { IndexView } from "./index/IndexView";
 import { MktView } from "./mkt/MktView";
+import { MoversView } from "./movers/MoversView";
 import { EmptyView } from "./PlaceholderViews";
 import { QuoteView } from "./quote/QuoteView";
 import type { View } from "./types";
@@ -22,6 +23,8 @@ function renderView(view: View): JSX.Element {
       return <ChartView view={view} />;
     case "mkt":
       return <MktView />;
+    case "mov":
+      return <MoversView view={view} />;
     case "wl":
       return <WatchlistView />;
     case "help":

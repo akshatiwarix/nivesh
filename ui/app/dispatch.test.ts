@@ -78,6 +78,18 @@ describe("dispatch", () => {
     });
   });
 
+  describe("movers", () => {
+    it("MOV opens movers for NIFTY 50 by default, or the named index", () => {
+      const ws = createWorkspace();
+      expect(dispatch(parse("mov"), ws)).toBeUndefined();
+      expect(ws.currentView(0)).toEqual({ kind: "mov", index: "NIFTY50" });
+      dispatch(parse("mov banknifty"), ws);
+      expect(ws.currentView(0)).toEqual({ kind: "mov", index: "BANKNIFTY" });
+      expect(dispatch(parse("mov sensex"), ws)).toMatch(/not an index with constituents/);
+      expect(dispatch(parse("mov foo"), ws)).toMatch(/not an index with constituents/);
+    });
+  });
+
   describe("indicators", () => {
     it("ADD and RM need a chart in the focused panel", () => {
       const ws = createWorkspace();

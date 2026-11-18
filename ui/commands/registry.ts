@@ -63,6 +63,13 @@ export const COMMANDS: readonly CommandDef[] = [
     fkey: 4,
   },
   {
+    id: "mov",
+    names: ["MOV", "MOVERS"],
+    summary: "Top gainers, losers and most active. MOV BANKNIFTY picks the index",
+    usage: "MOV [INDEX]",
+    fkey: 5,
+  },
+  {
     id: "add",
     names: ["ADD"],
     summary:

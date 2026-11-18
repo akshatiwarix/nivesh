@@ -6,6 +6,7 @@ import {
   type WatchlistStore,
   watchlistStore,
 } from "../data/watchlists";
+import { DEFAULT_UNIVERSE, findUniverse } from "../lib/universe";
 import { parseChartArgs } from "../views/chart/model";
 import { sendViewCommand } from "../views/context";
 import type { Workspace } from "./workspace";
@@ -83,6 +84,12 @@ export function runCommand(
       return undefined;
     case "wl":
       return runWatchlist(ws, args, watchlists);
+    case "mov": {
+      const universe = args[0] === undefined ? DEFAULT_UNIVERSE : findUniverse(args[0]);
+      if (!universe) return `${args[0]} is not an index with constituents. Try NIFTY or BANKNIFTY.`;
+      ws.open({ kind: "mov", index: universe.id });
+      return undefined;
+    }
     case "add":
     case "rm": {
       if (ws.currentView(ws.state.focused).kind !== "chart") {

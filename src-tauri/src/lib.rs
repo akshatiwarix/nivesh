@@ -79,6 +79,7 @@ pub fn run() -> anyhow::Result<()> {
             commands::data::subscribe_quotes,
             commands::data::unsubscribe,
             commands::market::market_status,
+            commands::markets::get_movers,
             commands::ui_state::ui_state,
             commands::ui_state::save_layout,
             commands::ui_state::save_command_history,

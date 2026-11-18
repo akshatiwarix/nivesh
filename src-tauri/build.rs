@@ -7,6 +7,7 @@ const COMMANDS: &[&str] = &[
     "chart_indicators",
     "compute_indicators",
     "get_history",
+    "get_movers",
     "get_quote",
     "index_snapshot",
     "market_status",

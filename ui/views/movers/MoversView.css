@@ -1,0 +1,29 @@
+.mov__tabs {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: var(--pad-y) var(--pad-x);
+  border-bottom: 1px solid var(--c-line);
+}
+
+.mov__tab {
+  height: var(--row-h);
+  padding: 0 var(--pad-x);
+  border: 1px solid transparent;
+  background: none;
+  color: var(--c-fg-dim);
+  font: inherit;
+  font-size: var(--fs-sm);
+  cursor: pointer;
+}
+
+.mov__tab--on {
+  border-color: var(--c-amber);
+  color: var(--c-amber);
+}
+
+.mov__hint {
+  margin-left: auto;
+  color: var(--c-fg-faint);
+  font-size: var(--fs-sm);
+}
