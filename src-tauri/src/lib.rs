@@ -7,8 +7,12 @@
 mod commands;
 pub mod ipc;
 mod logging;
+mod window_state;
+
+use std::sync::Arc;
 
 use anyhow::Context as _;
+use nivesh_store::Store;
 use tauri::{AppHandle, Manager as _};
 
 /// Label of the single main window (see `tauri.conf.json`).
@@ -32,16 +36,32 @@ pub fn run() -> anyhow::Result<()> {
                 "nivesh starting"
             );
 
+            let db_path = app
+                .path()
+                .app_data_dir()
+                .context("resolving app data directory")?
+                .join("nivesh.db");
+            let store = Arc::new(Store::open(&db_path).context("opening database")?);
+            app.manage(Arc::clone(&store));
+
             // The window is created hidden so it can be positioned before it
             // is first painted.
             let window = app
                 .get_webview_window(MAIN_WINDOW)
                 .context("main window missing from tauri.conf.json")?;
+            window_state::restore(&window, &store);
+            window_state::track(&window, store);
             window.show().context("showing main window")?;
             Ok(())
         })
         // Keep in sync with COMMANDS in build.rs.
-        .invoke_handler(tauri::generate_handler![commands::app::app_info, commands::market::market_status])
+        .invoke_handler(tauri::generate_handler![
+            commands::app::app_info,
+            commands::market::market_status,
+            commands::ui_state::ui_state,
+            commands::ui_state::save_layout,
+            commands::ui_state::save_command_history,
+        ])
         .run(tauri::generate_context!())
         .context("running tauri app")
 }

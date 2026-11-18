@@ -11,6 +11,8 @@ export interface History {
   prev(draft: string): string | undefined;
   /** Moves to the next (newer) entry, ending at the saved draft. */
   next(): string | undefined;
+  /** Replaces the entries without notifying (used when restoring saved history). */
+  load(entries: readonly string[]): void;
   /** Forgets the navigation position (call when the user edits the text). */
   reset(): void;
 }
@@ -42,6 +44,11 @@ export function createHistory(initial: readonly string[] = [], onChange?: (e: st
       if (cursor >= items.length) return undefined;
       cursor += 1;
       return cursor === items.length ? draft : items[cursor];
+    },
+    load(entries) {
+      items = entries.filter((s) => s.trim() !== "").slice(-MAX_HISTORY);
+      cursor = items.length;
+      draft = "";
     },
     reset() {
       cursor = items.length;

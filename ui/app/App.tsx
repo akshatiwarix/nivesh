@@ -1,6 +1,5 @@
 import { type Component, createResource, For, onCleanup, onMount, Show } from "solid-js";
 import { completionWords, parse } from "../commands";
-import { createHistory } from "../commands/history";
 import { Badge } from "../components/Badge";
 import { CommandBar } from "../components/CommandBar";
 import { Panel } from "../components/Panel";
@@ -14,6 +13,7 @@ import { createClock } from "./clock";
 import { dispatch } from "./dispatch";
 import { Header } from "./Header";
 import { MarketIndicator } from "./MarketIndicator";
+import { createPersistence } from "./persistence";
 import { StatusBar } from "./StatusBar";
 import { createWorkspace, PANEL_COUNT } from "./workspace";
 
@@ -27,7 +27,7 @@ export const App: Component = () => {
   const [info] = createResource(inTauri, () => appInfo());
   const now = createClock();
   const ws = createWorkspace();
-  const history = createHistory();
+  const { history } = createPersistence(ws);
   const words = completionWords();
 
   const run = (line: string) => dispatch(parse(line), ws);

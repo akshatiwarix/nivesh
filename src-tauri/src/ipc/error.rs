@@ -64,6 +64,13 @@ impl From<anyhow::Error> for IpcError {
     }
 }
 
+impl From<nivesh_store::StoreError> for IpcError {
+    fn from(err: nivesh_store::StoreError) -> Self {
+        tracing::error!(%err, "store error");
+        Self::new(ErrorCode::Storage, err.to_string())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

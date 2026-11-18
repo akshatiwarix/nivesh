@@ -10,6 +10,7 @@ use ts_rs::{Config, ExportError, TS};
 
 use crate::commands::app::AppInfo;
 use crate::commands::market::MarketStatusDto;
+use crate::commands::ui_state::UiState;
 use crate::ipc::IpcError;
 
 /// The committed bindings directory.
@@ -27,5 +28,6 @@ pub fn export(dir: &Path) -> Result<(), ExportError> {
     IpcError::export_all(&cfg)?;
     AppInfo::export_all(&cfg)?;
     MarketStatusDto::export_all(&cfg)?;
+    UiState::export_all(&cfg)?;
     Ok(())
 }

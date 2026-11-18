@@ -6,3 +6,4 @@
 
 pub mod app;
 pub mod market;
+pub mod ui_state;

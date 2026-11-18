@@ -40,4 +40,13 @@ describe("history", () => {
     h.push("B");
     expect(h.prev("")).toBe("B");
   });
+
+  it("load restores entries silently and sanitises them", () => {
+    const onChange = vi.fn();
+    const h = createHistory([], onChange);
+    h.load(["A", " ", "B"]);
+    expect(h.entries()).toEqual(["A", "B"]);
+    expect(h.prev("")).toBe("B");
+    expect(onChange).not.toHaveBeenCalled();
+  });
 });
