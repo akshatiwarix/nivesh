@@ -7,6 +7,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::Context as _;
 use nivesh_core::{MarketCalendar, ProviderId, Session};
+use nivesh_data::bse::BseListProvider;
 use nivesh_data::constituents::{self, ConstituentsList};
 use nivesh_data::http::{HostLimits, HttpClient, HttpConfig};
 use nivesh_data::nse::{NseConfig, NseProvider};
@@ -131,9 +132,16 @@ pub fn build(store: Arc<Store>, overrides: &Overrides) -> anyhow::Result<Service
     };
     let nse: Arc<dyn DataProvider> = Arc::new(nse);
     let yahoo: Arc<dyn DataProvider> = Arc::new(yahoo);
+    // BSE's list is a plain download, used only for the instrument master (BSE
+    // quotes come from Yahoo). Fixture mode (a local NSE URL) stays offline.
+    let list_only: Vec<Arc<dyn DataProvider>> = match &overrides.nse_url {
+        Some(_) => Vec::new(),
+        None => vec![Arc::new(BseListProvider::new(list_download.http.clone()))],
+    };
     assemble(
         store,
         vec![nse, yahoo],
+        list_only,
         &overrides.force_fail,
         Some(list_download),
     )
@@ -145,12 +153,13 @@ pub fn build_with_providers(
     providers: Vec<Arc<dyn DataProvider>>,
     force_fail: &[ProviderId],
 ) -> anyhow::Result<Services> {
-    assemble(store, providers, force_fail, None)
+    assemble(store, providers, Vec::new(), force_fail, None)
 }
 
 fn assemble(
     store: Arc<Store>,
     providers: Vec<Arc<dyn DataProvider>>,
+    list_only: Vec<Arc<dyn DataProvider>>,
     force_fail: &[ProviderId],
     list_download: Option<ListDownload>,
 ) -> anyhow::Result<Services> {
@@ -190,7 +199,7 @@ fn assemble(
         hub,
         instruments,
         constituents,
-        list_sources: providers,
+        list_sources: providers.into_iter().chain(list_only).collect(),
         list_download,
     })
 }

@@ -17,6 +17,10 @@ use crate::{DataError, DataProvider};
 /// NSE's equity list as shipped with the app (symbol, name, series, ISIN).
 const SEED_NSE: &str = include_str!("../data/nse_equity_seed.csv");
 
+/// BSE's equity list as shipped with the app (same columns; the symbol is BSE's
+/// ticker and the series is BSE's group, `A`, `B`, `T`...).
+const SEED_BSE: &str = include_str!("../data/bse_equity_seed.csv");
+
 /// A refresh is attempted when the stored list is older than this.
 pub const REFRESH_AFTER_MS: i64 = 24 * 60 * 60 * 1000;
 
@@ -51,6 +55,11 @@ pub(crate) fn split_csv_line(line: &str) -> Vec<String> {
 /// Columns are found by header name, so extra columns and NSE's stray spaces in
 /// header names are fine. Rows with unusable symbols are skipped.
 pub fn parse_equity_csv(text: &str) -> Result<Vec<Instrument>, DataError> {
+    parse_list_csv(text, Exchange::Nse)
+}
+
+/// [`parse_equity_csv`] for any exchange's list in the same columns.
+pub fn parse_list_csv(text: &str, exchange: Exchange) -> Result<Vec<Instrument>, DataError> {
     let mut lines = text.lines().filter(|l| !l.trim().is_empty());
     let header = lines
         .next()
@@ -74,7 +83,7 @@ pub fn parse_equity_csv(text: &str) -> Result<Vec<Instrument>, DataError> {
         let (Some(symbol), Some(name)) = (get(sym_col), get(name_col)) else {
             continue;
         };
-        let Ok(id) = InstrumentId::new(Exchange::Nse, symbol) else {
+        let Ok(id) = InstrumentId::new(exchange, symbol) else {
             continue;
         };
         out.push(Instrument {
@@ -92,6 +101,28 @@ pub fn parse_equity_csv(text: &str) -> Result<Vec<Instrument>, DataError> {
     Ok(out)
 }
 
+/// Writes a list in the seed format [`parse_list_csv`] reads.
+pub fn write_list_csv(list: &[Instrument]) -> String {
+    fn quote(field: &str) -> String {
+        if field.contains([',', '"']) {
+            format!("\"{}\"", field.replace('"', "\"\""))
+        } else {
+            field.to_owned()
+        }
+    }
+    let mut out = String::from("SYMBOL,NAME OF COMPANY,SERIES,ISIN NUMBER\n");
+    for i in list {
+        out.push_str(&format!(
+            "{},{},{},{}\n",
+            quote(i.id.symbol()),
+            quote(&i.name),
+            quote(i.series.as_deref().unwrap_or("")),
+            quote(i.isin.as_deref().unwrap_or(""))
+        ));
+    }
+    out
+}
+
 // ---- search ---------------------------------------------------------------
 
 struct Entry {
@@ -105,6 +136,10 @@ struct Entry {
     /// How well known the stock is: 0 = NIFTY 50, 1 = NIFTY NEXT 50,
     /// 2 = rest of NIFTY 500, [`UNRANKED`] = none of them. Lower sorts first.
     popularity: u32,
+    /// A BSE listing of a company that is also listed on NSE (same ISIN).
+    /// Kept for lookups by id, hidden from search: one result per company,
+    /// the NSE one.
+    shadowed: bool,
 }
 
 /// The popularity of a stock in no bundled index.
@@ -136,10 +171,38 @@ impl InstrumentIndex {
                     name,
                     instrument,
                     popularity: UNRANKED,
+                    shadowed: false,
                 }
             })
+            .collect::<Vec<_>>();
+        let mut index = Self { entries };
+        index.shadow_dual_listings();
+        index
+    }
+
+    /// Marks BSE rows whose ISIN an NSE row also has. Rows without an ISIN
+    /// can't be matched and stay visible.
+    fn shadow_dual_listings(&mut self) {
+        let on_nse: std::collections::HashSet<&str> = self
+            .entries
+            .iter()
+            .filter(|e| e.instrument.id.exchange() == Exchange::Nse)
+            .filter_map(|e| e.instrument.isin.as_deref())
             .collect();
-        Self { entries }
+        let shadowed: Vec<bool> = self
+            .entries
+            .iter()
+            .map(|e| {
+                e.instrument.id.exchange() == Exchange::Bse
+                    && e.instrument
+                        .isin
+                        .as_deref()
+                        .is_some_and(|isin| on_nse.contains(isin))
+            })
+            .collect();
+        for (e, s) in self.entries.iter_mut().zip(shadowed) {
+            e.shadowed = s;
+        }
     }
 
     /// Ranks well-known stocks first among equally good matches. `tiers` maps
@@ -157,6 +220,7 @@ impl InstrumentIndex {
         self
     }
 
+    /// Every listing, including the BSE ones that search hides.
     pub fn len(&self) -> usize {
         self.entries.len()
     }
@@ -187,6 +251,7 @@ impl InstrumentIndex {
         let mut hits: Vec<(Rank, &Entry)> = self
             .entries
             .iter()
+            .filter(|e| !e.shadowed)
             .filter_map(|e| rank(e, &q, &packed, &tokens).map(|r| (r, e)))
             .collect();
         hits.sort_by(|(ra, a), (rb, b)| {
@@ -305,8 +370,8 @@ pub struct InstrumentMaster {
 }
 
 impl InstrumentMaster {
-    /// Loads the stored list, seeding NSE from the bundled list when the store
-    /// has none (first run, possibly offline).
+    /// Loads the stored lists, seeding each exchange from its bundled list when
+    /// the store has none (first run, possibly offline).
     pub fn open(store: Arc<Store>) -> Result<Self, DataError> {
         let tiers = ConstituentSet::bundled()?.popularity();
         Self::open_ranked(store, tiers)
@@ -316,12 +381,18 @@ impl InstrumentMaster {
     /// [`InstrumentIndex::with_popularity`]).
     pub fn open_ranked(store: Arc<Store>, tiers: HashMap<String, u8>) -> Result<Self, DataError> {
         let mut stored = store.instruments().map_err(store_err)?;
-        if !stored.iter().any(|r| r.exchange == Exchange::Nse.code()) {
-            let seed = parse_equity_csv(SEED_NSE)?;
-            let rows: Vec<_> = seed.iter().map(to_row).collect();
-            store
-                .replace_instruments(Exchange::Nse.code(), &rows)
-                .map_err(store_err)?;
+        let mut seeded = false;
+        for (exchange, seed) in [(Exchange::Nse, SEED_NSE), (Exchange::Bse, SEED_BSE)] {
+            if !stored.iter().any(|r| r.exchange == exchange.code()) {
+                let list = parse_list_csv(seed, exchange)?;
+                let rows: Vec<_> = list.iter().map(to_row).collect();
+                store
+                    .replace_instruments(exchange.code(), &rows)
+                    .map_err(store_err)?;
+                seeded = true;
+            }
+        }
+        if seeded {
             stored = store.instruments().map_err(store_err)?;
         }
         let instruments = stored.into_iter().filter_map(from_row).collect();
@@ -706,7 +777,10 @@ mod tests {
 
     #[test]
     fn search_over_the_full_seed_is_far_inside_the_budget() {
-        let idx = InstrumentIndex::new(parse_equity_csv(SEED_NSE).unwrap());
+        let mut all = parse_equity_csv(SEED_NSE).unwrap();
+        all.extend(parse_list_csv(SEED_BSE, Exchange::Bse).unwrap());
+        let tiers = ConstituentSet::bundled().unwrap().popularity();
+        let idx = InstrumentIndex::new(all).with_popularity(&tiers);
         let started = Instant::now();
         let mut hits = Vec::new();
         for q in ["relia", "tata mot", "hdfc", "x", "zzzzz", "bajaj"] {
@@ -822,8 +896,25 @@ mod tests {
         ];
         let updated = master.refresh_if_due(&provider(Ok(fresh)), 1_000).await;
         assert_eq!(updated, [Exchange::Nse]);
-        assert_eq!(master.len(), 2);
-        assert_eq!(syms(&master.search("new", 5)), ["NEWCO"]);
+        // NSE now has two rows; the seeded BSE list is untouched.
+        assert_eq!(
+            master
+                .get(&InstrumentId::parse("NEWCO").unwrap())
+                .unwrap()
+                .name,
+            "New Company Limited"
+        );
+        assert!(
+            master
+                .get(&InstrumentId::parse("RELIANCE").unwrap())
+                .is_none()
+        );
+        assert!(
+            master
+                .get(&InstrumentId::parse("BSE:ABB").unwrap())
+                .is_some()
+        );
+        assert_eq!(syms(&master.search("newco", 5))[0], "NEWCO");
         assert_eq!(
             store
                 .setting("instruments.refreshed_at.NSE")
@@ -879,6 +970,213 @@ mod tests {
                 .setting("instruments.refreshed_at.NSE")
                 .unwrap()
                 .is_none()
+        );
+    }
+
+    // ---- BSE ----
+
+    fn bse(sym: &str, name: &str, isin: Option<&str>) -> Instrument {
+        Instrument {
+            id: InstrumentId::new(Exchange::Bse, sym).unwrap(),
+            name: name.into(),
+            isin: isin.map(str::to_owned),
+            series: Some("A".into()),
+        }
+    }
+
+    fn nse_isin(sym: &str, name: &str, isin: &str) -> Instrument {
+        Instrument {
+            isin: Some(isin.into()),
+            ..inst(sym, name)
+        }
+    }
+
+    fn mixed() -> InstrumentIndex {
+        InstrumentIndex::new(vec![
+            nse_isin("RELIANCE", "Reliance Industries Limited", "INE002A01018"),
+            bse("RELIANCE", "RELIANCE INDUSTRIES LTD.", Some("INE002A01018")),
+            nse_isin("TCS", "Tata Consultancy Services Limited", "INE467B01029"),
+            bse(
+                "532540",
+                "TATA CONSULTANCY SERVICES LTD.",
+                Some("INE467B01029"),
+            ),
+            bse("SAMOR", "Samor Reality Limited", Some("INE0GD201022")),
+            bse("NOISIN", "No Isin Limited", None),
+            // Same ticker as an NSE stock, but a different company.
+            nse_isin(
+                "KALYANI",
+                "Kalyani Investment Company Limited",
+                "INE029L01018",
+            ),
+            bse("KALYANI", "Kalyani Cast-Tech Limited", Some("INE0KCT01010")),
+        ])
+    }
+
+    fn tags(hits: &[Instrument]) -> Vec<String> {
+        hits.iter().map(|i| i.id.to_string()).collect()
+    }
+
+    #[test]
+    fn bse_only_stocks_are_found_without_a_prefix() {
+        let hits = mixed().search("samor", 5);
+        assert_eq!(tags(&hits), ["BSE:SAMOR"]);
+        assert_eq!(
+            tags(&mixed().search("noisin", 5)),
+            ["BSE:NOISIN"],
+            "no ISIN: can't be matched, stays"
+        );
+        assert_eq!(
+            tags(&mixed().search("reality", 5)),
+            ["BSE:SAMOR"],
+            "by name"
+        );
+    }
+
+    #[test]
+    fn dual_listed_stocks_show_once_as_the_nse_listing() {
+        let idx = mixed();
+        assert_eq!(tags(&idx.search("reliance", 5)), ["NSE:RELIANCE"]);
+        assert_eq!(tags(&idx.search("tata consultancy", 5)), ["NSE:TCS"]);
+        // The hidden BSE listing is still there for lookups by id.
+        let bse_rel = InstrumentId::new(Exchange::Bse, "RELIANCE").unwrap();
+        assert!(idx.get(&bse_rel).is_some());
+        assert_eq!(idx.len(), 8);
+    }
+
+    #[test]
+    fn same_ticker_different_company_is_not_deduplicated() {
+        let hits = mixed().search("kalyani", 5);
+        assert_eq!(tags(&hits), ["NSE:KALYANI", "BSE:KALYANI"], "NSE first");
+    }
+
+    #[test]
+    fn the_bundled_bse_seed_parses_and_has_bse_only_names() {
+        let seed = parse_list_csv(SEED_BSE, Exchange::Bse).unwrap();
+        assert!(seed.len() > 3000, "{}", seed.len());
+        assert!(seed.iter().all(|i| i.id.exchange() == Exchange::Bse));
+        assert!(
+            seed.iter()
+                .all(|i| i.isin.as_deref().is_some_and(|s| s.starts_with("INE")))
+        );
+        for sym in ["RELIANCE", "TCS", "ABB", "SAMOR"] {
+            assert!(seed.iter().any(|i| i.id.symbol() == sym), "{sym}");
+        }
+    }
+
+    #[test]
+    fn with_both_seeds_bse_only_stocks_search_and_dual_listings_collapse() {
+        let master = InstrumentMaster::open(Arc::new(Store::open_in_memory().unwrap())).unwrap();
+        // A BSE-only company is found by ticker and by name, no "BSE:" needed.
+        let samor = master.search("samor", 5);
+        assert_eq!(tags(&samor)[0], "BSE:SAMOR", "{:?}", tags(&samor));
+        assert_eq!(tags(&master.search("samor reality", 3))[0], "BSE:SAMOR");
+        // A dual-listed blue chip appears once, as NSE.
+        let rel = master.search("reliance", 10);
+        assert_eq!(tags(&rel)[0], "NSE:RELIANCE");
+        assert!(
+            !tags(&rel).contains(&"BSE:RELIANCE".to_owned()),
+            "{:?}",
+            tags(&rel)
+        );
+        // "relia" still puts the blue chip first with BSE rows in the index.
+        assert_eq!(tags(&master.search("relia", 5))[0], "NSE:RELIANCE");
+        // Nothing appears twice for the same ISIN.
+        for q in ["tata", "bank", "hdfc", "ad"] {
+            let hits = master.search(q, 40);
+            let mut isins: Vec<_> = hits.iter().filter_map(|i| i.isin.clone()).collect();
+            let n = isins.len();
+            isins.sort();
+            isins.dedup();
+            assert_eq!(
+                isins.len(),
+                n,
+                "{q}: duplicate company in {:?}",
+                tags(&hits)
+            );
+        }
+    }
+
+    #[test]
+    fn an_install_that_only_has_nse_gets_the_bse_seed_on_next_start() {
+        let store = Arc::new(Store::open_in_memory().unwrap());
+        let nse_only: Vec<_> = parse_equity_csv(SEED_NSE)
+            .unwrap()
+            .iter()
+            .map(to_row)
+            .collect();
+        store.replace_instruments("NSE", &nse_only).unwrap();
+        let master = InstrumentMaster::open(Arc::clone(&store)).unwrap();
+        assert_eq!(tags(&master.search("samor", 3))[0], "BSE:SAMOR");
+        assert!(
+            store
+                .instruments()
+                .unwrap()
+                .iter()
+                .any(|r| r.exchange == "BSE")
+        );
+    }
+
+    struct BseProvider(Result<Vec<Instrument>, DataError>);
+
+    #[async_trait]
+    impl DataProvider for BseProvider {
+        fn id(&self) -> ProviderId {
+            ProviderId::Bse
+        }
+        fn capabilities(&self) -> Capabilities {
+            Capabilities::INSTRUMENTS
+        }
+        fn feed_kind(&self) -> FeedKind {
+            FeedKind::Delayed
+        }
+        async fn instruments(&self, exchange: Exchange) -> Result<Vec<Instrument>, DataError> {
+            if exchange == Exchange::Bse {
+                self.0.clone()
+            } else {
+                Err(DataError::Unsupported)
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn a_bse_refresh_replaces_only_the_bse_list_and_a_block_keeps_the_old_one() {
+        let store = Arc::new(Store::open_in_memory().unwrap());
+        let master = InstrumentMaster::open(Arc::clone(&store))
+            .unwrap()
+            .with_min_rows(1);
+        let blocked: Vec<Arc<dyn DataProvider>> =
+            vec![Arc::new(BseProvider(Err(DataError::Blocked)))];
+        assert!(master.refresh_if_due(&blocked, 10).await.is_empty());
+        assert!(
+            master
+                .get(&InstrumentId::parse("BSE:SAMOR").unwrap())
+                .is_some()
+        );
+
+        let fresh: Vec<Arc<dyn DataProvider>> = vec![Arc::new(BseProvider(Ok(vec![bse(
+            "NEWBSE",
+            "New Bse Limited",
+            Some("INE0NEW01011"),
+        )])))];
+        assert_eq!(master.refresh_if_due(&fresh, 10).await, [Exchange::Bse]);
+        assert!(
+            master
+                .get(&InstrumentId::parse("BSE:SAMOR").unwrap())
+                .is_none()
+        );
+        assert_eq!(tags(&master.search("newbse", 3))[0], "BSE:NEWBSE");
+        assert!(
+            master
+                .get(&InstrumentId::parse("RELIANCE").unwrap())
+                .is_some(),
+            "NSE untouched"
+        );
+        assert!(
+            store
+                .setting("instruments.refreshed_at.BSE")
+                .unwrap()
+                .is_some()
         );
     }
 

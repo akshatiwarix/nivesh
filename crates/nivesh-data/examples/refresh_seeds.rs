@@ -3,7 +3,8 @@
 //!
 //! ```text
 //! cargo run -p nivesh-data --example refresh_seeds -- constituents
-//! cargo run -p nivesh-data --example refresh_seeds -- all
+//! cargo run -p nivesh-data --example refresh_seeds -- bse
+//! cargo run -p nivesh-data --example refresh_seeds -- all   # also `pnpm refresh:data`
 //! ```
 //!
 //! Needs the network and is run by hand, never in CI. Review the diff, then
@@ -14,8 +15,11 @@ use std::process::ExitCode;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use nivesh_core::Exchange;
+use nivesh_data::bse::BseListProvider;
 use nivesh_data::constituents;
 use nivesh_data::http::{HostLimits, HttpClient, HttpConfig};
+use nivesh_data::{DataProvider as _, write_list_csv};
 
 fn data_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("data")
@@ -48,14 +52,24 @@ async fn run(what: &str) -> Result<(), String> {
             path.display()
         );
     }
+    if matches!(what, "bse" | "all") {
+        let list = BseListProvider::new(http.clone())
+            .instruments(Exchange::Bse)
+            .await
+            .map_err(|e| format!("bse: {e}"))?;
+        let path = data_dir().join("bse_equity_seed.csv");
+        std::fs::write(&path, write_list_csv(&list))
+            .map_err(|e| format!("{}: {e}", path.display()))?;
+        println!("bse: {} equities -> {}", list.len(), path.display());
+    }
     Ok(())
 }
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> ExitCode {
     let what = std::env::args().nth(1).unwrap_or_default();
-    if !matches!(what.as_str(), "constituents" | "all") {
-        eprintln!("usage: refresh_seeds <constituents|all>");
+    if !matches!(what.as_str(), "constituents" | "bse" | "all") {
+        eprintln!("usage: refresh_seeds <constituents|bse|all>");
         return ExitCode::from(2);
     }
     match run(&what).await {

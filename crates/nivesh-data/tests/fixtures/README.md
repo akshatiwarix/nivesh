@@ -23,3 +23,10 @@ NSE fixtures from the development machine's IP were only partly obtainable:
   (`quote-equity`, `equity-stockIndices`). `quote-equity` returned 403 and
   `equity-stockIndices` returned 404 from that IP. Replace them with
   recordings when you can reach those endpoints; the parsers must pass both.
+
+## BSE
+
+`bse/bhavcopy_sample.csv` is a **recording** of eight rows of BSE's public UDiFF
+bhavcopy (`BhavCopy_BSE_CM_0_0_0_20261117_F_0000.CSV`, fetched 2026-11-18),
+trimmed to the identifying columns (the parser reads only those). It includes a
+fixed-income-group row, a fund row and a repeated ticker to pin the filters.
