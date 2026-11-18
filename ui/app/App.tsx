@@ -3,6 +3,9 @@ import { completionWords, parse } from "../commands";
 import { Badge } from "../components/Badge";
 import { CommandBar } from "../components/CommandBar";
 import { Panel } from "../components/Panel";
+import { ProviderHealth } from "../components/ProviderHealth";
+import { createProviderHealth } from "../data/health";
+import { createVisibilityReporter } from "../data/visibility";
 import { appInfo, inTauri, searchInstruments } from "../ipc";
 import { resolveKey } from "../keys/keymap";
 import { sendViewOp } from "../views/context";
@@ -27,6 +30,8 @@ export const App: Component = () => {
   // Outside the app (browser, tests) there is no backend to ask.
   const [info] = createResource(inTauri, () => appInfo());
   const now = createClock();
+  const health = createProviderHealth();
+  createVisibilityReporter();
   const ws = createWorkspace();
   const { history } = createPersistence(ws);
   const words = completionWords();
@@ -82,6 +87,7 @@ export const App: Component = () => {
       <StatusBar
         layout={ws.state.layout}
         focused={ws.state.focused}
+        health={<ProviderHealth health={health} />}
         extra={
           <Show when={info.state === "ready" && info()}>
             {(i) => <Badge tone="neutral">{`v${i().version} ${i().build}`}</Badge>}

@@ -1,6 +1,7 @@
 import { render } from "solid-js/web";
 import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from "vitest";
 import { allIndicesUpdate, indexRow } from "../../data/fixtures";
+import { pinClock, unpinClock } from "../../data/testClock";
 import type { HubUpdateDto } from "../../ipc";
 import { subscribeQuotes } from "../../ipc";
 import { PanelContext, sendViewOp } from "../context";
@@ -24,6 +25,7 @@ describe("MktView", () => {
   let opened: View[];
 
   beforeEach(() => {
+    pinClock();
     opened = [];
     stop = vi.fn();
     subscribe.mockReset();
@@ -46,6 +48,7 @@ describe("MktView", () => {
   });
 
   afterEach(() => {
+    unpinClock();
     dispose?.();
     document.body.innerHTML = "";
   });

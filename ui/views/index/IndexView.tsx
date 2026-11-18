@@ -1,6 +1,7 @@
 import { type Component, createMemo, Show } from "solid-js";
+import { DataPanel } from "../../components/DataPanel";
 import { type Column, DataTable } from "../../components/DataTable";
-import { ProvenanceBadge, providerName } from "../../components/ProvenanceBadge";
+import { providerName } from "../../components/ProvenanceBadge";
 import { createFeed } from "../../data/feed";
 import type { QuoteDto } from "../../ipc";
 import {
@@ -82,58 +83,59 @@ export const IndexView: Component<{ view: Extract<View, { kind: "index" }> }> = 
 
   return (
     <div class="view idx" data-view="index">
-      <header class="idx__head">
-        <h2 class="view__title">{props.view.title}</h2>
+      <DataPanel provenance={feed.state.header?.provenance ?? null} title={props.view.title}>
+        <header class="idx__head">
+          <h2 class="view__title">{props.view.title}</h2>
+          <Show when={feed.state.header}>
+            {(h) => (
+              <>
+                <span class="idx__last">{formatPrice(h().quote.last)}</span>
+                <span classList={{ [changeTone(h().quote.change) ?? ""]: true }}>
+                  {formatMove(h().quote.change)} ({formatMovePct(h().quote.changePct)})
+                </span>
+              </>
+            )}
+          </Show>
+        </header>
         <Show when={feed.state.header}>
           {(h) => (
-            <>
-              <span class="idx__last">{formatPrice(h().quote.last)}</span>
-              <span classList={{ [changeTone(h().quote.change) ?? ""]: true }}>
-                {formatMove(h().quote.change)} ({formatMovePct(h().quote.changePct)})
-              </span>
-              <ProvenanceBadge provenance={h().provenance} />
-            </>
+            <dl class="idx__stats">
+              <dt>Open</dt>
+              <dd>{formatPrice(h().quote.open)}</dd>
+              <dt>High</dt>
+              <dd>{formatPrice(h().quote.high)}</dd>
+              <dt>Low</dt>
+              <dd>{formatPrice(h().quote.low)}</dd>
+              <dt>Prev</dt>
+              <dd>{formatPrice(h().quote.prevClose)}</dd>
+              <dt>52W</dt>
+              <dd>{formatRange(h().quote.week52Low, h().quote.week52High)}</dd>
+              <Show when={h().quote.advances != null && h().quote.declines != null}>
+                <dt>Adv/Dec</dt>
+                <dd>
+                  <span class="up">{h().quote.advances}</span>/
+                  <span class="down">{h().quote.declines}</span>
+                </dd>
+              </Show>
+            </dl>
           )}
         </Show>
-      </header>
-      <Show when={feed.state.header}>
-        {(h) => (
-          <dl class="idx__stats">
-            <dt>Open</dt>
-            <dd>{formatPrice(h().quote.open)}</dd>
-            <dt>High</dt>
-            <dd>{formatPrice(h().quote.high)}</dd>
-            <dt>Low</dt>
-            <dd>{formatPrice(h().quote.low)}</dd>
-            <dt>Prev</dt>
-            <dd>{formatPrice(h().quote.prevClose)}</dd>
-            <dt>52W</dt>
-            <dd>{formatRange(h().quote.week52Low, h().quote.week52High)}</dd>
-            <Show when={h().quote.advances != null && h().quote.declines != null}>
-              <dt>Adv/Dec</dt>
-              <dd>
-                <span class="up">{h().quote.advances}</span>/
-                <span class="down">{h().quote.declines}</span>
-              </dd>
-            </Show>
-          </dl>
-        )}
-      </Show>
-      <Show when={feed.state.header && error()}>
-        {(e) => (
-          <p class="view__error" role="alert">
-            Refresh failed: {e().message}. Showing the last data.
-          </p>
-        )}
-      </Show>
-      <DataTable
-        label={`${props.view.title} constituents`}
-        columns={COLUMNS}
-        rows={rows()}
-        selectedIndex={panel.focused() ? selection.index() : undefined}
-        onRowMouseDown={selection.set}
-        emptyText={emptyText()}
-      />
+        <Show when={feed.state.header && error()}>
+          {(e) => (
+            <p class="view__error" role="alert">
+              Refresh failed: {e().message}. Showing the last data.
+            </p>
+          )}
+        </Show>
+        <DataTable
+          label={`${props.view.title} constituents`}
+          columns={COLUMNS}
+          rows={rows()}
+          selectedIndex={panel.focused() ? selection.index() : undefined}
+          onRowMouseDown={selection.set}
+          emptyText={emptyText()}
+        />
+      </DataPanel>
     </div>
   );
 };

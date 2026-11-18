@@ -1,4 +1,5 @@
 import { type Component, createMemo, createSignal, For, onMount, Show } from "solid-js";
+import { DataPanel } from "../../components/DataPanel";
 import { type Column, DataTable } from "../../components/DataTable";
 import { ProvenanceBadge } from "../../components/ProvenanceBadge";
 import { createFeed, quoteKey } from "../../data/feed";
@@ -130,6 +131,14 @@ export const WatchlistView: Component = () => {
     },
   ];
 
+  const provenance = createMemo(() => {
+    const found = items().flatMap((i) => {
+      const q = quoteOf(i);
+      return q ? [q.provenance] : [];
+    });
+    return found.length > 0 ? found : null;
+  });
+
   const firstFeedError = () => feed.fatal() ?? Object.values(feed.state.errors).find(Boolean);
   const emptyText = () =>
     !store.state.loaded && inTauri()
@@ -138,47 +147,49 @@ export const WatchlistView: Component = () => {
 
   return (
     <div class="view wl" data-view="wl">
-      <nav class="wl__lists" aria-label="Watchlists">
-        <For each={store.state.lists}>
-          {(list, n) => (
-            <span
-              class="wl__list"
-              classList={{ "wl__list--active": list.id === store.state.active }}
-            >
-              {n() + 1} {list.name} <span class="wl__count">{list.items.length}</span>
-            </span>
+      <DataPanel provenance={provenance()} title="Watchlist">
+        <nav class="wl__lists" aria-label="Watchlists">
+          <For each={store.state.lists}>
+            {(list, n) => (
+              <span
+                class="wl__list"
+                classList={{ "wl__list--active": list.id === store.state.active }}
+              >
+                {n() + 1} {list.name} <span class="wl__count">{list.items.length}</span>
+              </span>
+            )}
+          </For>
+          <Show when={store.state.lists.length === 0}>
+            <span class="view__dim">No watchlists</span>
+          </Show>
+        </nav>
+        <DataTable
+          label="Watchlist"
+          columns={columns}
+          rows={items()}
+          selectedIndex={panel.focused() ? selection.index() : undefined}
+          onRowMouseDown={selection.set}
+          emptyText={emptyText()}
+        />
+        <Show when={problem()}>
+          {(p) => (
+            <p class="view__error" role="alert">
+              {p()}
+            </p>
           )}
-        </For>
-        <Show when={store.state.lists.length === 0}>
-          <span class="view__dim">No watchlists</span>
         </Show>
-      </nav>
-      <DataTable
-        label="Watchlist"
-        columns={columns}
-        rows={items()}
-        selectedIndex={panel.focused() ? selection.index() : undefined}
-        onRowMouseDown={selection.set}
-        emptyText={emptyText()}
-      />
-      <Show when={problem()}>
-        {(p) => (
-          <p class="view__error" role="alert">
-            {p()}
-          </p>
-        )}
-      </Show>
-      <Show when={firstFeedError()}>
-        {(e) => (
-          <p class="view__error" role="alert">
-            Some quotes could not be refreshed: {e().message}.
-          </p>
-        )}
-      </Show>
-      <p class="wl__hint">
-        Alt+↑/↓ select · Enter open · Alt+Shift+↑/↓ reorder · Delete remove · Alt+←/→ list · WL ADD
-        SYMBOL · WL NEW NAME
-      </p>
+        <Show when={firstFeedError()}>
+          {(e) => (
+            <p class="view__error" role="alert">
+              Some quotes could not be refreshed: {e().message}.
+            </p>
+          )}
+        </Show>
+        <p class="wl__hint">
+          Alt+↑/↓ select · Enter open · Alt+Shift+↑/↓ reorder · Delete remove · Alt+←/→ list · WL
+          ADD SYMBOL · WL NEW NAME
+        </p>
+      </DataPanel>
     </div>
   );
 };

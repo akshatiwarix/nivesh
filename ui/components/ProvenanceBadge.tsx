@@ -4,7 +4,8 @@ import { formatAsOf } from "../lib/time";
 import { Badge, type BadgeTone } from "./Badge";
 import "./ProvenanceBadge.css";
 
-const TONE: Record<FreshnessDto, BadgeTone> = {
+/** The badge colour for each label. */
+export const FRESHNESS_TONE: Record<FreshnessDto, BadgeTone> = {
   LIVE: "live",
   DELAYED: "delayed",
   EOD: "eod",
@@ -52,7 +53,7 @@ export interface ProvenanceBadgeProps {
 export const ProvenanceBadge: Component<ProvenanceBadgeProps> = (props) => (
   <span class="prov" data-freshness={props.provenance.freshness}>
     <Badge
-      tone={TONE[props.provenance.freshness]}
+      tone={FRESHNESS_TONE[props.provenance.freshness]}
       title={freshnessTitle(props.provenance, props.now)}
     >
       {props.provenance.freshness}

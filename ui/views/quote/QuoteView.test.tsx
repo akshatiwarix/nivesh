@@ -1,6 +1,7 @@
 import { render } from "solid-js/web";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { prov, quote } from "../../data/fixtures";
+import { pinClock, unpinClock } from "../../data/testClock";
 import type { HubUpdateDto, SourcedQuoteDto } from "../../ipc";
 import { subscribeQuotes } from "../../ipc";
 import type { View } from "../types";
@@ -37,6 +38,7 @@ describe("QuoteView", () => {
   }
 
   beforeEach(() => {
+    pinClock();
     stop = vi.fn();
     subscribe.mockReset();
     subscribe.mockImplementation(async (_t, onUpdate) => {
@@ -46,6 +48,7 @@ describe("QuoteView", () => {
   });
 
   afterEach(() => {
+    unpinClock();
     dispose?.();
     document.body.innerHTML = "";
   });

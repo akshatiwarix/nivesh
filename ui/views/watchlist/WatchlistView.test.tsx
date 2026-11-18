@@ -1,6 +1,7 @@
 import { render } from "solid-js/web";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { prov, quote } from "../../data/fixtures";
+import { pinClock, unpinClock } from "../../data/testClock";
 import type { HubUpdateDto } from "../../ipc";
 import { PanelContext, sendViewOp } from "../context";
 import type { View } from "../types";
@@ -30,6 +31,7 @@ describe("WatchlistView", () => {
   let opened: View[];
 
   beforeEach(async () => {
+    pinClock();
     opened = [];
     h.subscribe.mockReset();
     h.subscribe.mockImplementation(async (_t: unknown, onUpdate: (u: HubUpdateDto) => void) => {
@@ -62,6 +64,7 @@ describe("WatchlistView", () => {
   });
 
   afterEach(() => {
+    unpinClock();
     dispose?.();
     document.body.innerHTML = "";
   });

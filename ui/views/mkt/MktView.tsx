@@ -1,4 +1,5 @@
 import { type Component, createMemo, Show } from "solid-js";
+import { DataPanel } from "../../components/DataPanel";
 import { type Column, DataTable } from "../../components/DataTable";
 import { ProvenanceBadge } from "../../components/ProvenanceBadge";
 import { createFeed } from "../../data/feed";
@@ -104,23 +105,30 @@ export const MktView: Component = () => {
     return e ? `Indices unavailable: ${e.message}. Retrying.` : "Loading indices…";
   };
 
+  const provenance = createMemo(() => {
+    const all = rows();
+    return all.length > 0 ? all.map((r) => r.provenance) : null;
+  });
+
   return (
     <div class="view mkt" data-view="mkt">
-      <DataTable
-        label="Indices"
-        columns={COLUMNS}
-        rows={rows()}
-        selectedIndex={panel.focused() ? selection.index() : undefined}
-        onRowMouseDown={selection.set}
-        emptyText={emptyText()}
-      />
-      <Show when={rows().length > 0 && error()}>
-        {(e) => (
-          <p class="view__error" role="alert">
-            Refresh failed: {e().message}. Showing the last data.
-          </p>
-        )}
-      </Show>
+      <DataPanel provenance={provenance()} title="Indices">
+        <DataTable
+          label="Indices"
+          columns={COLUMNS}
+          rows={rows()}
+          selectedIndex={panel.focused() ? selection.index() : undefined}
+          onRowMouseDown={selection.set}
+          emptyText={emptyText()}
+        />
+        <Show when={rows().length > 0 && error()}>
+          {(e) => (
+            <p class="view__error" role="alert">
+              Refresh failed: {e().message}. Showing the last data.
+            </p>
+          )}
+        </Show>
+      </DataPanel>
     </div>
   );
 };

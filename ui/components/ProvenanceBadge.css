@@ -13,3 +13,8 @@
 .prov[data-freshness="STALE"] .prov__src {
   color: var(--c-stale);
 }
+
+.health {
+  display: inline-flex;
+  gap: var(--pad-x);
+}

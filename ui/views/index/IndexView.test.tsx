@@ -1,6 +1,7 @@
 import { render } from "solid-js/web";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { indexUpdate } from "../../data/fixtures";
+import { pinClock, unpinClock } from "../../data/testClock";
 import type { HubUpdateDto } from "../../ipc";
 import { subscribeQuotes } from "../../ipc";
 import { PanelContext, sendViewOp } from "../context";
@@ -23,6 +24,7 @@ describe("IndexView", () => {
   let opened: View[];
 
   beforeEach(() => {
+    pinClock();
     opened = [];
     subscribe.mockReset();
     subscribe.mockImplementation(async (_t, onUpdate) => {
@@ -44,6 +46,7 @@ describe("IndexView", () => {
   });
 
   afterEach(() => {
+    unpinClock();
     dispose?.();
     document.body.innerHTML = "";
   });
@@ -65,8 +68,11 @@ describe("IndexView", () => {
     const head = root.querySelector(".idx__head")?.textContent ?? "";
     expect(head).toContain("NIFTY 50");
     expect(head).toContain("25,243.40");
-    expect(head).toContain("DELAYED");
-    expect(head).toContain("NSE 11:14:00 IST");
+    // The label, source and as-of time are in the data panel's bar.
+    const bar = root.querySelector(".datapanel__bar")?.textContent ?? "";
+    expect(bar).toContain("DELAYED");
+    expect(bar).toContain("NSE 11:14:00 IST");
+    expect(bar).toContain("30s ago");
     expect(rows()).toHaveLength(2);
     expect(rows()[0]?.textContent).toContain("RELIANCE");
     expect(rows()[0]?.textContent).toContain("1,000.00");
@@ -88,7 +94,7 @@ describe("IndexView", () => {
     await tick();
     push(indexUpdate("NIFTY50", "NIFTY 50", 25000, [], "yahoo"));
     await tick();
-    expect(root.querySelector(".idx__head")?.textContent).toContain("YAHOO");
+    expect(root.querySelector(".datapanel__bar")?.textContent).toContain("YAHOO");
     expect(root.textContent).toContain("Constituents are not available from YAHOO");
   });
 
