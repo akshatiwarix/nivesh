@@ -66,8 +66,16 @@ impl From<anyhow::Error> for IpcError {
 
 impl From<nivesh_store::StoreError> for IpcError {
     fn from(err: nivesh_store::StoreError) -> Self {
-        tracing::error!(%err, "store error");
-        Self::new(ErrorCode::Storage, err.to_string())
+        use nivesh_store::StoreError as E;
+        match err {
+            // Rule violations are the caller's to fix, not storage failures.
+            E::Invalid(message) => Self::invalid_argument(message),
+            E::NotFound => Self::new(ErrorCode::NotFound, "not found"),
+            other => {
+                tracing::error!(err = %other, "store error");
+                Self::new(ErrorCode::Storage, other.to_string())
+            }
+        }
     }
 }
 

@@ -1,0 +1,33 @@
+.wl {
+  padding: 0;
+}
+
+.wl__lists {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--pad-x);
+  padding: var(--pad-x);
+  color: var(--c-fg-dim);
+  font-size: var(--fs-sm);
+}
+
+.wl__list {
+  padding: 0 var(--pad-x);
+  border: 1px solid var(--c-line);
+}
+
+.wl__list--active {
+  border-color: var(--c-amber);
+  color: var(--c-amber);
+}
+
+.wl__count {
+  color: var(--c-fg-faint);
+}
+
+.wl__hint {
+  margin: 0;
+  padding: var(--pad-x);
+  color: var(--c-fg-faint);
+  font-size: var(--fs-sm);
+}

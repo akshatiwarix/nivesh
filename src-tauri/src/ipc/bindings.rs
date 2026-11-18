@@ -11,6 +11,7 @@ use ts_rs::{Config, ExportError, TS};
 use crate::commands::app::AppInfo;
 use crate::commands::market::MarketStatusDto;
 use crate::commands::ui_state::UiState;
+use crate::commands::watchlists::WatchlistsDto;
 use crate::ipc::IpcError;
 use crate::ipc::dto::{
     HubUpdateDto, IndexSnapshotDto, InstrumentDto, ProviderStatusDto, SourcedIndexQuoteDto,
@@ -40,5 +41,6 @@ pub fn export(dir: &Path) -> Result<(), ExportError> {
     TopicDto::export_all(&cfg)?;
     HubUpdateDto::export_all(&cfg)?;
     ProviderStatusDto::export_all(&cfg)?;
+    WatchlistsDto::export_all(&cfg)?;
     Ok(())
 }

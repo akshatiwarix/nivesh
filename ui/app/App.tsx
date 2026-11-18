@@ -11,7 +11,7 @@ import { ViewHost } from "../views/ViewHost";
 import "./App.css";
 import { runAction } from "./actions";
 import { createClock } from "./clock";
-import { dispatch } from "./dispatch";
+import { type CommandResult, dispatch } from "./dispatch";
 import { Header } from "./Header";
 import { MarketIndicator } from "./MarketIndicator";
 import { createPersistence } from "./persistence";
@@ -31,7 +31,7 @@ export const App: Component = () => {
   const { history } = createPersistence(ws);
   const words = completionWords();
 
-  const run = (line: string) => dispatch(parse(line), ws);
+  const run = (line: string): CommandResult => dispatch(parse(line), ws);
 
   const onKey = (e: KeyboardEvent) => {
     // The command bar claims keys it handles itself (Tab with text, Esc, ...).

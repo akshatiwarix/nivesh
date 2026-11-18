@@ -16,9 +16,11 @@ mod error;
 mod instruments;
 mod migrations;
 mod store;
+mod watchlists;
 
 pub use cache::CacheRow;
 pub use error::StoreError;
 pub use instruments::InstrumentRow;
 pub use migrations::LATEST_VERSION;
 pub use store::{Store, WindowState};
+pub use watchlists::{MAX_ITEMS_PER_LIST, MAX_LISTS, MAX_NAME_LEN, WatchItem, Watchlist};

@@ -42,6 +42,13 @@ export const COMMANDS: readonly CommandDef[] = [
     fkey: 1,
   },
   {
+    id: "wl",
+    names: ["WL", "WATCHLIST"],
+    summary: "Watchlists. WL ADD|RM <SYM>, WL NEW|USE|DEL <NAME>",
+    usage: "WL",
+    fkey: 3,
+  },
+  {
     id: "mkt",
     names: ["MKT", "MARKETS"],
     summary: "Index dashboard: NIFTY 50, SENSEX, NIFTY BANK and sector indices",

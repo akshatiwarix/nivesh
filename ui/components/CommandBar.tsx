@@ -12,9 +12,10 @@ export interface CommandBarProps {
   words: readonly string[];
   /**
    * Runs a submitted line. Returns an error message to show inline, or
-   * nothing on success (the bar then clears).
+   * nothing on success (the bar then clears). Commands that call the backend
+   * return a promise: the bar clears at once and shows the error if one arrives.
    */
-  onSubmit: (line: string) => string | undefined;
+  onSubmit: (line: string) => string | undefined | Promise<string | undefined>;
   /** Esc pressed on an empty bar: go back. */
   onBack: () => void;
   /** Enter pressed on an empty bar: act on the focused view's selection. */
@@ -59,14 +60,26 @@ export const CommandBar: Component<CommandBarProps> = (props) => {
     cycle = undefined;
   };
 
-  const accept = (i: InstrumentDto): string | undefined => {
-    const line = target()?.line(i) ?? `${i.exchange}:${i.symbol}`;
-    const err = props.onSubmit(line);
+  /** Runs a line, clearing the bar unless it fails. Async failures still show. */
+  const submit = (line: string) => {
+    const result = props.onSubmit(line);
     props.history.push(line);
-    if (err) setError(err);
-    else edit("");
-    return err;
+    if (typeof result === "string") {
+      setError(result);
+      return;
+    }
+    edit("");
+    if (result) {
+      result.then(
+        (err) => {
+          if (err) setError(err);
+        },
+        (reason: unknown) => setError(String(reason)),
+      );
+    }
   };
+
+  const accept = (i: InstrumentDto) => submit(target()?.line(i) ?? `${i.exchange}:${i.symbol}`);
 
   const onWindowKey = (e: KeyboardEvent) => {
     if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey) return;
@@ -98,13 +111,7 @@ export const CommandBar: Component<CommandBarProps> = (props) => {
           accept(pick);
           break;
         }
-        const err = props.onSubmit(line);
-        props.history.push(line);
-        if (err) {
-          setError(err);
-        } else {
-          edit("");
-        }
+        submit(line);
         break;
       }
       case "Escape":

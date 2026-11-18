@@ -17,6 +17,9 @@ export type { SourcedIndexQuoteDto } from "./bindings/SourcedIndexQuoteDto";
 export type { SourcedQuoteDto } from "./bindings/SourcedQuoteDto";
 export type { TopicDto } from "./bindings/TopicDto";
 export type { UiState } from "./bindings/UiState";
+export type { WatchItemDto } from "./bindings/WatchItemDto";
+export type { WatchlistDto } from "./bindings/WatchlistDto";
+export type { WatchlistsDto } from "./bindings/WatchlistsDto";
 export { IpcFailure, inTauri, toIpcError } from "./core";
 export {
   allIndices,
@@ -30,3 +33,12 @@ export {
 export { onMarketSession, onProviderStatus } from "./events";
 export { marketStatus } from "./market";
 export { loadUiState, saveCommandHistory, saveLayout } from "./uiState";
+export {
+  watchlistActivate,
+  watchlistAdd,
+  watchlistCreate,
+  watchlistDelete,
+  watchlistMove,
+  watchlistRemove,
+  watchlists,
+} from "./watchlists";

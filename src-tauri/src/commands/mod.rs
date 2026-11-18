@@ -8,3 +8,4 @@ pub mod app;
 pub mod data;
 pub mod market;
 pub mod ui_state;
+pub mod watchlists;

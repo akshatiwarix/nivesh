@@ -77,6 +77,14 @@ pub fn run() -> anyhow::Result<()> {
             commands::ui_state::ui_state,
             commands::ui_state::save_layout,
             commands::ui_state::save_command_history,
+            commands::watchlists::watchlist_activate,
+            commands::watchlists::watchlist_add,
+            commands::watchlists::watchlist_create,
+            commands::watchlists::watchlist_delete,
+            commands::watchlists::watchlist_move,
+            commands::watchlists::watchlist_remove,
+            commands::watchlists::watchlist_rename,
+            commands::watchlists::watchlists,
         ])
         .run(tauri::generate_context!())
         .context("running tauri app")

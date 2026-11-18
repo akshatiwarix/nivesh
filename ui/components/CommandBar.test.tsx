@@ -315,6 +315,56 @@ describe("CommandBar suggestions", () => {
   });
 });
 
+describe("CommandBar async commands", () => {
+  let dispose: (() => void) | undefined;
+  afterEach(() => {
+    dispose?.();
+    document.body.innerHTML = "";
+  });
+
+  function mountBar(onSubmit: (l: string) => Promise<string | undefined>) {
+    const root = document.createElement("div");
+    document.body.append(root);
+    dispose = render(
+      () => (
+        <CommandBar
+          history={createHistory()}
+          words={completionWords()}
+          onSubmit={onSubmit}
+          onBack={vi.fn()}
+        />
+      ),
+      root,
+    );
+    const input = root.querySelector("input") as HTMLInputElement;
+    input.value = "wl add tcs";
+    input.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    input.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }),
+    );
+    return { root, input };
+  }
+
+  it("clears at once and shows an error that arrives later", async () => {
+    const { root, input } = mountBar(async () => "TCSX is not a listed NSE symbol");
+    expect(input.value).toBe("");
+    await new Promise<void>((r) => setTimeout(r, 10));
+    expect(root.querySelector("[role=alert]")?.textContent).toBe("TCSX is not a listed NSE symbol");
+  });
+
+  it("shows nothing when the async command succeeds", async () => {
+    const { root } = mountBar(async () => undefined);
+    await new Promise<void>((r) => setTimeout(r, 10));
+    expect(root.querySelector("[role=alert]")).toBeNull();
+  });
+
+  it("shows a rejected promise instead of dropping it", async () => {
+    const { root } = mountBar(() => Promise.reject(new Error("boom")));
+    await new Promise<void>((r) => setTimeout(r, 10));
+    expect(root.querySelector("[role=alert]")?.textContent).toContain("boom");
+  });
+});
+
 describe("CommandBar and modifier chords", () => {
   it("leaves Alt+arrows alone so view navigation reaches the keymap", () => {
     const root = document.createElement("div");

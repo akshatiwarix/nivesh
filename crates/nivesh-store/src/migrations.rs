@@ -56,6 +56,25 @@ const MIGRATIONS: &[&str] = &[
         PRIMARY KEY (exchange, symbol)
     ) STRICT, WITHOUT ROWID;
     ",
+    // v4: watchlists. A fresh database starts with one list so `WL ADD` works
+    // straight away.
+    "
+    CREATE TABLE watchlists (
+        id       INTEGER PRIMARY KEY AUTOINCREMENT,
+        name     TEXT NOT NULL UNIQUE COLLATE NOCASE,
+        position INTEGER NOT NULL
+    ) STRICT;
+
+    CREATE TABLE watchlist_items (
+        list_id  INTEGER NOT NULL REFERENCES watchlists (id) ON DELETE CASCADE,
+        exchange TEXT NOT NULL,
+        symbol   TEXT NOT NULL,
+        position INTEGER NOT NULL,
+        PRIMARY KEY (list_id, exchange, symbol)
+    ) STRICT, WITHOUT ROWID;
+
+    INSERT INTO watchlists (name, position) VALUES ('WATCHLIST', 0);
+    ",
 ];
 
 /// The schema version a fully migrated database has.
@@ -117,6 +136,8 @@ mod tests {
                 "data_cache",
                 "instruments",
                 "settings",
+                "watchlist_items",
+                "watchlists",
                 "window_state"
             ]
         );

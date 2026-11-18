@@ -6,6 +6,7 @@ import { MktView } from "./mkt/MktView";
 import { EmptyView } from "./PlaceholderViews";
 import { QuoteView } from "./quote/QuoteView";
 import type { View } from "./types";
+import { WatchlistView } from "./watchlist/WatchlistView";
 import "./views.css";
 
 function renderView(view: View): JSX.Element {
@@ -18,6 +19,8 @@ function renderView(view: View): JSX.Element {
       return <IndexView view={view} />;
     case "mkt":
       return <MktView />;
+    case "wl":
+      return <WatchlistView />;
     case "help":
       return <HelpView />;
   }

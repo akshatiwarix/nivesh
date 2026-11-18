@@ -11,4 +11,10 @@ pub enum StoreError {
     SchemaTooNew { found: u32, supported: u32 },
     #[error("the store lock was poisoned by a panic in another thread")]
     Poisoned,
+    /// The request is not allowed (empty name, duplicate, too many items...).
+    /// The message is fit to show the user.
+    #[error("{0}")]
+    Invalid(String),
+    #[error("not found")]
+    NotFound,
 }

@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { parse } from "../commands";
-import { dispatch } from "./dispatch";
+import { createFakeWatchlistBackend } from "../data/fakeWatchlists";
+import { createWatchlistStore } from "../data/watchlists";
+import { dispatch, runCommand, WL_USAGE } from "./dispatch";
 import { createWorkspace } from "./workspace";
 
 describe("dispatch", () => {
@@ -35,5 +37,88 @@ describe("dispatch", () => {
     expect(ws.currentView(1).kind).toBe("mkt");
     expect(ws.currentView(0).kind).toBe("empty");
     ws.openIn(9, { kind: "mkt" }); // out of range: ignored
+  });
+
+  describe("WL", () => {
+    const setup = () => {
+      const ws = createWorkspace();
+      const backend = createFakeWatchlistBackend();
+      const store = createWatchlistStore(backend);
+      const wl = (...args: string[]) => runCommand("wl", ws, args, store);
+      return { ws, backend, store, wl };
+    };
+    const symbols = (store: ReturnType<typeof createWatchlistStore>) =>
+      store.activeList()?.items.map((i) => i.symbol);
+
+    it("WL opens the watchlist view once", () => {
+      const { ws, wl } = setup();
+      expect(wl()).toBeUndefined();
+      expect(ws.currentView(0).kind).toBe("wl");
+      wl();
+      expect(ws.back()).toBe(true);
+      expect(ws.currentView(0).kind).toBe("empty");
+    });
+
+    it("WL ADD adds every symbol (NSE by default) and shows the list", async () => {
+      const { ws, store, wl } = setup();
+      expect(await wl("ADD", "TCS", "BSE:500325", "INFY")).toBeUndefined();
+      expect(symbols(store)).toEqual(["TCS", "500325", "INFY"]);
+      expect(store.activeList()?.items[1]?.exchange).toBe("BSE");
+      expect(ws.currentView(0).kind).toBe("wl");
+    });
+
+    it("WL ADD reports a bad symbol as the error text", async () => {
+      const { ws, wl } = setup();
+      expect(await wl("ADD", "BADSYM")).toBe("BADSYM is not a listed NSE symbol");
+      expect(ws.currentView(0).kind).toBe("empty");
+    });
+
+    it("WL RM removes symbols", async () => {
+      const { store, wl } = setup();
+      await wl("ADD", "TCS", "INFY");
+      expect(await wl("RM", "TCS")).toBeUndefined();
+      expect(symbols(store)).toEqual(["INFY"]);
+      expect(await wl("REMOVE", "INFY")).toBeUndefined();
+      expect(symbols(store)).toEqual([]);
+    });
+
+    it("WL NEW creates and activates; WL USE switches by name or number", async () => {
+      const { store, wl } = setup();
+      expect(await wl("NEW", "tech", "stocks")).toBeUndefined();
+      expect(store.activeList()?.name).toBe("TECH STOCKS");
+      expect(await wl("USE", "1")).toBeUndefined();
+      expect(store.activeList()?.name).toBe("WATCHLIST");
+      expect(await wl("USE", "TECH", "STOCKS")).toBeUndefined();
+      expect(store.activeList()?.name).toBe("TECH STOCKS");
+      expect(await wl("USE", "NOPE")).toBe("No watchlist named NOPE");
+    });
+
+    it("WL DEL needs the exact name and refuses to delete the last list", async () => {
+      const { store, wl } = setup();
+      await wl("NEW", "TECH");
+      expect(await wl("DEL", "TEC")).toBe("No watchlist named TEC");
+      expect(store.state.lists).toHaveLength(2);
+      expect(await wl("DEL", "tech")).toBeUndefined();
+      expect(store.state.lists.map((l) => l.name)).toEqual(["WATCHLIST"]);
+      expect(await wl("DEL", "WATCHLIST")).toBe("the last watchlist can't be deleted");
+    });
+
+    it("explains missing arguments and unknown subcommands", () => {
+      const { wl } = setup();
+      expect(wl("ADD")).toMatch(/needs a symbol/);
+      expect(wl("RM")).toMatch(/needs a symbol/);
+      expect(wl("NEW")).toMatch(/needs a name/);
+      expect(wl("USE")).toMatch(/list name or number/);
+      expect(wl("DEL")).toMatch(/exact|name/);
+      expect(wl("FROB")).toBe(WL_USAGE);
+    });
+
+    it("parses end to end from the command bar grammar", async () => {
+      const { ws } = setup();
+      // Through the parser: WL is a registered command, so args reach the handler.
+      const parsed = parse("wl add tcs");
+      expect(parsed).toEqual({ kind: "command", id: "wl", args: ["ADD", "TCS"] });
+      expect(ws.currentView(0).kind).toBe("empty");
+    });
   });
 });
