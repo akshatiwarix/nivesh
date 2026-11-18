@@ -1,0 +1,50 @@
+.cmdbar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--pad-x);
+  height: var(--bar-h);
+  padding: 0 var(--pad-x);
+  background: var(--c-bg);
+  border-top: 1px solid var(--c-line);
+}
+
+.cmdbar:focus-within {
+  border-top-color: var(--c-amber);
+}
+
+.cmdbar__prompt {
+  color: var(--c-amber);
+  font-weight: var(--fw-bold);
+}
+
+.cmdbar__input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  background: transparent;
+  border: 0;
+  outline: 0;
+  caret-color: var(--c-amber);
+  text-transform: uppercase;
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: text;
+}
+
+.cmdbar__input::placeholder {
+  color: var(--c-fg-faint);
+  text-transform: none;
+}
+
+.cmdbar__error {
+  color: var(--c-error);
+  white-space: nowrap;
+}
+
+.cmdbar__hint {
+  color: var(--c-fg-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

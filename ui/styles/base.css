@@ -1,0 +1,88 @@
+/* Global baseline. No transitions, animations, shadows or blur: WebKitGTK is slow. */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  background: var(--c-bg);
+  color: var(--c-fg);
+  font-family: var(--font-mono);
+  font-size: var(--fs);
+  font-weight: var(--fw);
+  line-height: var(--row-h);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeSpeed;
+  /* A terminal: chrome text is not selectable unless opted in. */
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: default;
+}
+
+input,
+button,
+textarea,
+select {
+  font: inherit;
+  color: inherit;
+}
+
+kbd {
+  font-family: inherit;
+}
+
+:focus {
+  outline: none;
+}
+
+:focus-visible {
+  outline: 1px solid var(--c-orange);
+  outline-offset: -1px;
+}
+
+.selectable {
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: text;
+}
+
+.up {
+  color: var(--c-up);
+}
+
+.down {
+  color: var(--c-down);
+}
+
+.dim {
+  color: var(--c-fg-dim);
+}
+
+.accent {
+  color: var(--c-amber);
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--c-bg);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--c-line);
+}

@@ -1,0 +1,17 @@
+[package]
+name = "nivesh-store"
+description = "Nivesh SQLite store: versioned migrations, settings, command history and window state."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+rusqlite.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

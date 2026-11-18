@@ -1,0 +1,61 @@
+.panel {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: var(--c-bg-panel);
+  border: 1px solid var(--c-line);
+  /* Isolate layout/paint so a busy panel never reflows its neighbours. */
+  contain: strict;
+}
+
+.panel--focused {
+  border-color: var(--c-amber);
+}
+
+.panel__title {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--pad-x);
+  height: var(--panel-title-h);
+  padding: 0 var(--pad-x);
+  background: var(--c-bg-bar);
+  color: var(--c-fg-dim);
+  font-size: var(--fs-sm);
+  text-transform: uppercase;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.panel--focused .panel__title {
+  background: var(--c-amber);
+  color: var(--c-fg-inverse);
+  font-weight: var(--fw-bold);
+}
+
+.panel__index {
+  color: var(--c-fg-faint);
+}
+
+.panel--focused .panel__index {
+  color: var(--c-fg-inverse);
+}
+
+.panel__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.panel__extra {
+  display: flex;
+  gap: var(--pad-x);
+  margin-left: auto;
+}
+
+.panel__body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}

@@ -1,0 +1,18 @@
+.view {
+  padding: var(--pad-x);
+}
+
+.view__title {
+  color: var(--c-amber);
+  font-size: var(--fs-xl);
+  font-weight: var(--fw-bold);
+}
+
+.view__dim {
+  color: var(--c-fg-dim);
+  font-size: var(--fs-sm);
+}
+
+.view__note {
+  color: var(--c-fg-dim);
+}

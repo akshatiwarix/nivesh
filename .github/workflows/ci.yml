@@ -1,0 +1,178 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# A new push to a PR supersedes the previous run. Runs on main always finish.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  checks:
+    name: Checks (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        # Ubuntu 22.04 is the oldest Linux we support (webkit2gtk-4.1).
+        os: [ubuntu-22.04, macos-latest]
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Linux system dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev \
+            libssl-dev libayatana-appindicator3-dev librsvg2-dev
+
+      # Reads the pnpm version from the `packageManager` field in package.json.
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+
+      # Installs the toolchain pinned in rust-toolchain.toml, so CI and local
+      # builds can't drift.
+      - name: Install Rust toolchain
+        run: rustup toolchain install
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Rust format
+        run: cargo fmt --all -- --check
+
+      - name: Rust clippy
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+
+      - name: Rust tests
+        run: cargo test --workspace
+
+      - name: Biome
+        run: pnpm lint
+
+      - name: TypeScript
+        run: pnpm typecheck
+
+      - name: Vitest
+        run: pnpm test
+
+      - name: Frontend build
+        run: pnpm build
+
+      # The Rust test `committed_bindings_are_fresh` already catches drift;
+      # this also catches files that are untracked or stale on disk.
+      - name: IPC bindings are fresh
+        run: |
+          pnpm gen:bindings
+          git diff --exit-code -- ui/ipc/bindings
+          test -z "$(git status --porcelain -- ui/ipc/bindings)"
+
+  # Unsigned builds. Signing and notarisation arrive with Part 6; signing
+  # credentials will live only in GitHub Actions secrets.
+  bundle-macos:
+    name: Bundle (macOS aarch64 .dmg)
+    runs-on: macos-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install Rust toolchain
+        run: |
+          rustup toolchain install
+          # Explicit, so the build is aarch64 even if the runner image changes.
+          rustup target add aarch64-apple-darwin
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: aarch64-apple-darwin
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build .dmg
+        run: pnpm tauri build --target aarch64-apple-darwin --bundles dmg
+
+      - name: Bundle sizes
+        run: ls -lh target/aarch64-apple-darwin/release/bundle/dmg/
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: nivesh-macos-aarch64-dmg
+          path: target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
+          if-no-files-found: error
+          retention-days: 14
+
+  bundle-linux:
+    name: Bundle (Linux .deb and .AppImage)
+    # 22.04 on purpose: AppImages bundle the host's libraries, so building on
+    # the oldest supported release keeps them running on newer distros.
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Linux system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev \
+            libssl-dev libayatana-appindicator3-dev librsvg2-dev
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install Rust toolchain
+        run: rustup toolchain install
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build .deb and .AppImage
+        run: pnpm tauri build --bundles deb,appimage
+        env:
+          # linuxdeploy and appimagetool are AppImages themselves; run them
+          # without FUSE, which isn't guaranteed on hosted runners.
+          APPIMAGE_EXTRACT_AND_RUN: 1
+
+      - name: Bundle sizes
+        run: ls -lh target/release/bundle/deb/ target/release/bundle/appimage/
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: nivesh-linux-bundles
+          path: |
+            target/release/bundle/deb/*.deb
+            target/release/bundle/appimage/*.AppImage
+          if-no-files-found: error
+          retention-days: 14

@@ -1,0 +1,37 @@
+{
+  "name": "nivesh",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Keyboard-driven terminal for Indian markets",
+  "type": "module",
+  "packageManager": "pnpm@10.34.6",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write .",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.node.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "tauri": "tauri",
+    "gen:bindings": "cargo run -q -p nivesh-app --example gen_bindings"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.12.5",
+    "solid-js": "^1.9.19"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.6.8",
+    "@tauri-apps/cli": "^2.12.5",
+    "@types/node": "^24.19.2",
+    "happy-dom": "^21.0.4",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.8",
+    "vite-plugin-solid": "^2.11.16",
+    "vitest": "^5.1.0"
+  }
+}

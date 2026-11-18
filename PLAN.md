@@ -197,7 +197,9 @@ nivesh/
   - Linux `.deb` and `.AppImage`, built on Ubuntu 22.04 with
     `libwebkit2gtk-4.1-dev`.
   - Windows later.
-  - Builds stay unsigned until signing is set up (Part 6). Signing credentials
+  - Builds stay unsigned until signing is set up (Part 6); the macOS app is
+    ad-hoc signed (`signingIdentity: "-"`) so Apple Silicon will launch it.
+    Signing credentials
     live only in GitHub Actions secrets.
 
 ### 2.4 Frontend: SolidJS + TypeScript + Vite
@@ -604,18 +606,23 @@ needs, can't accidentally grow order placement:
    - `RELIANCE` opens a placeholder quote view and `NIFTY` a placeholder index
      view.
 10. `feat(ui): add keymap, function keys and help view`
-    - Table-driven keymap: F1–F10 plus Ctrl+digit fallbacks, Tab panel cycling.
+    - Table-driven keymap: F1–F10 plus Ctrl+digit fallbacks, Tab panel cycling,
+      Alt+1/2/4 to switch layout.
     - Doesn't hijack keys while an input is focused.
     - `HELP`, `?` and F1 render the registry and keymap.
     - Unit tests.
 11. `feat(core): add ist market calendar and session status`
     - Pre-open, normal, closing and closed sessions.
     - Bundled holiday data file for the current year.
-    - `market_status` command and a header indicator.
+    - `market_status` command and a header indicator, polled every 15 s (the
+      `market:session` event replaces polling in Part 2). Holiday data is
+      flagged `calendar_known: false` for years without a bundled file.
     - Boundary tests.
 12. `feat(store): add sqlite store with migrations`
     - `nivesh-store` with bundled rusqlite, WAL mode and a migration runner.
     - Settings table, persisted layout, command history and window state.
+      Window geometry is restored only if it is still reachable on a connected
+      monitor.
 13. `ci: add rust and frontend checks`
     - Ubuntu and macOS matrix.
     - `cargo fmt --check`, `clippy -D warnings`, `cargo test`, Biome, `tsc`,

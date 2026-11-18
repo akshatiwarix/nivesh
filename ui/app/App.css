@@ -1,0 +1,59 @@
+.shell {
+  display: grid;
+  grid-template-rows: var(--bar-h) 1fr var(--bar-h) var(--bar-h);
+  height: 100%;
+}
+
+.shell__header,
+.shell__statusbar {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--pad-x) * 2);
+  padding: 0 var(--pad-x);
+  background: var(--c-bg-bar);
+  color: var(--c-fg-dim);
+  font-size: var(--fs-sm);
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.shell__brand {
+  color: var(--c-amber);
+  font-weight: var(--fw-bold);
+  letter-spacing: 0.1em;
+}
+
+.shell__status,
+.shell__spacer,
+.shell__clock {
+  display: flex;
+  gap: var(--pad-x);
+}
+
+.shell__clock,
+.shell__spacer {
+  margin-left: auto;
+}
+
+.shell__time {
+  color: var(--c-fg);
+}
+
+.shell__grid {
+  display: grid;
+  gap: var(--gap);
+  padding: var(--gap);
+  min-height: 0;
+}
+
+.shell__grid[data-layout="1"] {
+  grid-template: 1fr / 1fr;
+}
+
+.shell__grid[data-layout="2"] {
+  grid-template: 1fr / 1fr 1fr;
+}
+
+.shell__grid[data-layout="4"] {
+  grid-template: 1fr 1fr / 1fr 1fr;
+}
