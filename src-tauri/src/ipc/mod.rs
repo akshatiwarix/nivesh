@@ -5,6 +5,7 @@
 //! listed in [`bindings::export`], which generates `ui/ipc/bindings`.
 
 pub mod bindings;
+pub mod chart;
 pub mod dto;
 mod error;
 

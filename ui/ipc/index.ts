@@ -1,9 +1,11 @@
 export { appInfo } from "./app";
 export type { AppInfo } from "./bindings/AppInfo";
+export type { BarDto } from "./bindings/BarDto";
 export type { ConstituentsInfoDto } from "./bindings/ConstituentsInfoDto";
 export type { ErrorCode } from "./bindings/ErrorCode";
 export type { FreshnessDto } from "./bindings/FreshnessDto";
 export type { HealthDto } from "./bindings/HealthDto";
+export type { HistoryDto } from "./bindings/HistoryDto";
 export type { HubUpdateDto } from "./bindings/HubUpdateDto";
 export type { IndexQuoteDto } from "./bindings/IndexQuoteDto";
 export type { IndexSnapshotDto } from "./bindings/IndexSnapshotDto";
@@ -21,6 +23,7 @@ export type { UiState } from "./bindings/UiState";
 export type { WatchItemDto } from "./bindings/WatchItemDto";
 export type { WatchlistDto } from "./bindings/WatchlistDto";
 export type { WatchlistsDto } from "./bindings/WatchlistsDto";
+export { getHistory, subscribeFormingBar } from "./chart";
 export { IpcFailure, inTauri, toIpcError } from "./core";
 export {
   allIndices,

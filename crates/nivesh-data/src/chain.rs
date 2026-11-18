@@ -334,6 +334,24 @@ impl MarketData {
         }
     }
 
+    /// A quote from `provider` and no other, uncached. For callers that must
+    /// not mix sources (a chart's forming bar). Health tracking still applies.
+    pub async fn quote_from(
+        &self,
+        provider: ProviderId,
+        id: &InstrumentId,
+    ) -> Result<Sourced<Quote>, DataError> {
+        let ids = [id.clone()];
+        self.route(Capabilities::QUOTE, &[provider], |p| {
+            let ids = ids.clone();
+            async move { p.quotes(&ids).await }
+        })
+        .await?
+        .into_iter()
+        .next()
+        .ok_or(DataError::NotFound)
+    }
+
     pub async fn quote(&self, id: &InstrumentId) -> Result<Sourced<Quote>, DataError> {
         self.quotes(std::slice::from_ref(id))
             .await?

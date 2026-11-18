@@ -14,7 +14,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use futures::FutureExt as _;
-use nivesh_core::{IndexId, IndexQuote, IndexSnapshot, InstrumentId, Quote, Sourced};
+use nivesh_core::{IndexId, IndexQuote, IndexSnapshot, InstrumentId, ProviderId, Quote, Sourced};
 use tokio::sync::{Notify, mpsc};
 
 use crate::{DataError, MarketData};
@@ -26,6 +26,9 @@ pub enum Topic {
     Index(IndexId),
     /// The index levels on the MKT dashboard.
     AllIndices,
+    /// A quote from one named provider, never another. A chart's forming bar
+    /// uses this so its last price comes from the source of its history.
+    Pinned(ProviderId, InstrumentId),
 }
 
 /// A message to a subscriber.
@@ -35,6 +38,8 @@ pub enum HubUpdate {
     Quotes(Vec<Sourced<Quote>>),
     Index(Sourced<IndexSnapshot>),
     AllIndices(Vec<Sourced<IndexQuote>>),
+    /// The quote for a [`Topic::Pinned`] topic.
+    Pinned(Sourced<Quote>),
     /// A topic couldn't be refreshed. The view shows this inline and keeps its
     /// last data; the hub keeps trying.
     Failed {
@@ -277,6 +282,10 @@ async fn poll(inner: &Inner, topics: Vec<Topic>) {
                 Ok(rows) => deliver(inner, topic.clone(), HubUpdate::AllIndices(rows)),
                 Err(error) => deliver_failure(inner, topic.clone(), error),
             },
+            Topic::Pinned(provider, id) => match inner.market.quote_from(*provider, id).await {
+                Ok(q) => deliver(inner, topic.clone(), HubUpdate::Pinned(q)),
+                Err(error) => deliver_failure(inner, topic.clone(), error),
+            },
         }
     }
 }
@@ -407,6 +416,31 @@ mod tests {
             out.push(u);
         }
         out
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_pinned_topic_asks_only_its_own_provider() {
+        let nse = Arc::new(MockProvider::new(ProviderId::Nse, Capabilities::QUOTE));
+        let yahoo = Arc::new(MockProvider::new(ProviderId::Yahoo, Capabilities::QUOTE));
+        nse.repeat_quotes(Ok(vec![quote("TCS")]));
+        let mut y = quote("TCS");
+        y.provenance.provider = ProviderId::Yahoo;
+        yahoo.repeat_quotes(Ok(vec![y]));
+        let md = MarketData::builder()
+            .provider(nse.clone())
+            .provider(yahoo.clone())
+            .build();
+        let hub = QuoteHub::spawn(md, HubConfig::default(), || true);
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        hub.subscribe([Topic::Pinned(ProviderId::Yahoo, id("TCS"))], tx);
+        sleep(1).await;
+        let got = drain(&mut rx);
+        assert!(
+            matches!(&got[..], [HubUpdate::Pinned(q)] if q.provenance.provider == ProviderId::Yahoo),
+            "{got:?}"
+        );
+        // NSE is first in the default routing but was never asked.
+        assert_eq!(calls(&nse), 0);
     }
 
     #[tokio::test(start_paused = true)]

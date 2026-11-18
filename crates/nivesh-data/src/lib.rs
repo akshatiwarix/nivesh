@@ -10,6 +10,7 @@ mod chain;
 pub mod clock;
 pub mod constituents;
 mod error;
+pub mod forming;
 pub mod health;
 pub mod http;
 pub mod hub;

@@ -271,6 +271,10 @@ impl From<&Topic> for TopicDto {
                 index: index.code().to_owned(),
             },
             Topic::AllIndices => Self::AllIndices,
+            Topic::Pinned(_, id) => Self::Quote {
+                exchange: id.exchange().code().to_owned(),
+                symbol: id.symbol().to_owned(),
+            },
         }
     }
 }
@@ -310,6 +314,9 @@ impl From<&HubUpdate> for HubUpdateDto {
             },
             HubUpdate::AllIndices(rows) => Self::AllIndices {
                 rows: rows.iter().map(Into::into).collect(),
+            },
+            HubUpdate::Pinned(q) => Self::Quotes {
+                quotes: vec![q.into()],
             },
             HubUpdate::Failed { topic, error } => Self::Failed {
                 topic: topic.into(),
