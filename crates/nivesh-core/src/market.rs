@@ -60,21 +60,28 @@ pub enum Interval {
     M30,
     #[serde(rename = "1h")]
     H1,
+    /// Not offered by any provider: built from 1h bars (see [`Interval::base`]).
+    #[serde(rename = "4h")]
+    H4,
     #[serde(rename = "1d")]
     D1,
     #[serde(rename = "1w")]
     W1,
+    #[serde(rename = "1mo")]
+    Mo1,
 }
 
 impl Interval {
-    pub const ALL: [Interval; 7] = [
+    pub const ALL: [Interval; 9] = [
         Interval::M1,
         Interval::M5,
         Interval::M15,
         Interval::M30,
         Interval::H1,
+        Interval::H4,
         Interval::D1,
         Interval::W1,
+        Interval::Mo1,
     ];
 
     pub const fn code(self) -> &'static str {
@@ -84,12 +91,14 @@ impl Interval {
             Interval::M15 => "15m",
             Interval::M30 => "30m",
             Interval::H1 => "1h",
+            Interval::H4 => "4h",
             Interval::D1 => "1d",
             Interval::W1 => "1w",
+            Interval::Mo1 => "1mo",
         }
     }
 
-    /// Nominal width in seconds (a week is 7 days).
+    /// Nominal width in seconds (a week is 7 days, a month 30).
     pub const fn seconds(self) -> i64 {
         match self {
             Interval::M1 => 60,
@@ -97,13 +106,24 @@ impl Interval {
             Interval::M15 => 900,
             Interval::M30 => 1800,
             Interval::H1 => 3600,
+            Interval::H4 => 14_400,
             Interval::D1 => 86_400,
             Interval::W1 => 604_800,
+            Interval::Mo1 => 2_592_000,
         }
     }
 
     pub const fn is_intraday(self) -> bool {
-        !matches!(self, Interval::D1 | Interval::W1)
+        !matches!(self, Interval::D1 | Interval::W1 | Interval::Mo1)
+    }
+
+    /// The interval a provider is asked for. Providers offer 1m to 1h, 1d, 1w
+    /// and 1mo; `4h` is built from their 1h bars, aligned to the IST session.
+    pub const fn base(self) -> Interval {
+        match self {
+            Interval::H4 => Interval::H1,
+            other => other,
+        }
     }
 }
 
@@ -116,13 +136,15 @@ impl fmt::Display for Interval {
 impl FromStr for Interval {
     type Err = String;
 
-    /// Accepts `5m`, `5M`, `1h`, `1d`, `D`, `W`, case-insensitively.
+    /// Accepts `5m`, `5M`, `1h`, `4h`, `1d`, `D`, `W`, `1mo`, `MO`,
+    /// case-insensitively. Months are `mo` because `m` means minutes.
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let s = s.trim().to_ascii_lowercase();
         let s = match s.as_str() {
             "d" => "1d",
             "w" => "1w",
             "h" => "1h",
+            "mo" | "mn" => "1mo",
             other => other,
         };
         Interval::ALL
@@ -281,11 +303,17 @@ mod tests {
             ("D", Interval::D1),
             ("1d", Interval::D1),
             ("w", Interval::W1),
+            ("4H", Interval::H4),
+            ("1mo", Interval::Mo1),
+            ("MO", Interval::Mo1),
         ] {
             assert_eq!(text.parse::<Interval>(), Ok(want), "{text}");
         }
         assert!("7m".parse::<Interval>().is_err());
         assert!(Interval::M5.is_intraday() && !Interval::D1.is_intraday());
+        assert!(!Interval::Mo1.is_intraday());
+        assert_eq!(Interval::H4.base(), Interval::H1);
+        assert_eq!(Interval::D1.base(), Interval::D1);
     }
 
     #[test]

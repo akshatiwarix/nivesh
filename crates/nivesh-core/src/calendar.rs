@@ -76,7 +76,7 @@ impl Date {
 }
 
 /// Howard Hinnant's `days_from_civil`.
-fn days_from_civil(y: i32, m: u32, d: u32) -> i64 {
+pub(crate) fn days_from_civil(y: i32, m: u32, d: u32) -> i64 {
     let y = i64::from(y) - i64::from(m <= 2);
     let era = y.div_euclid(400);
     let yoe = y.rem_euclid(400);
@@ -87,7 +87,7 @@ fn days_from_civil(y: i32, m: u32, d: u32) -> i64 {
 }
 
 /// Howard Hinnant's `civil_from_days`.
-fn civil_from_days(z: i64) -> Date {
+pub(crate) fn civil_from_days(z: i64) -> Date {
     let z = z + 719_468;
     let era = z.div_euclid(146_097);
     let doe = z.rem_euclid(146_097);
@@ -107,7 +107,7 @@ fn civil_from_days(z: i64) -> Date {
 }
 
 /// 0 = Sunday ... 6 = Saturday. 1970-01-01 was a Thursday.
-fn weekday(days: i64) -> i64 {
+pub(crate) fn weekday(days: i64) -> i64 {
     (days + 4).rem_euclid(7)
 }
 

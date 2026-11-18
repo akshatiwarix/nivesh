@@ -66,9 +66,11 @@ const fn yahoo_interval(interval: Interval) -> &'static str {
         Interval::M5 => "5m",
         Interval::M15 => "15m",
         Interval::M30 => "30m",
-        Interval::H1 => "60m",
+        // `4h` is resampled from 60m bars before it gets here.
+        Interval::H1 | Interval::H4 => "60m",
         Interval::D1 => "1d",
         Interval::W1 => "1wk",
+        Interval::Mo1 => "1mo",
     }
 }
 
@@ -93,8 +95,8 @@ const fn max_days(interval: Interval) -> Option<(u32, &'static str)> {
         Interval::M5 | Interval::M15 | Interval::M30 => {
             Some((60, "intraday bars under 1 hour cover only the last 60 days"))
         }
-        Interval::H1 => Some((730, "hourly bars cover only the last 2 years")),
-        Interval::D1 | Interval::W1 => None,
+        Interval::H1 | Interval::H4 => Some((730, "hourly bars cover only the last 2 years")),
+        Interval::D1 | Interval::W1 | Interval::Mo1 => None,
     }
 }
 

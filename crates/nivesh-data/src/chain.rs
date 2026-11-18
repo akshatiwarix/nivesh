@@ -9,6 +9,7 @@ use std::collections::HashMap;
 use std::future::Future;
 use std::sync::{Arc, Mutex};
 
+use nivesh_core::bars::{normalize, resample};
 use nivesh_core::{
     CandleSeries, IndexId, IndexQuote, IndexSnapshot, InstrumentId, ProviderId, Quote, Sourced,
 };
@@ -445,23 +446,43 @@ impl MarketData {
                 let order = this.inner.routing.history.clone();
                 this.route(Capabilities::HISTORY, &order, |p| {
                     let request = request.clone();
-                    async move {
-                        let series = p.history(&request).await?;
-                        // A series must be exactly what was asked for, from one
-                        // source. Anything else is rejected, not patched.
-                        if series.data.id != request.id || series.data.interval != request.interval
-                        {
-                            return Err(DataError::Parse(
-                                "provider returned a different series".into(),
-                            ));
-                        }
-                        Ok(series)
-                    }
+                    async move { fetch_series(p.as_ref(), &request).await }
                 })
                 .await
             })
             .await
     }
+}
+
+/// One provider's answer to `request`, as exactly the series that was asked
+/// for. Intervals no provider offers (4h) are built from the base interval's
+/// bars with session-aligned resampling; the provider's rows are cleaned of
+/// nulls and duplicates first. Anything else wrong is rejected, not patched.
+async fn fetch_series(
+    p: &dyn DataProvider,
+    request: &HistoryRequest,
+) -> Result<Sourced<CandleSeries>, DataError> {
+    let base = request.interval.base();
+    let asked = HistoryRequest {
+        interval: base,
+        ..request.clone()
+    };
+    let mut series = p.history(&asked).await?;
+    if series.data.id != request.id || series.data.interval != base {
+        return Err(DataError::Parse(
+            "provider returned a different series".into(),
+        ));
+    }
+    let mut candles = normalize(std::mem::take(&mut series.data.candles));
+    if base != request.interval {
+        candles = resample(&candles, request.interval);
+    }
+    if candles.is_empty() {
+        return Err(DataError::NotFound);
+    }
+    series.data.candles = candles;
+    series.data.interval = request.interval;
+    Ok(series)
 }
 
 #[cfg(test)]
@@ -924,6 +945,41 @@ mod tests {
             .repeat_history(Ok(series(ProviderId::Yahoo, "TCS", Interval::D1)));
         let h = r.md.history(&req).await.unwrap();
         assert_eq!(h.provenance.provider, ProviderId::Yahoo);
+    }
+
+    #[tokio::test]
+    async fn four_hour_bars_are_built_from_one_providers_hourly_bars() {
+        let r = rig();
+        let req = HistoryRequest {
+            id: id("TCS"),
+            interval: Interval::H4,
+            range: HistoryRange::M1,
+        };
+        // 2026-11-16 09:15, 10:15, 13:15 and 14:15 IST, hourly.
+        let at = |h: i64, m: i64| (1_794_767_400 + h * 3600 + m * 60) * 1000;
+        let hourly = [at(9, 15), at(10, 15), at(13, 15), at(14, 15)].map(|t| Candle {
+            t,
+            o: 10.0,
+            h: 12.0,
+            l: 9.0,
+            c: 11.0,
+            v: 5.0,
+        });
+        let mut s = series(ProviderId::Yahoo, "TCS", Interval::H1);
+        s.data.candles = hourly.to_vec();
+        r.nse.repeat_history(Err(DataError::Unsupported));
+        r.yahoo.repeat_history(Ok(s));
+        let h = r.md.history(&req).await.unwrap();
+        assert_eq!(h.data.interval, Interval::H4);
+        assert_eq!(h.provenance.provider, ProviderId::Yahoo);
+        assert_eq!(
+            h.data
+                .candles
+                .iter()
+                .map(|c| (c.t, c.v))
+                .collect::<Vec<_>>(),
+            [(at(9, 15), 10.0), (at(13, 15), 10.0)]
+        );
     }
 
     #[tokio::test]
