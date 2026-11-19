@@ -133,7 +133,7 @@ impl OrderGateway {
         let price = (intent.side == Side::Buy).then_some(intent.signal_price);
         let approved = self
             .engine
-            .check(&intent.symbol, intent.quantity, price, &ctx)
+            .check(&intent.symbol, intent.side, intent.quantity, price, &ctx)
             .map_err(|_| GatewayError::RiskRejected)?;
         if !approved.is_valid_at(now_ms) {
             return Err(GatewayError::ApprovalExpired);
@@ -165,7 +165,7 @@ mod tests {
         fn fill(&self, order: &ApprovedOrder, bar: &Candle) -> Result<Fill, BrokerError> {
             let fill = Fill {
                 symbol: order.symbol().to_owned(),
-                side: Side::Buy,
+                side: order.side(),
                 quantity: order.quantity(),
                 price: bar.c,
                 bar_t: bar.t,

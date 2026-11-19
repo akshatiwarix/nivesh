@@ -10,6 +10,7 @@
 //! Everything is pure: no I/O, no clock — the caller supplies `now_ms` so
 //! the engine is deterministic and property-testable.
 
+use nivesh_core::Side;
 use serde::{Deserialize, Serialize};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -92,9 +93,14 @@ pub struct RiskEngine {
 /// impossible: the fields are private and [`RiskEngine::check`] is the only
 /// minter. It carries the decision's id and a short expiry, so a stale
 /// approval cannot be replayed.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+///
+/// It is `Serialize` (for the audit log) but deliberately **not**
+/// `Deserialize`: decoding one from bytes would mint an approval without a
+/// check.
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct ApprovedOrder {
     symbol: String,
+    side: Side,
     quantity: i64,
     /// The limit price the caller asked for, rupees.
     price: Option<f64>,
@@ -108,6 +114,11 @@ impl ApprovedOrder {
     /// The instrument.
     pub fn symbol(&self) -> &str {
         &self.symbol
+    }
+
+    /// Buy or sell.
+    pub fn side(&self) -> Side {
+        self.side
     }
 
     /// Shares.
@@ -150,6 +161,7 @@ impl RiskEngine {
     pub fn check(
         &self,
         symbol: &str,
+        side: Side,
         quantity: i64,
         price: Option<f64>,
         ctx: &RiskContext<'_>,
@@ -234,6 +246,7 @@ impl RiskEngine {
         let decision_id = decision_counter(ctx.now_ms, symbol, quantity);
         Ok(ApprovedOrder {
             symbol: symbol.to_owned(),
+            side,
             quantity,
             price: Some(price),
             decision_id,
@@ -290,9 +303,10 @@ mod tests {
     #[test]
     fn a_normal_order_is_approved_and_carries_the_facts() {
         let approved = engine()
-            .check("NSE:RELIANCE", 10, Some(1_000.0), &ctx(NOW))
+            .check("NSE:RELIANCE", Side::Buy, 10, Some(1_000.0), &ctx(NOW))
             .unwrap();
         assert_eq!(approved.symbol(), "NSE:RELIANCE");
+        assert_eq!(approved.side(), Side::Buy);
         assert_eq!(approved.quantity(), 10);
         assert_eq!(approved.price(), Some(1_000.0));
         assert!(approved.is_valid_at(NOW + 1000));
@@ -303,23 +317,39 @@ mod tests {
     }
 
     #[test]
+    fn a_sell_carries_its_side() {
+        let approved = engine()
+            .check("NSE:RELIANCE", Side::Sell, 10, None, &ctx(NOW))
+            .unwrap();
+        assert_eq!(approved.side(), Side::Sell);
+        assert_eq!(approved.price(), Some(1_000.0), "priced at the LTP");
+    }
+
+    #[test]
     fn hard_limits_reject() {
         let e = engine();
-        assert!(e.check("NSE:REL", 0, None, &ctx(NOW)).is_err(), "zero qty");
         assert!(
-            e.check("NSE:REL", 5_000, None, &ctx(NOW)).is_err(),
+            e.check("NSE:REL", Side::Buy, 0, None, &ctx(NOW)).is_err(),
+            "zero qty"
+        );
+        assert!(
+            e.check("NSE:REL", Side::Buy, 5_000, None, &ctx(NOW))
+                .is_err(),
             "over the quantity cap"
         );
         assert!(
-            e.check("NSE:REL", 1_000, Some(1_000.0), &ctx(NOW)).is_err(),
+            e.check("NSE:REL", Side::Buy, 1_000, Some(1_000.0), &ctx(NOW))
+                .is_err(),
             "value 1M over the ₹500k cap"
         );
         assert!(
-            e.check("NSE:REL", 100, Some(1_500.0), &ctx(NOW)).is_err(),
+            e.check("NSE:REL", Side::Buy, 100, Some(1_500.0), &ctx(NOW))
+                .is_err(),
             "50% above LTP is outside the 10% band"
         );
         assert!(
-            e.check("NSE:REL", 100, Some(900.0), &ctx(NOW)).is_ok(),
+            e.check("NSE:REL", Side::Buy, 100, Some(900.0), &ctx(NOW))
+                .is_ok(),
             "10% below LTP is inside the band"
         );
     }
@@ -333,37 +363,40 @@ mod tests {
             recent_orders: &recent,
             ..ctx(NOW)
         };
-        assert!(e.check("NSE:REL", 1, None, &busy).is_err());
+        assert!(e.check("NSE:REL", Side::Buy, 1, None, &busy).is_err());
         // Outside the minute window they no longer count.
         let old: Vec<i64> = recent.iter().map(|t| t - 120_000).collect();
         let calm = RiskContext {
             recent_orders: &old,
             ..ctx(NOW)
         };
-        assert!(e.check("NSE:REL", 1, None, &calm).is_ok());
+        assert!(e.check("NSE:REL", Side::Buy, 1, None, &calm).is_ok());
 
         // Twenty open positions: the 21st is refused.
         let full = RiskContext {
             open_positions: 20,
             ..ctx(NOW)
         };
-        assert!(e.check("NSE:REL", 1, None, &full).is_err());
+        assert!(e.check("NSE:REL", Side::Buy, 1, None, &full).is_err());
 
         // A deep daily loss refuses everything new.
         let losing = RiskContext {
             day_pnl: -50_000.0,
             ..ctx(NOW)
         };
-        assert!(e.check("NSE:REL", 1, None, &losing).is_err());
+        assert!(e.check("NSE:REL", Side::Buy, 1, None, &losing).is_err());
     }
 
     #[test]
     fn non_equity_shapes_are_refused() {
         let e = engine();
         assert!(
-            e.check("NSE:NIFTY25NOV24000CE", 1, None, &ctx(NOW))
+            e.check("NSE:NIFTY25NOV24000CE", Side::Buy, 1, None, &ctx(NOW))
                 .is_err()
         );
-        assert!(e.check("NSE:RELIANCE", 1, None, &ctx(NOW)).is_ok());
+        assert!(
+            e.check("NSE:RELIANCE", Side::Buy, 1, None, &ctx(NOW))
+                .is_ok()
+        );
     }
 }
