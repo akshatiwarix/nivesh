@@ -137,8 +137,9 @@ export const COMMANDS: readonly CommandDef[] = [
   {
     id: "paper",
     names: ["PAPER"],
-    summary: "Paper trading dashboard. PAPER START|STOP <NAME>. Simulated fills only",
-    usage: "PAPER [START|STOP <NAME>]",
+    summary:
+      "Paper trading dashboard. PAPER START <NAME> [SYMBOL] [INTERVAL], PAPER STOP <NAME>. Simulated fills only",
+    usage: "PAPER [START <NAME> [SYMBOL] [INTERVAL] | STOP <NAME>]",
   },
   {
     id: "login",

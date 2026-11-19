@@ -189,7 +189,7 @@ export function runCommand(
         return undefined;
       }
       if (sub !== "START" && sub !== "STOP") {
-        return "PAPER START <NAME> or PAPER STOP <NAME>, or bare PAPER for the dashboard.";
+        return "PAPER START <NAME> [SYMBOL] [INTERVAL] or PAPER STOP <NAME>, or bare PAPER for the dashboard.";
       }
       const name = args[1];
       if (name === undefined) {
@@ -198,8 +198,10 @@ export function runCommand(
       if (!inTauri()) return "Paper trading runs in the Nivesh app.";
       return (async () => {
         try {
-          if (sub === "START") await paperStart(name);
-          else await paperStop(name);
+          if (sub === "START") {
+            const symbol = args[2]?.replace(/^(NSE|BSE):/, "");
+            await paperStart(name, symbol, args[3]);
+          } else await paperStop(name);
           if (ws.currentView(ws.state.focused).kind !== "paper") ws.open({ kind: "paper" });
           return undefined;
         } catch (err) {
