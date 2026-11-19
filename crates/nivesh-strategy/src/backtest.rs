@@ -5,8 +5,10 @@
 //!
 //! Progress and cancellation are surfaced to the IPC layer via a callback.
 
-use nivesh_core::Candle;
+use nivesh_core::{Candle, Side};
 use serde::{Deserialize, Serialize};
+
+use crate::costs::CostModel;
 
 use crate::evaluate::Evaluator;
 use crate::rules::{IntentSide, OrderIntent, RuleSet};
@@ -20,12 +22,14 @@ pub struct BacktestTrade {
     /// UTC ms of the entry/exit fills.
     pub entry_t: i64,
     pub exit_t: i64,
-    /// Fill prices (rupees): the next bar's open, long-only.
+    /// Fill prices (rupees): the next bar's open after slippage, long-only.
     pub entry_price: f64,
     pub exit_price: f64,
     pub quantity: i64,
-    /// Realised P&L of the trade (rupees, fees ignored in v1 — the cost
-    /// model lands with the paper runner where the playbook requires it).
+    /// Charges on both fills, rupees.
+    #[serde(default)]
+    pub charges: f64,
+    /// Realised P&L of the trade net of charges, rupees.
     pub pnl: f64,
 }
 
@@ -35,8 +39,10 @@ pub struct BacktestResult {
     pub trades: Vec<BacktestTrade>,
     /// The equity curve, one point per closed bar (rupees, start = equity).
     pub equity: Vec<f64>,
-    /// Realised P&L over the whole run.
+    /// Realised P&L over the whole run, net of charges.
     pub total_pnl: f64,
+    /// Charges paid over the whole run, rupees.
+    pub total_charges: f64,
     /// Max drawdown from a running peak (rupees, positive number).
     pub max_drawdown: f64,
     /// Bars in the market / total bars.
@@ -53,6 +59,8 @@ pub struct BacktestOptions {
     pub equity: f64,
     /// The symbol the candles belong to (intents carry it).
     pub symbol: &'static str,
+    /// Charges and slippage on every fill.
+    pub costs: CostModel,
 }
 
 impl Default for BacktestOptions {
@@ -60,6 +68,7 @@ impl Default for BacktestOptions {
         Self {
             equity: 100_000.0,
             symbol: "BACKTEST",
+            costs: CostModel::default(),
         }
     }
 }
@@ -79,6 +88,7 @@ pub fn backtest(
                 trades: Vec::new(),
                 equity: vec![options.equity],
                 total_pnl: 0.0,
+                total_charges: 0.0,
                 max_drawdown: 0.0,
                 bars_in_market: 0,
                 total_bars: candles.len(),
@@ -92,7 +102,10 @@ pub fn backtest(
     let mut equity_curve: Vec<f64> = Vec::with_capacity(candles.len() + 1);
     equity_curve.push(options.equity);
     let mut cash = options.equity;
-    let mut position: Option<(i64, f64, usize, i64)> = None; // (qty, entry price, entry index, entry t)
+    // (qty, entry price, entry index, entry t, entry charges)
+    let mut position: Option<(i64, f64, usize, i64, f64)> = None;
+    let mut total_charges = 0.0;
+    let costs = options.costs;
     let mut bars_in_market = 0usize;
 
     let mut i = 0usize;
@@ -103,6 +116,7 @@ pub fn backtest(
                 trades,
                 equity: equity_curve,
                 total_pnl: cash - options.equity,
+                total_charges,
                 max_drawdown: drawdown,
                 bars_in_market,
                 total_bars: candles.len(),
@@ -118,24 +132,26 @@ pub fn backtest(
                 IntentSide::Buy if position.is_none() => {
                     let qty = intent.quantity.min(1_000_000);
                     if qty > 0 && bar.o > 0.0 {
-                        position = Some((qty, bar.o, i, bar.t));
-                        cash -= bar.o * qty as f64;
+                        let price = costs.fill_price(Side::Buy, bar.o);
+                        let charges = costs.charges(Side::Buy, qty, price).total_rupees();
+                        position = Some((qty, price, i, bar.t, charges));
+                        cash -= price * qty as f64 + charges;
+                        total_charges += charges;
                     }
                 }
                 IntentSide::Sell => {
-                    if let Some((qty, entry_price, entry_index, entry_t)) = position.take() {
-                        let exit_price = bar.o;
-                        cash += exit_price * qty as f64;
-                        trades.push(BacktestTrade {
-                            entry_index,
-                            exit_index: i,
-                            entry_t,
-                            exit_t: bar.t,
-                            entry_price,
-                            exit_price,
-                            quantity: qty,
-                            pnl: (exit_price - entry_price) * qty as f64,
-                        });
+                    if let Some((qty, entry_price, entry_index, entry_t, entry_charges)) =
+                        position.take()
+                    {
+                        let exit_price = costs.fill_price(Side::Sell, bar.o);
+                        let charges = costs.charges(Side::Sell, qty, exit_price).total_rupees();
+                        cash += exit_price * qty as f64 - charges;
+                        total_charges += charges;
+                        trades.push(round_trip(
+                            (entry_index, entry_t, entry_price, entry_charges),
+                            (i, bar.t, exit_price, charges),
+                            qty,
+                        ));
                     }
                 }
                 _ => {}
@@ -158,7 +174,7 @@ pub fn backtest(
 
         // 3. Mark to market for the equity curve.
         let mark = match &position {
-            Some((qty, _entry, _, _)) => cash + bar.c * *qty as f64,
+            Some((qty, _entry, _, _, _)) => cash + bar.c * *qty as f64,
             None => cash,
         };
         equity_curve.push(mark);
@@ -169,20 +185,18 @@ pub fn backtest(
     }
 
     // Close any open position at the last close (the run's end).
-    if let Some((qty, entry_price, entry_index, entry_t)) = position.take()
+    if let Some((qty, entry_price, entry_index, entry_t, entry_charges)) = position.take()
         && let Some(last) = candles.last()
     {
-        cash += last.c * qty as f64;
-        trades.push(BacktestTrade {
-            entry_index,
-            exit_index: candles.len() - 1,
-            entry_t,
-            exit_t: last.t,
-            entry_price,
-            exit_price: last.c,
-            quantity: qty,
-            pnl: (last.c - entry_price) * qty as f64,
-        });
+        let exit_price = costs.fill_price(Side::Sell, last.c);
+        let charges = costs.charges(Side::Sell, qty, exit_price).total_rupees();
+        cash += exit_price * qty as f64 - charges;
+        total_charges += charges;
+        trades.push(round_trip(
+            (entry_index, entry_t, entry_price, entry_charges),
+            (candles.len() - 1, last.t, exit_price, charges),
+            qty,
+        ));
         if let Some(equity) = equity_curve.last_mut() {
             *equity = cash;
         }
@@ -193,10 +207,32 @@ pub fn backtest(
         trades,
         max_drawdown: max_drawdown(&equity_curve),
         total_pnl,
+        total_charges,
         equity: equity_curve,
         bars_in_market,
         total_bars: candles.len(),
         cancelled: false,
+    }
+}
+
+/// A completed trade from its two fills: (bar index, bar t, price,
+/// charges) each.
+fn round_trip(
+    entry: (usize, i64, f64, f64),
+    exit: (usize, i64, f64, f64),
+    quantity: i64,
+) -> BacktestTrade {
+    let charges = entry.3 + exit.3;
+    BacktestTrade {
+        entry_index: entry.0,
+        exit_index: exit.0,
+        entry_t: entry.1,
+        exit_t: exit.1,
+        entry_price: entry.2,
+        exit_price: exit.2,
+        quantity,
+        charges,
+        pnl: (exit.2 - entry.2) * quantity as f64 - charges,
     }
 }
 
@@ -258,12 +294,7 @@ mod tests {
             candle(6, 98.0, 98.0),
         ];
         let mut progress = |_, _| true;
-        let result = backtest(
-            crossing_set(),
-            &candles,
-            BacktestOptions::default(),
-            &mut progress,
-        );
+        let result = backtest(crossing_set(), &candles, free(), &mut progress);
         assert!(!result.cancelled);
         assert_eq!(result.trades.len(), 1);
         let trade = &result.trades[0];
@@ -272,6 +303,43 @@ mod tests {
         assert_eq!(trade.exit_price, 98.0);
         assert_eq!(trade.pnl, -4.0);
         assert_eq!(result.total_pnl, -4.0);
+    }
+
+    fn free() -> BacktestOptions {
+        BacktestOptions {
+            costs: CostModel::FREE,
+            ..BacktestOptions::default()
+        }
+    }
+
+    #[test]
+    fn costs_come_off_every_fill_and_the_pnl() {
+        let candles = vec![
+            candle(1, 99.0, 99.0),
+            candle(2, 100.0, 100.0),
+            candle(3, 101.0, 101.0),
+            candle(4, 102.0, 102.0),
+            candle(5, 99.0, 99.0),
+            candle(6, 98.0, 98.0),
+        ];
+        let mut progress = |_, _| true;
+        let options = BacktestOptions::default();
+        let result = backtest(crossing_set(), &candles, options, &mut progress);
+        let trade = &result.trades[0];
+        // 5 bps of slippage against us on both fills.
+        assert_eq!(trade.entry_price, 102.0 * 1.0005);
+        assert_eq!(trade.exit_price, 98.0 * 0.9995);
+        let buy = options.costs.charges(Side::Buy, 1, trade.entry_price);
+        let sell = options.costs.charges(Side::Sell, 1, trade.exit_price);
+        let charges = buy.total_rupees() + sell.total_rupees();
+        assert_eq!(trade.charges, charges);
+        assert_eq!(
+            trade.pnl,
+            (trade.exit_price - trade.entry_price) - charges,
+            "net of slippage and charges"
+        );
+        assert_eq!(result.total_charges, charges);
+        assert!((result.total_pnl - trade.pnl).abs() < 1e-9);
     }
 
     #[test]

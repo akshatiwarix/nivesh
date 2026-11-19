@@ -32,10 +32,11 @@ fn run(template: Template, n: usize) -> String {
     let mut progress = |_, _| true;
     let result = backtest(set, &candles, BacktestOptions::default(), &mut progress);
     format!(
-        "{}\ntrades: {}\ntotal_pnl: {:.2}\nmax_drawdown: {:.2}\nbars_in_market: {}\n",
+        "{}\ntrades: {}\ntotal_pnl: {:.2}\ncharges: {:.2}\nmax_drawdown: {:.2}\nbars_in_market: {}\n",
         template.title(),
         result.trades.len(),
         result.total_pnl,
+        result.total_charges,
         result.max_drawdown,
         result.bars_in_market,
     )
@@ -46,8 +47,9 @@ fn ma_crossover_golden() {
     insta::assert_snapshot!(run(Template::MaCrossover, 400), @r###"
 MA Crossover
 trades: 11
-total_pnl: -355.30
-max_drawdown: 356.80
+total_pnl: -560.69
+charges: 194.05
+max_drawdown: 560.69
 bars_in_market: 42
 
 "###);
@@ -58,8 +60,9 @@ fn rsi_reversion_golden() {
     insta::assert_snapshot!(run(Template::RsiReversion, 400), @r###"
 RSI Mean Reversion
 trades: 5
-total_pnl: 299.10
-max_drawdown: 0.00
+total_pnl: 206.42
+charges: 87.72
+max_drawdown: 10.08
 bars_in_market: 44
 
 "###);
@@ -70,8 +73,9 @@ fn breakout_golden() {
     insta::assert_snapshot!(run(Template::Breakout, 400), @r###"
 N-Bar Breakout
 trades: 13
-total_pnl: 367.70
-max_drawdown: 69.76
+total_pnl: 125.40
+charges: 229.00
+max_drawdown: 108.69
 bars_in_market: 115
 
 "###);

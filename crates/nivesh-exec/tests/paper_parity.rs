@@ -69,7 +69,11 @@ mod parity {
         let result = backtest(
             template.build(params),
             bars,
-            BacktestOptions::default(),
+            // Paper fills carry no costs yet: compare like with like.
+            BacktestOptions {
+                costs: nivesh_strategy::CostModel::FREE,
+                ..BacktestOptions::default()
+            },
             &mut progress,
         );
         result
