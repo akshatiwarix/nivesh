@@ -357,6 +357,17 @@ fn memory_secrets() -> std::sync::Arc<dyn SecretStore> {
     std::sync::Arc::new(InMemorySecretStore::new())
 }
 
+/// The redirect port the developer app registers. Fixed so the app can tell
+/// the user exactly what to paste into the Kite developer console.
+pub const DEFAULT_REDIRECT_PORT: u16 = 7801;
+
+/// The redirect path under the port.
+pub const REDIRECT_PATH: &str = "/nivesh/login";
+
+/// The keychain key for the (non-secret) API key. Stored next to the secret
+/// so a restart can rebuild the wiring without asking again.
+pub const KEY_API_KEY: &str = "kite.api_key";
+
 #[cfg(test)]
 mod tests {
     use super::*;

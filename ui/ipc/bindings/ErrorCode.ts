@@ -6,4 +6,4 @@
  * Serialised as `SCREAMING_SNAKE_CASE` strings. Never rename a variant: add a
  * new one instead.
  */
-export type ErrorCode = "INVALID_ARGUMENT" | "NOT_FOUND" | "UNAVAILABLE" | "STORAGE" | "INTERNAL";
+export type ErrorCode = "INVALID_ARGUMENT" | "NOT_FOUND" | "UNAVAILABLE" | "STORAGE" | "INTERNAL" | "UNAUTHORIZED" | "UPSTREAM" | "UNSUPPORTED";

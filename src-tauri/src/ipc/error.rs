@@ -18,12 +18,18 @@ pub enum ErrorCode {
     Storage,
     /// An unexpected failure: a bug, or an environment problem.
     Internal,
+    /// The broker session needs a fresh login (the daily token flush).
+    Unauthorized,
+    /// A data source (provider or broker) failed transiently. Retryable.
+    Upstream,
+    /// Nothing can serve this, now or later (no capability in this build).
+    Unsupported,
 }
 
 impl ErrorCode {
     /// Whether a caller may reasonably retry the same request unchanged.
     pub const fn is_retryable(self) -> bool {
-        matches!(self, ErrorCode::Unavailable)
+        matches!(self, ErrorCode::Unavailable | ErrorCode::Upstream)
     }
 }
 
@@ -76,6 +82,31 @@ impl From<nivesh_store::StoreError> for IpcError {
                 Self::new(ErrorCode::Storage, other.to_string())
             }
         }
+    }
+}
+
+impl From<nivesh_broker::BrokerError> for IpcError {
+    /// Broker failures map onto stable codes the UI reacts to: a dead session
+    /// asks for a re-login, rate limits are retryable, the rest are shown
+    /// inline. Unexpected ones log once, like any other.
+    fn from(err: nivesh_broker::BrokerError) -> Self {
+        use nivesh_broker::BrokerError as E;
+        let code = match &err {
+            E::Unauthorized => ErrorCode::Unauthorized,
+            E::RateLimited { .. } | E::Timeout | E::Upstream(_) => ErrorCode::Upstream,
+            E::InvalidRequest(_) | E::InvalidTransition { .. } => ErrorCode::InvalidArgument,
+            E::NotFound(_) => ErrorCode::NotFound,
+            E::Unsupported => ErrorCode::Unsupported,
+        };
+        match code {
+            ErrorCode::Upstream => {
+                tracing::warn!(err = %err, "broker call failed");
+            }
+            other => {
+                tracing::error!(code = ?other, err = %err, "broker call failed");
+            }
+        }
+        Self::new(code, err.to_string())
     }
 }
 

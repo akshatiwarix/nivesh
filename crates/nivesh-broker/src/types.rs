@@ -197,6 +197,16 @@ pub struct Funds {
     pub total: i64,
 }
 
+/// A fresh login nonce. Kite ignores it, but other brokers echo one back
+/// through the redirect, so every adapter's flow carries one.
+pub fn new_nonce() -> String {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.subsec_nanos() ^ (d.as_secs() as u32))
+        .unwrap_or(0);
+    format!("nvs-{nanos:08x}")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
