@@ -126,6 +126,15 @@ impl KiteRest {
             .is_some()
     }
 
+    /// A copy of the day's access token, when one is set (the ticker's URL
+    /// needs it; the URL is never logged).
+    pub fn access_token(&self) -> Option<SecretString> {
+        self.token
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
+    }
+
     /// The API key, which is not a secret (the UI shows it; the secret never
     /// leaves the store).
     pub fn api_key(&self) -> String {
