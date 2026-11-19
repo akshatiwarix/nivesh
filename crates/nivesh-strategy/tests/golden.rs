@@ -72,11 +72,11 @@ bars_in_market: 44
 fn breakout_golden() {
     insta::assert_snapshot!(run(Template::Breakout, 400), @r###"
 N-Bar Breakout
-trades: 13
-total_pnl: 125.40
-charges: 229.00
-max_drawdown: 108.69
-bars_in_market: 115
+trades: 12
+total_pnl: -703.71
+charges: 211.51
+max_drawdown: 715.28
+bars_in_market: 153
 
 "###);
 }

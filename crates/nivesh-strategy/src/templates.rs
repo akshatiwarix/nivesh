@@ -63,8 +63,9 @@ pub enum Template {
     /// RSI mean reversion: buy when RSI dips below 30, exit when it rises
     /// above 70.
     RsiReversion,
-    /// N-bar breakout: buy when the close makes the highest close of the
-    /// last N bars, exit when it makes the lowest low of the last M.
+    /// N-bar breakout: buy when the close breaks above the highest high of
+    /// the previous N (`fast`) bars, exit when it breaks below the lowest low
+    /// of the previous M (`slow`) bars.
     Breakout,
 }
 
@@ -83,7 +84,9 @@ impl Template {
         match self {
             Self::MaCrossover => "Buy when the fast moving average crosses above the slow one",
             Self::RsiReversion => "Buy oversold dips (RSI below 30), leave overbought (above 70)",
-            Self::Breakout => "Buy N-bar close breakouts",
+            Self::Breakout => {
+                "Buy a close above the last N bars' high; leave below the last M bars' low"
+            }
         }
     }
 
@@ -133,23 +136,24 @@ impl Template {
                 trailing_stop: p.trailing_stop,
             },
             Self::Breakout => {
-                // `close > the highest close of the previous N bars` is a
-                // cross of close against the rolling max, expressed with the
-                // Donchian-style channel SMA stand-in: for now the template
-                // expresses the breakout as `close > SMA(N)`, whose rising
-                // series undercounts by construction; the exact rolling-max
-                // operand arrives with the backtester's channel series.
+                // The classic N-bar (Donchian) breakout: buy when the close
+                // breaks above the previous `fast` bars' highest high, leave
+                // when it breaks below the previous `slow` bars' lowest low.
+                let channel = |kind: &str, n: usize| Operand::Indicator {
+                    kind: kind.into(),
+                    params: vec![n as f64],
+                };
                 RuleSet {
                     version: 1,
-                    entry: Rule::Cross {
+                    entry: Rule::Cmp {
                         left: Operand::Close,
-                        direction: CrossDirection::Above,
-                        right: fast(vec![p.fast as f64]),
+                        cmp: Comparison::Greater,
+                        right: channel("HIGHEST", p.fast),
                     },
-                    exit: Rule::Cross {
+                    exit: Rule::Cmp {
                         left: Operand::Close,
-                        direction: CrossDirection::Below,
-                        right: fast(vec![p.slow as f64]),
+                        cmp: Comparison::Less,
+                        right: channel("LOWEST", p.slow),
                     },
                     sizing: p.sizing(),
                     stop_loss: p.stop_loss,
@@ -221,6 +225,18 @@ mod tests {
             );
             crate::validate(&set).unwrap();
         }
+    }
+
+    #[test]
+    fn the_breakout_uses_the_price_channel() {
+        let set = Template::Breakout.build(&TemplateParams {
+            fast: 20,
+            slow: 10,
+            ..TemplateParams::default()
+        });
+        assert_eq!(set.entry.indicators(), vec![("HIGHEST".into(), vec![20.0])]);
+        assert_eq!(set.exit.indicators(), vec![("LOWEST".into(), vec![10.0])]);
+        crate::validate(&set).unwrap();
     }
 
     #[test]

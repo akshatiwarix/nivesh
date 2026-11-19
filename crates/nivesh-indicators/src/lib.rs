@@ -18,12 +18,14 @@
 //! smoothing, Bollinger bands use the population standard deviation.
 
 mod bands;
+mod channel;
 mod ma;
 mod momentum;
 mod spec;
 mod vwap;
 
 pub use bands::{Atr, Bollinger, BollingerPoint, BollingerSeries, atr, bollinger};
+pub use channel::{Highest, Lowest, highest, lowest};
 pub use ma::{Ema, Sma, Wma, ema, sma, wma};
 pub use momentum::{Macd, MacdPoint, MacdSeries, Rsi, macd, rsi};
 pub use spec::{
