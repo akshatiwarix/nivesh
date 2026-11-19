@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 0ac6158c1a9f648ee8ad1150c922f3ab21f9da48fc806ba5c88fb4516cc564c6 # shrinks to global = RiskLimits { max_order_quantity: 1, max_order_value_paise: 1, max_symbol_exposure_paise: 1, max_open_positions: 0, max_orders_per_minute: 0, max_orders_per_day: 0, max_daily_loss_paise: 0, price_band: 0.0, allowed_products: [], trading_window: Some(TradingWindow { start_min: 0, end_min: 0 }) }, strategy = RiskLimits { max_order_quantity: 1, max_order_value_paise: 1, max_symbol_exposure_paise: 1, max_open_positions: 0, max_orders_per_minute: 0, max_orders_per_day: 0, max_daily_loss_paise: 0, price_band: 0.0, allowed_products: [], trading_window: Some(TradingWindow { start_min: 1, end_min: 1 }) }

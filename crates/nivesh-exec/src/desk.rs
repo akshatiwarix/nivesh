@@ -7,14 +7,14 @@
 //! [`OrderGateway::submit`]. Nothing here reaches a real broker: the only
 //! route is the paper fill model.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
 use nivesh_core::{Candle, Side};
-use nivesh_risk::RiskEngine;
+use nivesh_risk::{RiskEngine, RiskLimits, paise};
 use nivesh_strategy::{IntentSide, PaperRunner, PaperState};
 
-use crate::{Fill, GatewayError, NextOpen, OrderGateway, OrderIntent, PaperBroker};
+use crate::{AccountView, Fill, GatewayError, NextOpen, OrderGateway, OrderIntent, PaperBroker};
 
 /// What one closed bar did to one strategy.
 #[derive(Debug, Clone, PartialEq)]
@@ -32,6 +32,10 @@ pub struct StepReport {
 pub struct PaperDesk {
     gateway: OrderGateway,
     runners: BTreeMap<i64, PaperRunner>,
+    /// Strategies' own limits (they can only tighten the global ones).
+    limits: HashMap<i64, RiskLimits>,
+    /// The latest close seen per symbol: the mark for MTM and exposure.
+    marks: HashMap<String, f64>,
 }
 
 impl PaperDesk {
@@ -45,6 +49,8 @@ impl PaperDesk {
         Self {
             gateway: OrderGateway::new(engine, paper),
             runners: BTreeMap::new(),
+            limits: HashMap::new(),
+            marks: HashMap::new(),
         }
     }
 
@@ -58,6 +64,44 @@ impl PaperDesk {
     pub fn stop(&mut self, strategy_id: i64) -> Option<PaperState> {
         self.gateway.forget(strategy_id);
         self.runners.remove(&strategy_id).map(|r| r.state().clone())
+    }
+
+    /// Sets (or clears) a strategy's own limits.
+    pub fn set_strategy_limits(&mut self, strategy_id: i64, limits: Option<RiskLimits>) {
+        match limits {
+            Some(l) => self.limits.insert(strategy_id, l),
+            None => self.limits.remove(&strategy_id),
+        };
+    }
+
+    /// The account as the risk check sees it for `strategy_id` on `symbol`:
+    /// positions marked at the latest closes seen.
+    pub fn account_view(&self, strategy_id: i64, symbol: &str) -> AccountView {
+        let mut view = AccountView {
+            strategy_limits: self.limits.get(&strategy_id).cloned(),
+            ..AccountView::default()
+        };
+        let mut day_pnl = 0.0;
+        for (id, runner) in &self.runners {
+            let state = runner.state();
+            day_pnl += state.day_pnl;
+            let Some(pos) = &state.position else { continue };
+            view.open_positions += 1;
+            let mark = self
+                .marks
+                .get(&pos.symbol)
+                .copied()
+                .unwrap_or(pos.entry_price);
+            day_pnl += (mark - pos.entry_price) * pos.quantity as f64;
+            if pos.symbol == symbol {
+                view.symbol_exposure_paise += paise(mark) * pos.quantity;
+                if *id == strategy_id {
+                    view.position_quantity = pos.quantity;
+                }
+            }
+        }
+        view.day_pnl_paise = paise(day_pnl);
+        view
     }
 
     pub fn is_running(&self, strategy_id: i64) -> bool {
@@ -105,19 +149,15 @@ impl PaperDesk {
             }
         }
 
-        // 2. The risk context sees every strategy's book.
-        let open_positions = self
-            .runners
-            .values()
-            .filter(|r| r.state().position.is_some())
-            .count();
-        let day_pnl = self.runners.values().map(|r| r.state().day_pnl).sum();
-        self.gateway.set_account_state(open_positions, day_pnl);
+        // 2. The bar's close marks the symbol for MTM and exposure.
+        self.marks.insert(symbol.clone(), bar.c);
 
-        // 3. The runner decides on the closed bar; the gateway checks it.
-        let runner = self.runners.get_mut(&strategy_id)?;
+        // 3. The runner decides on the closed bar; the gateway checks it
+        //    against the whole book.
+        let intent = self.runners.get_mut(&strategy_id)?.on_bar(&bar);
         let mut placed = None;
-        if let Some(intent) = runner.on_bar(&bar) {
+        if let Some(intent) = intent {
+            let account = self.account_view(strategy_id, &symbol);
             let order = OrderIntent {
                 strategy_id,
                 symbol: symbol.clone(),
@@ -126,14 +166,17 @@ impl PaperDesk {
                 signal_price: intent.signal_price,
                 signal_bar_t: intent.signal_bar_t,
             };
-            match self.gateway.submit(&order, now_ms) {
+            match self.gateway.submit(&order, &account, now_ms) {
                 Ok(decision) => placed = Some(decision),
                 Err(err) => {
-                    runner.on_rejected();
+                    if let Some(runner) = self.runners.get_mut(&strategy_id) {
+                        runner.on_rejected();
+                    }
                     refused.push(err);
                 }
             }
         }
+        let runner = self.runners.get(&strategy_id)?;
 
         Some(StepReport {
             fills,
@@ -161,7 +204,7 @@ fn intent_side(side: Side) -> IntentSide {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nivesh_risk::RiskLimits;
+    use nivesh_risk::RiskCheck;
     use nivesh_strategy::{Rule, RuleSet, Sizing};
 
     const DAY: i64 = 86_400_000;
@@ -190,7 +233,10 @@ mod tests {
     /// A desk without costs, so prices in the tests are the bars' own.
     fn desk_with(id: i64, set: RuleSet) -> PaperDesk {
         let mut desk = PaperDesk::with_broker(
-            RiskEngine::new(RiskLimits::default()),
+            RiskEngine::new(RiskLimits {
+                trading_window: None,
+                ..RiskLimits::default()
+            }),
             Arc::new(NextOpen::FREE),
         );
         desk.start(
@@ -224,7 +270,9 @@ mod tests {
         let mut desk = desk_with(7, always_in(10_000));
         let b0 = bar(0, 100.0, 100.0);
         let r0 = desk.on_closed_bar(7, b0, b0.t).unwrap();
-        assert_eq!(r0.refused, vec![GatewayError::RiskRejected]);
+        assert!(
+            matches!(&r0.refused[..], [GatewayError::RiskRejected(r)] if r.check == RiskCheck::Quantity)
+        );
         assert!(r0.placed.is_none());
         let b1 = bar(1, 100.0, 100.0);
         let r1 = desk.on_closed_bar(7, b1, b1.t).unwrap();
@@ -232,9 +280,79 @@ mod tests {
         assert!(r1.state.position.is_none());
         assert_eq!(
             r1.refused,
-            vec![GatewayError::RiskRejected],
+            vec![r0.refused[0].clone()],
             "tries again, refused again"
         );
+    }
+
+    #[test]
+    fn a_strategy_can_still_exit_after_the_daily_loss_limit_is_hit() {
+        // Long 100 at 100, then the price halves: a ₹5,000 MTM loss, far
+        // over a ₹1,000 daily-loss limit. The exit must still go through.
+        let set = RuleSet {
+            exit: Rule::Cmp {
+                left: nivesh_strategy::Operand::Close,
+                cmp: nivesh_strategy::Comparison::Less,
+                right: nivesh_strategy::Operand::Constant(60.0),
+            },
+            ..always_in(100)
+        };
+        let mut desk = PaperDesk::with_broker(
+            RiskEngine::new(RiskLimits {
+                trading_window: None,
+                max_daily_loss_paise: 1_000 * 100,
+                ..RiskLimits::default()
+            }),
+            Arc::new(NextOpen::FREE),
+        );
+        desk.start(1, PaperRunner::new(set, "NSE:RELIANCE", 100_000.0).unwrap());
+        desk.on_closed_bar(1, bar(0, 100.0, 100.0), T0);
+        desk.on_closed_bar(1, bar(1, 100.0, 100.0), T0 + DAY); // filled at 100
+        let view = desk.account_view(1, "NSE:RELIANCE");
+        assert_eq!((view.position_quantity, view.open_positions), (100, 1));
+        let r = desk
+            .on_closed_bar(1, bar(2, 60.0, 50.0), T0 + 2 * DAY)
+            .unwrap();
+        let view = desk.account_view(1, "NSE:RELIANCE");
+        assert_eq!(view.day_pnl_paise, -5_000 * 100, "MTM at the 50 close");
+        assert_eq!(view.symbol_exposure_paise, 100 * 50 * 100);
+        assert!(
+            r.refused.is_empty(),
+            "the exit is approved: {:?}",
+            r.refused
+        );
+        assert!(r.placed.is_some());
+        let r = desk
+            .on_closed_bar(1, bar(3, 51.0, 52.0), T0 + 3 * DAY)
+            .unwrap();
+        assert_eq!(r.fills.len(), 1, "sold at the next open");
+        // Re-entry is new risk: refused while the loss stands.
+        assert!(
+            matches!(&r.refused[..], [GatewayError::RiskRejected(x)] if x.check == RiskCheck::DailyLoss),
+            "{:?}",
+            r.refused
+        );
+    }
+
+    #[test]
+    fn strategy_limits_tighten_the_desk() {
+        let mut desk = desk_with(7, always_in(10));
+        desk.set_strategy_limits(
+            7,
+            Some(RiskLimits {
+                max_order_quantity: 5,
+                ..RiskLimits::default()
+            }),
+        );
+        let r = desk.on_closed_bar(7, bar(0, 100.0, 100.0), T0).unwrap();
+        assert!(
+            matches!(&r.refused[..], [GatewayError::RiskRejected(x)] if x.check == RiskCheck::Quantity)
+        );
+        desk.set_strategy_limits(7, None);
+        let r = desk
+            .on_closed_bar(7, bar(1, 100.0, 100.0), T0 + DAY)
+            .unwrap();
+        assert!(r.placed.is_some());
     }
 
     #[test]
