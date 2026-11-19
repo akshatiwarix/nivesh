@@ -986,6 +986,51 @@ Deviations from, and additions to, the Part 2 plan above:
   at startup and not refreshed with the daily instrument list; chart indicators
   lag the forming bar; benches are compiled in CI but never run there.
 
+### Part 3c gap fixes (branches `part-3c-*`, one PR per fix)
+
+Fixes for the known gaps above, one small PR each. No plan change: the fixes
+stay inside Part 3's design (no paid data, no blocking circumvention).
+
+- **Most active (PR #5).** No free, no-login source reports per-stock volume
+  during the session, so most-active is ranked from the **last full session's
+  traded value** instead: NSE's daily bhavcopy
+  (`sec_bhavdata_full_<DDMMYYYY>.csv` on the archive host), fetched daily and
+  kept in the store (`nivesh-data::activity`, seed `data/nse_activity.json`,
+  174 KB). The list carries its own provenance and the bhavcopy's date
+  (`Movers::most_active_info` → an `EOD <date>` chip and a per-list badge in
+  the movers view); gainers and losers are untouched.
+- **Heatmap tile sizes (PR #6).** No free source publishes market caps, so
+  tiles are sized by the same bhavcopy turnover: `IndexSnapshot.activity`
+  (optional) carries per-symbol traded value, and the heatmap uses a
+  squarified greedy fill with small weights clamped up to a quarter of the
+  equal share. Without turnover data the plain grid is unchanged, and the
+  header says `SIZE = TURNOVER (EOD <date>)`.
+- **SENSEX constituents (PR #7).** BSE's endpoints refuse ordinary clients,
+  so the 30 members are curated from public sources and bundled
+  (`data/sensex_constituents.json`) with their own date and source
+  (`Curated (BSE SENSEX)`). They price through the same provider as the level,
+  giving SENSEX constituents, movers, heatmap and most-active.
+- **NIFTY MEDIA returns (PR #9).** Yahoo serves MEDIA's daily index series
+  one bar at a time (verified live), so a sector row now needs two candles;
+  when history is shorter or missing, the row's 1D is the equal-weight mean
+  of the index's constituents' day changes, with 1W/1M/YTD unmeasured. The
+  table's error contract is unchanged.
+- **Indicators on the forming bar (PR #8).** `preview_indicators` folds the
+  forming bar into the loaded candles (replacing it while it forms,
+  appending when it rolls) and returns each line's newest value; the chart
+  asks at most twice a second and moves the series' last point only. The
+  full-series computation is untouched.
+- **Apple Silicon .dmg (PR #10).** Built locally on the dev Mac (arm64,
+  7.5 MiB): the image mounts, the binary is `Mach-O arm64`, the ad-hoc
+  signature verifies, and the app launches and runs from a copy of the
+  mounted image. The gap is closed.
+- **CI (PR #6's ci commit).** The dmg job failed twice on
+  `hdiutil: couldn't eject "disk2" - Resource busy` (Spotlight indexing the
+  mounted interstitial image); indexing is now turned off before the bundle
+  and the bundling retries.
+- **Still open:** NSE movers rows carry no company name; the tag index is
+  built at startup; benches are compiled in CI but never run there.
+
 ---
 
 ## Part 4: Broker connection
