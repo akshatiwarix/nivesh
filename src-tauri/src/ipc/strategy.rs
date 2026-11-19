@@ -42,6 +42,11 @@ pub struct BacktestTradeDto {
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct BacktestResultDto {
+    /// The instrument it ran on, `NSE:RELIANCE` shaped.
+    pub symbol: String,
+    /// The bar interval and history range, e.g. `1D` and `1Y`.
+    pub interval: String,
+    pub range: String,
     /// Net of charges and slippage, rupees.
     pub total_pnl: f64,
     /// Charges paid over the run, rupees.
