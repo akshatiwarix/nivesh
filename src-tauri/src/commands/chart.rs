@@ -71,20 +71,18 @@ pub async fn subscribe_forming_bar(
 ) -> Result<u64, IpcError> {
     let req = parse_request(&exchange, &symbol, &interval, range.as_deref())?;
     // Normally a cache hit: the chart has just loaded this series.
-    let last = services
-        .market
-        .history(&req)
-        .await?
-        .data
-        .candles
-        .last()
-        .copied();
+    let series = services.market.history(&req).await?;
+    let last = series.data.candles.last().copied();
     let mut forming = FormingBar::new(req.interval, last);
 
+    // The last price comes from the provider the history came from, never
+    // another: one series, one source. (A plain quote topic is delivered as
+    // `HubUpdate::Quotes` and may come from any provider in the chain.)
     let (tx, mut rx) = mpsc::unbounded_channel();
-    let id = services
-        .hub
-        .subscribe(vec![Topic::Quote(req.id.clone())], tx);
+    let id = services.hub.subscribe(
+        vec![Topic::Pinned(series.provenance.provider, req.id.clone())],
+        tx,
+    );
     let hub = services.hub.clone();
     tauri::async_runtime::spawn(async move {
         while let Some(update) = rx.recv().await {
