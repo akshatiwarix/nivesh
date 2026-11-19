@@ -3,12 +3,14 @@
 //! commits. Strategies emit `OrderIntent`s and never place orders.
 
 pub mod backtest;
+pub mod costs;
 pub mod evaluate;
 pub mod paper;
 pub mod rules;
 pub mod templates;
 
 pub use backtest::{BacktestOptions, BacktestResult, BacktestTrade, backtest};
+pub use costs::{ChargeSchedule, Charges, CostModel};
 pub use evaluate::{Evaluator, validate};
 pub use paper::{PaperFill, PaperPosition, PaperRunner, PaperState};
 pub use rules::{

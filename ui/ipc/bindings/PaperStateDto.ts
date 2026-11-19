@@ -27,9 +27,14 @@ quantity: number | null, entryPrice: number | null,
  */
 dayPnl: number, 
 /**
- * Realised paper P&L since the strategy first started, rupees.
+ * Realised paper P&L since the strategy first started, net of
+ * charges, rupees.
  */
 realisedPnl: number, 
+/**
+ * Charges paid since the strategy first started, rupees.
+ */
+charges: number, 
 /**
  * The newest fills, newest first.
  */

@@ -4,4 +4,12 @@ import type { BacktestTradeDto } from "./BacktestTradeDto";
 /**
  * A finished backtest.
  */
-export type BacktestResultDto = { totalPnl: number, maxDrawdown: number, trades: Array<BacktestTradeDto>, barsInMarket: number, totalBars: number, };
+export type BacktestResultDto = { 
+/**
+ * Net of charges and slippage, rupees.
+ */
+totalPnl: number, 
+/**
+ * Charges paid over the run, rupees.
+ */
+totalCharges: number, maxDrawdown: number, trades: Array<BacktestTradeDto>, barsInMarket: number, totalBars: number, };

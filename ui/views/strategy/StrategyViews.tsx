@@ -104,8 +104,16 @@ const TRADE_COLUMNS: readonly Column<BacktestResultDto["trades"][number]>[] = [
   },
   { id: "qty", header: "Qty", width: "8ch", align: "right", value: (t) => String(t.quantity) },
   {
+    id: "costs",
+    header: "Costs ₹",
+    width: "10ch",
+    align: "right",
+    value: (t) => formatPrice(t.charges),
+    tone: () => "dim",
+  },
+  {
     id: "pnl",
-    header: "P&L ₹",
+    header: "Net P&L ₹",
     width: "12ch",
     align: "right",
     value: (t) => formatPrice(t.pnl),
@@ -137,8 +145,9 @@ export const BacktestView: Component<{ name?: string }> = (props) => {
         <Show when={result()}>
           {(r) => (
             <p class="strat__funds">
-              P&L {formatPrice(r().totalPnl)} · MAX DD {formatPrice(r().maxDrawdown)} · TRADES{" "}
-              {r().trades.length} · BARS {r().barsInMarket}/{r().totalBars}
+              NET P&L {formatPrice(r().totalPnl)} · COSTS {formatPrice(r().totalCharges)} · MAX DD{" "}
+              {formatPrice(r().maxDrawdown)} · TRADES {r().trades.length} · BARS {r().barsInMarket}/
+              {r().totalBars}
             </p>
           )}
         </Show>
@@ -154,7 +163,8 @@ export const BacktestView: Component<{ name?: string }> = (props) => {
           emptyText={emptyText()}
         />
         <p class="strat__hint">
-          Simulated fills on simulated money. Fees and slippage are not modelled yet.
+          Simulated fills on simulated money, at the next bar's open. Net of Zerodha-style equity
+          delivery charges (STT, exchange, SEBI, stamp, GST, DP) and 5 bps of slippage per fill.
         </p>
       </DataPanel>
     </div>
@@ -204,11 +214,19 @@ const PAPER_COLUMNS: readonly Column<PaperRow>[] = [
   },
   {
     id: "total",
-    header: "Total P&L ₹",
+    header: "Net P&L ₹",
     width: "12ch",
     align: "right",
     value: (p) => formatPrice(p.realisedPnl),
     tone: (p) => changeTone(p.realisedPnl),
+  },
+  {
+    id: "costs",
+    header: "Costs ₹",
+    width: "10ch",
+    align: "right",
+    value: (p) => formatPrice(p.charges),
+    tone: () => "dim",
   },
 ];
 
@@ -234,6 +252,14 @@ const FILL_COLUMNS: readonly Column<FillRow>[] = [
     width: "12ch",
     align: "right",
     value: (f) => formatPrice(f.price),
+  },
+  {
+    id: "costs",
+    header: "Costs ₹",
+    width: "10ch",
+    align: "right",
+    value: (f) => formatPrice(f.charges),
+    tone: () => "dim",
   },
   {
     id: "pnl",

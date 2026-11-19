@@ -35,9 +35,10 @@ pub struct PaperDesk {
 }
 
 impl PaperDesk {
-    /// A desk filling at the next bar's open.
+    /// A desk filling at the next bar's open with the default cost model
+    /// (the backtester's default too).
     pub fn new(engine: RiskEngine) -> Self {
-        Self::with_broker(engine, Arc::new(NextOpen))
+        Self::with_broker(engine, Arc::new(NextOpen::default()))
     }
 
     pub fn with_broker(engine: RiskEngine, paper: Arc<dyn PaperBroker>) -> Self {
@@ -92,6 +93,7 @@ impl PaperDesk {
                         intent_side(fill.side),
                         fill.quantity,
                         fill.price,
+                        fill.charges,
                         fill.bar_t,
                     );
                     fills.push(fill);
@@ -185,8 +187,12 @@ mod tests {
         }
     }
 
+    /// A desk without costs, so prices in the tests are the bars' own.
     fn desk_with(id: i64, set: RuleSet) -> PaperDesk {
-        let mut desk = PaperDesk::new(RiskEngine::new(RiskLimits::default()));
+        let mut desk = PaperDesk::with_broker(
+            RiskEngine::new(RiskLimits::default()),
+            Arc::new(NextOpen::FREE),
+        );
         desk.start(
             id,
             PaperRunner::new(set, "NSE:RELIANCE", 100_000.0).unwrap(),

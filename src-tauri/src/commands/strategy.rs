@@ -149,6 +149,7 @@ pub async fn backtest_strategy(
 
     Ok(BacktestResultDto {
         total_pnl: result.total_pnl,
+        total_charges: result.total_charges,
         max_drawdown: result.max_drawdown,
         trades: result
             .trades
@@ -157,6 +158,7 @@ pub async fn backtest_strategy(
                 entry_price: t.entry_price,
                 exit_price: t.exit_price,
                 quantity: t.quantity,
+                charges: t.charges,
                 pnl: t.pnl,
                 entry_t: t.entry_t,
                 exit_t: t.exit_t,
@@ -193,6 +195,8 @@ pub async fn backtest_result(
         .map_err(|e| IpcError::internal(format!("stored trades are unreadable: {e}")))?;
     Ok(BacktestResultDto {
         total_pnl,
+        // Runs saved before the cost model have no charges recorded.
+        total_charges: trades.iter().map(|t| t.charges).sum(),
         max_drawdown,
         trades: trades
             .iter()
@@ -200,6 +204,7 @@ pub async fn backtest_result(
                 entry_price: t.entry_price,
                 exit_price: t.exit_price,
                 quantity: t.quantity,
+                charges: t.charges,
                 pnl: t.pnl,
                 entry_t: t.entry_t,
                 exit_t: t.exit_t,
@@ -226,6 +231,7 @@ fn paper_dto(name: &str, running: bool, record: &PaperRecord) -> PaperStateDto {
         entry_price: state.position.as_ref().map(|p| p.entry_price),
         day_pnl: state.day_pnl,
         realised_pnl: state.realised_pnl,
+        charges: state.charges,
         fills: state
             .fills
             .iter()
@@ -236,6 +242,7 @@ fn paper_dto(name: &str, running: bool, record: &PaperRecord) -> PaperStateDto {
                 side: f.side.into(),
                 quantity: f.quantity,
                 price: f.price,
+                charges: f.charges,
                 pnl: f.pnl,
             })
             .collect(),

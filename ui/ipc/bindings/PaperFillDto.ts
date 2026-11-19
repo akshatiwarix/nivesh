@@ -10,10 +10,14 @@ export type PaperFillDto = {
  */
 t: number, side: SideDto, quantity: number, 
 /**
- * Rupees.
+ * Rupees, after slippage.
  */
 price: number, 
 /**
- * Realised P&L of the round trip, on the closing fill.
+ * Charges on this fill, rupees.
+ */
+charges: number, 
+/**
+ * Realised P&L of the round trip net of charges, on the closing fill.
  */
 pnl: number | null, };

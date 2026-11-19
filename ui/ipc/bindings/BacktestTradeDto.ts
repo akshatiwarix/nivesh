@@ -3,7 +3,15 @@
 /**
  * One backtest trade.
  */
-export type BacktestTradeDto = { entryPrice: number, exitPrice: number, quantity: number, pnl: number, 
+export type BacktestTradeDto = { entryPrice: number, exitPrice: number, quantity: number, 
+/**
+ * Charges on both fills, rupees.
+ */
+charges: number, 
+/**
+ * Net of charges, rupees.
+ */
+pnl: number, 
 /**
  * UTC ms of the fills.
  */

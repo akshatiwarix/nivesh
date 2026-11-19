@@ -33,10 +33,13 @@ const DAY_MS: i64 = 86_400_000;
 pub struct PaperPosition {
     pub symbol: String,
     pub quantity: i64,
-    /// The paper fill price, rupees.
+    /// The paper fill price after slippage, rupees.
     pub entry_price: f64,
     /// UTC ms of the bar whose open filled it.
     pub entry_t: i64,
+    /// Charges paid on the entry fill, rupees.
+    #[serde(default)]
+    pub entry_charges: f64,
 }
 
 /// One paper fill, for the dashboard's order list.
@@ -46,9 +49,13 @@ pub struct PaperFill {
     pub t: i64,
     pub side: IntentSide,
     pub quantity: i64,
-    /// Rupees.
+    /// Rupees, after slippage.
     pub price: f64,
-    /// Realised P&L of the round trip, on the closing fill.
+    /// Charges on this fill, rupees.
+    #[serde(default)]
+    pub charges: f64,
+    /// Realised P&L of the round trip net of both fills' charges, on the
+    /// closing fill.
     pub pnl: Option<f64>,
 }
 
@@ -57,8 +64,11 @@ pub struct PaperFill {
 #[serde(default)]
 pub struct PaperState {
     pub position: Option<PaperPosition>,
-    /// Realised P&L since the strategy first started, rupees.
+    /// Realised P&L since the strategy first started, net of charges,
+    /// rupees.
     pub realised_pnl: f64,
+    /// Charges paid since the strategy first started, rupees.
+    pub charges: f64,
     /// Realised P&L of the current IST day, rupees.
     pub day_pnl: f64,
     /// The IST day `day_pnl` belongs to (days since the epoch).
@@ -142,9 +152,11 @@ impl PaperRunner {
         Some(intent)
     }
 
-    /// The gateway filled an intent this runner emitted.
-    pub fn on_fill(&mut self, side: IntentSide, quantity: i64, price: f64, t: i64) {
+    /// The gateway filled an intent this runner emitted, at `price` (after
+    /// slippage) with `charges` (rupees).
+    pub fn on_fill(&mut self, side: IntentSide, quantity: i64, price: f64, charges: f64, t: i64) {
         self.roll_day(t);
+        self.state.charges += charges;
         let pnl = match side {
             IntentSide::Buy => {
                 self.state.position = Some(PaperPosition {
@@ -152,11 +164,14 @@ impl PaperRunner {
                     quantity,
                     entry_price: price,
                     entry_t: t,
+                    entry_charges: charges,
                 });
                 None
             }
             IntentSide::Sell => self.state.position.take().map(|pos| {
-                let pnl = (price - pos.entry_price) * pos.quantity as f64;
+                // The backtester's arithmetic, so paper and backtest agree.
+                let round_trip = pos.entry_charges + charges;
+                let pnl = (price - pos.entry_price) * pos.quantity as f64 - round_trip;
                 self.state.realised_pnl += pnl;
                 self.state.day_pnl += pnl;
                 pnl
@@ -167,6 +182,7 @@ impl PaperRunner {
             side,
             quantity,
             price,
+            charges,
             pnl,
         });
         if self.state.fills.len() > MAX_FILLS {
@@ -247,7 +263,7 @@ mod tests {
         assert_eq!(intent.side, IntentSide::Buy);
         assert_eq!(intent.signal_bar_t, 3);
         assert!(runner.state().position.is_none(), "no fill until reported");
-        runner.on_fill(IntentSide::Buy, 1, 102.0, 4);
+        runner.on_fill(IntentSide::Buy, 1, 102.0, 0.0, 4);
         let pos = runner.state().position.as_ref().unwrap();
         assert_eq!((pos.quantity, pos.entry_price, pos.entry_t), (1, 102.0, 4));
     }
@@ -258,16 +274,28 @@ mod tests {
         runner.on_bar(&candle(1, 99.0, 99.0));
         runner.on_bar(&candle(2, 100.0, 100.0));
         runner.on_bar(&candle(3, 100.0, 101.0)).unwrap();
-        runner.on_fill(IntentSide::Buy, 1, 102.0, 4);
+        runner.on_fill(IntentSide::Buy, 1, 102.0, 0.0, 4);
         assert!(runner.on_bar(&candle(4, 102.0, 103.0)).is_none());
         let exit = runner.on_bar(&candle(5, 99.0, 99.0)).expect("exit");
         assert_eq!(exit.side, IntentSide::Sell);
-        runner.on_fill(IntentSide::Sell, 1, 98.0, 6);
+        runner.on_fill(IntentSide::Sell, 1, 98.0, 0.0, 6);
         assert!(runner.state().position.is_none());
         assert_eq!(runner.state().realised_pnl, -4.0);
         assert_eq!(runner.state().fills.len(), 2);
         assert_eq!(runner.state().fills[1].pnl, Some(-4.0));
         assert_eq!(runner.equity(0.0), 99_996.0);
+    }
+
+    #[test]
+    fn charges_on_both_fills_come_off_the_round_trip() {
+        let mut runner = PaperRunner::new(crossing_set(), "RELIANCE", 100_000.0).unwrap();
+        runner.on_fill(IntentSide::Buy, 10, 100.0, 1.5, 1);
+        runner.on_fill(IntentSide::Sell, 10, 101.0, 2.5, 2);
+        // (101 - 100) * 10 - (1.5 + 2.5).
+        assert_eq!(runner.state().realised_pnl, 6.0);
+        assert_eq!(runner.state().charges, 4.0);
+        assert_eq!(runner.state().fills[0].charges, 1.5);
+        assert_eq!(runner.state().fills[1].pnl, Some(6.0));
     }
 
     #[test]
@@ -306,7 +334,7 @@ mod tests {
         runner.on_bar(&candle(1, 99.0, 99.0));
         runner.on_bar(&candle(2, 100.0, 100.0));
         runner.on_bar(&candle(3, 100.0, 101.0)).unwrap();
-        runner.on_fill(IntentSide::Buy, 1, 102.0, 4);
+        runner.on_fill(IntentSide::Buy, 1, 102.0, 0.0, 4);
         runner.on_bar(&candle(4, 102.0, 103.0));
         let json = serde_json::to_string(runner.state()).unwrap();
 
@@ -347,10 +375,10 @@ mod tests {
         // 2026-11-20 10:30 IST and 2026-11-21 10:30 IST.
         let day1 = 1_795_150_800_000;
         let day2 = day1 + DAY_MS;
-        runner.on_fill(IntentSide::Buy, 1, 100.0, day1);
-        runner.on_fill(IntentSide::Sell, 1, 110.0, day1 + 60_000);
+        runner.on_fill(IntentSide::Buy, 1, 100.0, 0.0, day1);
+        runner.on_fill(IntentSide::Sell, 1, 110.0, 0.0, day1 + 60_000);
         assert_eq!(runner.state().day_pnl, 10.0);
-        runner.on_fill(IntentSide::Buy, 1, 100.0, day2);
+        runner.on_fill(IntentSide::Buy, 1, 100.0, 0.0, day2);
         assert_eq!(runner.state().day_pnl, 0.0, "a new day");
         assert_eq!(runner.state().realised_pnl, 10.0, "the total carries");
     }
