@@ -82,10 +82,18 @@ fn validate_operand(op: &Operand) -> Result<(), RuleError> {
                 .trim()
                 .parse()
                 .map_err(|_| RuleError::UnknownIndicator(kind.clone()))?;
-            // A parse with the same id proves the kind and parameters are
-            // real; the spec's own validation covers the windows.
-            let _ = spec.id();
-            Ok(())
+            // A parse proves the kind and parameters are real; the spec's
+            // own validation covers the windows. Multi-line and session
+            // indicators have no single series a rule could compare.
+            match spec.kind {
+                nivesh_indicators::Kind::Boll | nivesh_indicators::Kind::Vwap => {
+                    Err(RuleError::BadParameters(
+                        kind.clone(),
+                        "rules cannot use this indicator yet".into(),
+                    ))
+                }
+                _ => Ok(()),
+            }
         }
     }
 }
@@ -144,6 +152,11 @@ enum StreamingIndicator {
     Wma(nivesh_indicators::Wma),
     Rsi(nivesh_indicators::Rsi),
     Macd(nivesh_indicators::Macd),
+    Atr(nivesh_indicators::Atr),
+    Highest(nivesh_indicators::Highest),
+    Lowest(nivesh_indicators::Lowest),
+    /// A kind rules cannot use (refused by `validate`).
+    Unsupported,
 }
 
 impl StreamingIndicator {
@@ -160,13 +173,16 @@ impl StreamingIndicator {
                 period(1).max(1),
                 period(2).max(1),
             )),
-            // BOLL/VWAP/ATR streams arrive with the backtester; rules over
-            // them validate today and the evaluator reports None.
-            nivesh_indicators::Kind::Boll
-            | nivesh_indicators::Kind::Atr
-            | nivesh_indicators::Kind::Vwap => {
-                Self::Sma(nivesh_indicators::Sma::new(period(0).max(1)))
+            nivesh_indicators::Kind::Atr => Self::Atr(nivesh_indicators::Atr::new(period(0))),
+            nivesh_indicators::Kind::Highest => {
+                Self::Highest(nivesh_indicators::Highest::new(period(0)))
             }
+            nivesh_indicators::Kind::Lowest => {
+                Self::Lowest(nivesh_indicators::Lowest::new(period(0)))
+            }
+            // `validate` refuses these in rules, so a rule set never gets
+            // here with one. Were it to, NaN compares false: never trades.
+            nivesh_indicators::Kind::Boll | nivesh_indicators::Kind::Vwap => Self::Unsupported,
         }
     }
 
@@ -178,6 +194,10 @@ impl StreamingIndicator {
             Self::Wma(s) => s.update(bar.c),
             Self::Rsi(s) => s.update(bar.c),
             Self::Macd(s) => Some(s.update(bar.c).macd),
+            Self::Atr(s) => s.update(bar.h, bar.l, bar.c),
+            Self::Highest(s) => s.update(bar.h),
+            Self::Lowest(s) => s.update(bar.l),
+            Self::Unsupported => None,
         }
     }
 }
@@ -531,7 +551,7 @@ impl Evaluator {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::rules::{CrossDirection, Operand, Rule};
+    use crate::rules::{Comparison, CrossDirection, Operand, Rule};
     use nivesh_core::Candle;
 
     fn candle(t: i64, c: f64) -> Candle {
@@ -741,6 +761,77 @@ mod tests {
         assert!(bad(0.01, 0, 2.0));
         assert!(bad(0.01, 14, 0.0));
         assert!(!bad(0.01, 14, 2.0));
+    }
+
+    #[test]
+    fn a_breakout_fires_on_a_close_above_the_previous_highs() {
+        let set = crate::Template::Breakout.build(&crate::TemplateParams {
+            fast: 3,
+            slow: 2,
+            stop_loss: None,
+            target: None,
+            ..crate::TemplateParams::default()
+        });
+        let mut ev = Evaluator::new(set, 100_000.0).unwrap().with_symbol("X");
+        // `ranged` bars span close ± 2. Highs: 102, 103, 102, then the close
+        // of 104 is above max(102, 103, 102) = 103: a breakout on bar 4.
+        let mut sides = Vec::new();
+        for (t, c) in [
+            (1, 100.0),
+            (2, 101.0),
+            (3, 100.0),
+            (4, 104.0),
+            (5, 103.0),
+            (6, 99.0),
+        ] {
+            if let Some(i) = ev.feed(&ranged(t, c)) {
+                sides.push((t, i.side));
+            }
+        }
+        // Lows of bars 4 and 5 are 102 and 101; a close of 99 breaks below.
+        assert_eq!(
+            sides,
+            vec![
+                (4, crate::rules::IntentSide::Buy),
+                (6, crate::rules::IntentSide::Sell)
+            ]
+        );
+    }
+
+    #[test]
+    fn rules_refuse_indicators_without_a_single_series_and_atr_is_real() {
+        for kind in ["BOLL", "VWAP"] {
+            let set = RuleSet {
+                entry: Rule::Cmp {
+                    left: Operand::Close,
+                    cmp: Comparison::Greater,
+                    right: Operand::Indicator {
+                        kind: kind.into(),
+                        params: vec![],
+                    },
+                },
+                ..RuleSet::default()
+            };
+            assert!(validate(&set).is_err(), "{kind}");
+        }
+        // ATR used to be silently computed as an SMA of the close.
+        let set = RuleSet {
+            entry: Rule::Cmp {
+                left: Operand::Indicator {
+                    kind: "ATR".into(),
+                    params: vec![2.0],
+                },
+                cmp: Comparison::Greater,
+                right: Operand::Constant(3.9),
+            },
+            sizing: Sizing::FixedQuantity(1),
+            ..RuleSet::default()
+        };
+        let mut ev = Evaluator::new(set, 100_000.0).unwrap().with_symbol("X");
+        assert!(ev.feed(&ranged(1, 100.0)).is_none());
+        // ATR(2) of 4-wide bars is 4 > 3.9; an SMA of the close would be 100.
+        assert!(ev.feed(&ranged(2, 100.0)).is_some());
+        assert_eq!(ev.last_values()[0], Some(4.0));
     }
 
     #[test]

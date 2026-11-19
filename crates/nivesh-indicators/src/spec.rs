@@ -5,7 +5,7 @@
 use std::fmt;
 use std::str::FromStr;
 
-use crate::{IST_OFFSET_SECS, atr, bollinger, ema, macd, rsi, sma, vwap, wma};
+use crate::{IST_OFFSET_SECS, atr, bollinger, ema, highest, lowest, macd, rsi, sma, vwap, wma};
 
 /// Longest period accepted. Far beyond what any chart shows, but bounded so a
 /// typo can't allocate or loop absurdly.
@@ -21,10 +21,14 @@ pub enum Kind {
     Boll,
     Atr,
     Vwap,
+    /// Highest high of the previous n bars (the breakout channel's top).
+    Highest,
+    /// Lowest low of the previous n bars (its bottom).
+    Lowest,
 }
 
 impl Kind {
-    pub const ALL: [Kind; 8] = [
+    pub const ALL: [Kind; 10] = [
         Kind::Sma,
         Kind::Ema,
         Kind::Wma,
@@ -33,6 +37,8 @@ impl Kind {
         Kind::Boll,
         Kind::Atr,
         Kind::Vwap,
+        Kind::Highest,
+        Kind::Lowest,
     ];
 
     pub const fn code(self) -> &'static str {
@@ -45,13 +51,16 @@ impl Kind {
             Kind::Boll => "BOLL",
             Kind::Atr => "ATR",
             Kind::Vwap => "VWAP",
+            Kind::Highest => "HIGHEST",
+            Kind::Lowest => "LOWEST",
         }
     }
 
     /// The parameters used when none are given.
     fn defaults(self) -> &'static [f64] {
         match self {
-            Kind::Sma | Kind::Ema | Kind::Wma => &[20.0],
+            Kind::Sma | Kind::Ema | Kind::Wma | Kind::Highest => &[20.0],
+            Kind::Lowest => &[10.0],
             Kind::Rsi | Kind::Atr => &[14.0],
             Kind::Macd => &[12.0, 26.0, 9.0],
             Kind::Boll => &[20.0, 2.0],
@@ -61,7 +70,13 @@ impl Kind {
 
     pub fn placement(self) -> Placement {
         match self {
-            Kind::Sma | Kind::Ema | Kind::Wma | Kind::Boll | Kind::Vwap => Placement::Overlay,
+            Kind::Sma
+            | Kind::Ema
+            | Kind::Wma
+            | Kind::Boll
+            | Kind::Vwap
+            | Kind::Highest
+            | Kind::Lowest => Placement::Overlay,
             Kind::Rsi | Kind::Macd | Kind::Atr => Placement::Pane,
         }
     }
@@ -265,6 +280,8 @@ pub fn compute(spec: &IndicatorSpec, data: &Ohlcv<'_>) -> Output {
             ]
         }
         Kind::Atr => vec![line(&spec.id(), atr(data.h, data.l, data.c, period(0)))],
+        Kind::Highest => vec![line(&spec.id(), highest(data.h, period(0)))],
+        Kind::Lowest => vec![line(&spec.id(), lowest(data.l, period(0)))],
         Kind::Vwap => vec![line(
             "VWAP",
             vwap(data.t, data.h, data.l, data.c, data.v, IST_OFFSET_SECS),
