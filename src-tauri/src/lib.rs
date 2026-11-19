@@ -4,6 +4,7 @@
 //! plugins and commands, and owns process-level concerns such as logging and
 //! the main window. Business logic lives in the `nivesh-*` library crates.
 
+mod broker;
 mod commands;
 pub mod ipc;
 mod logging;
@@ -60,6 +61,14 @@ pub fn run() -> anyhow::Result<()> {
             services.spawn_event_bridges(app.handle());
             app.manage(services);
 
+            // Broker wiring: restore a stored session so LIVE data works
+            // after a restart until the daily flush.
+            let broker = Arc::new(broker::BrokerManager::new(Arc::clone(&store)));
+            if let Err(err) = tauri::async_runtime::block_on(broker.restore()) {
+                tracing::warn!(error = %err, "restoring the broker session failed");
+            }
+            app.manage(broker);
+
             window_state::restore(&window, &store);
             window_state::track(&window, store);
             window.show().context("showing main window")?;
@@ -68,6 +77,10 @@ pub fn run() -> anyhow::Result<()> {
         // Keep in sync with COMMANDS in build.rs.
         .invoke_handler(tauri::generate_handler![
             commands::app::app_info,
+            commands::broker::broker_login,
+            commands::broker::broker_logout,
+            commands::broker::broker_setup,
+            commands::broker::broker_status,
             commands::chart::chart_indicators,
             commands::chart::compute_indicators,
             commands::chart::preview_indicators,

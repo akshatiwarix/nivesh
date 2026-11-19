@@ -10,7 +10,9 @@
 //! Key names are stable strings such as `kite.api_secret`; the store prefixes
 //! nothing, so callers own their namespace.
 
-use secrecy::{ExposeSecret, SecretString};
+use secrecy::SecretString;
+
+pub use secrecy::ExposeSecret;
 
 /// Where secrets come from. One process-wide instance holds every key.
 pub trait SecretStore: Send + Sync {

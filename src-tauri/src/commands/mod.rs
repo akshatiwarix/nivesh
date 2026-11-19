@@ -5,6 +5,7 @@
 //! `allow-*` permission) and granted in `capabilities/main.json`.
 
 pub mod app;
+pub mod broker;
 pub mod chart;
 pub mod data;
 pub mod market;

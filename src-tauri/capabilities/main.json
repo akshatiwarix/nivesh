@@ -6,6 +6,10 @@
   "permissions": [
     "allow-all-indices",
     "allow-app-info",
+    "allow-broker-login",
+    "allow-broker-logout",
+    "allow-broker-setup",
+    "allow-broker-status",
     "allow-chart-indicators",
     "allow-compute-indicators",
     "allow-preview-indicators",

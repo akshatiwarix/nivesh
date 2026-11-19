@@ -20,8 +20,12 @@ tauri-build.workspace = true
 
 [dependencies]
 anyhow.workspace = true
+nivesh-broker = { path = "../crates/nivesh-broker" }
+nivesh-broker-kite = { path = "../crates/nivesh-broker-kite" }
 nivesh-core = { path = "../crates/nivesh-core" }
+nivesh-secrets = { path = "../crates/nivesh-secrets" }
 nivesh-data = { path = "../crates/nivesh-data" }
+url = { workspace = true }
 nivesh-indicators = { path = "../crates/nivesh-indicators" }
 nivesh-store = { path = "../crates/nivesh-store" }
 serde.workspace = true
@@ -38,6 +42,7 @@ ts-rs.workspace = true
 
 [dev-dependencies]
 chrono.workspace = true
+wiremock.workspace = true
 
 [lints]
 workspace = true

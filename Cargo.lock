@@ -2865,9 +2865,12 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "chrono",
+ "nivesh-broker",
+ "nivesh-broker-kite",
  "nivesh-core",
  "nivesh-data",
  "nivesh-indicators",
+ "nivesh-secrets",
  "nivesh-store",
  "serde",
  "serde_json",
@@ -2881,6 +2884,8 @@ dependencies = [
  "tracing-appender",
  "tracing-subscriber",
  "ts-rs",
+ "url",
+ "wiremock",
 ]
 
 [[package]]
