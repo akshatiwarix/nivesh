@@ -112,6 +112,36 @@ impl PaperDesk {
             .map(|_| self.gateway.kill_state().clone())
     }
 
+    /// Pauses every strategy a reconciliation found a mismatch for: their
+    /// intents are refused until resumed. Returns the newly paused ids.
+    pub fn apply_reconciliation(&mut self, found: &crate::Reconciliation, now_ms: i64) -> Vec<i64> {
+        let mut paused = Vec::new();
+        for strategy_id in found.strategies_to_pause() {
+            let reason = found
+                .mismatches
+                .iter()
+                .find(|m| m.strategies().contains(&strategy_id))
+                .map(|m| serde_json::to_string(m).unwrap_or_default())
+                .unwrap_or_else(|| "reconciliation mismatch".into());
+            if self.gateway.pause(strategy_id, &reason, now_ms) {
+                if let Some(runner) = self.runners.get_mut(&strategy_id) {
+                    runner.on_rejected();
+                }
+                paused.push(strategy_id);
+            }
+        }
+        paused
+    }
+
+    /// Resumes a paused strategy (the user's deliberate choice).
+    pub fn resume(&mut self, strategy_id: i64, now_ms: i64) -> Result<(), GatewayError> {
+        self.gateway.resume(strategy_id, now_ms)
+    }
+
+    pub fn paused(&self, strategy_id: i64) -> Option<&str> {
+        self.gateway.paused(strategy_id)
+    }
+
     /// Starts (or restarts) a strategy. Anything it had queued is dropped.
     pub fn start(&mut self, strategy_id: i64, runner: PaperRunner) {
         self.gateway.forget(strategy_id);
@@ -507,6 +537,40 @@ mod tests {
         desk.set_strategy_limits(7, None);
         let r = desk
             .on_closed_bar(7, bar(1, 100.0, 100.0), T0 + DAY)
+            .unwrap();
+        assert!(r.placed.is_some());
+    }
+
+    #[test]
+    fn a_mismatch_pauses_the_strategy_until_it_is_resumed() {
+        let mut desk = desk_with(7, always_in(1));
+        desk.on_closed_bar(7, bar(0, 100.0, 100.0), T0);
+        assert_eq!(desk.queued(), 1);
+        let found = crate::Reconciliation {
+            mismatches: vec![crate::Mismatch::UnknownOutcome {
+                strategy_id: 7,
+                tag: "NV7S1".into(),
+            }],
+            resolved: vec![],
+        };
+        assert_eq!(desk.apply_reconciliation(&found, T0), vec![7]);
+        assert_eq!(
+            desk.apply_reconciliation(&found, T0),
+            Vec::<i64>::new(),
+            "once"
+        );
+        assert_eq!(desk.queued(), 0, "its queued order is cancelled");
+        assert!(
+            desk.paused(7)
+                .is_some_and(|r| r.contains("unknown_outcome"))
+        );
+        let r = desk
+            .on_closed_bar(7, bar(1, 100.0, 100.0), T0 + DAY)
+            .unwrap();
+        assert!(matches!(&r.refused[..], [GatewayError::StrategyPaused(_)]));
+        desk.resume(7, T0 + DAY).unwrap();
+        let r = desk
+            .on_closed_bar(7, bar(2, 100.0, 100.0), T0 + 2 * DAY)
             .unwrap();
         assert!(r.placed.is_some());
     }

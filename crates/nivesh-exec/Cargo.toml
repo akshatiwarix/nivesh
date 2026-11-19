@@ -16,7 +16,9 @@ serde_json.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
+async-trait.workspace = true
 proptest.workspace = true
+tokio.workspace = true
 
 [lints]
 workspace = true

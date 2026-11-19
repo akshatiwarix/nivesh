@@ -2995,6 +2995,7 @@ dependencies = [
 name = "nivesh-exec"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "nivesh-broker",
  "nivesh-core",
  "nivesh-risk",
@@ -3003,6 +3004,7 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.21",
+ "tokio",
 ]
 
 [[package]]

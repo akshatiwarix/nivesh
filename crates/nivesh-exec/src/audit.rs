@@ -73,6 +73,12 @@ pub enum AuditEvent {
     OrdersCancelled { decision_ids: Vec<u64> },
     /// The kill switch was reset (typed confirmation, after the cool-down).
     KillReset,
+    /// A strategy was paused (a reconciliation mismatch, or the user).
+    StrategyPaused { strategy_id: i64, reason: String },
+    /// A paused strategy was resumed.
+    StrategyResumed { strategy_id: i64 },
+    /// An intent arrived from a paused strategy.
+    PausedBlocked { strategy_id: i64 },
 }
 
 impl AuditEvent {
@@ -89,6 +95,9 @@ impl AuditEvent {
             Self::KillEngaged { .. } => "kill.engaged",
             Self::OrdersCancelled { .. } => "order.cancelled",
             Self::KillReset => "kill.reset",
+            Self::StrategyPaused { .. } => "strategy.paused",
+            Self::StrategyResumed { .. } => "strategy.resumed",
+            Self::PausedBlocked { .. } => "strategy.blocked",
         }
     }
 
@@ -101,7 +110,10 @@ impl AuditEvent {
             | Self::OrderRouted { strategy_id, .. }
             | Self::Fill { strategy_id, .. }
             | Self::FillRefused { strategy_id, .. }
-            | Self::KillBlocked { strategy_id } => Some(*strategy_id),
+            | Self::KillBlocked { strategy_id }
+            | Self::StrategyPaused { strategy_id, .. }
+            | Self::StrategyResumed { strategy_id }
+            | Self::PausedBlocked { strategy_id } => Some(*strategy_id),
             Self::KillEngaged { .. } | Self::OrdersCancelled { .. } | Self::KillReset => None,
         }
     }
