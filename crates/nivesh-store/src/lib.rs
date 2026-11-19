@@ -17,6 +17,7 @@ mod error;
 mod instruments;
 mod migrations;
 mod store;
+mod strategy;
 mod watchlists;
 
 pub use broker_tokens::BrokerTokenRow;
@@ -25,4 +26,5 @@ pub use error::StoreError;
 pub use instruments::InstrumentRow;
 pub use migrations::LATEST_VERSION;
 pub use store::{Store, WindowState};
+pub use strategy::{BacktestRow, StrategyRow};
 pub use watchlists::{MAX_ITEMS_PER_LIST, MAX_LISTS, MAX_NAME_LEN, WatchItem, Watchlist};
