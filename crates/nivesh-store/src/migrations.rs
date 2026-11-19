@@ -93,6 +93,34 @@ const MIGRATIONS: &[&str] = &[
     CREATE INDEX broker_tokens_instrument
         ON broker_tokens (broker, exchange, symbol);
     ",
+    // v6: strategies, backtest runs and the paper ledger (Part 5).
+    "
+    CREATE TABLE strategies (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        name       TEXT NOT NULL UNIQUE COLLATE NOCASE,
+        template   TEXT NOT NULL,
+        json       TEXT NOT NULL,
+        created_at INTEGER NOT NULL
+    ) STRICT;
+
+    CREATE TABLE backtests (
+        id           INTEGER PRIMARY KEY AUTOINCREMENT,
+        strategy_id  INTEGER NOT NULL REFERENCES strategies (id) ON DELETE CASCADE,
+        interval     TEXT NOT NULL,
+        range        TEXT NOT NULL,
+        started_at   INTEGER NOT NULL,
+        finished_at  INTEGER,
+        total_pnl    REAL,
+        max_drawdown REAL,
+        trades_json  TEXT
+    ) STRICT;
+
+    CREATE TABLE paper_state (
+        strategy_id INTEGER PRIMARY KEY REFERENCES strategies (id) ON DELETE CASCADE,
+        running     INTEGER NOT NULL,
+        state_json  TEXT NOT NULL
+    ) STRICT;
+    ",
 ];
 
 /// The schema version a fully migrated database has.
@@ -150,11 +178,14 @@ mod tests {
         assert_eq!(
             tables(&conn),
             [
+                "backtests",
                 "broker_tokens",
                 "command_history",
                 "data_cache",
                 "instruments",
+                "paper_state",
                 "settings",
+                "strategies",
                 "watchlist_items",
                 "watchlists",
                 "window_state"
