@@ -173,7 +173,7 @@ pub fn parse_positions(data: &Value) -> Result<Positions, BrokerError> {
     })
 }
 
-fn order(row: &Value) -> Option<Order> {
+pub(crate) fn order(row: &Value) -> Option<Order> {
     Some(Order {
         id: BrokerOrderId(row.get("order_id")?.as_str()?.to_owned()),
         id_instrument: instrument(row)?,

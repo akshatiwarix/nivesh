@@ -1,10 +1,13 @@
-//! Zerodha Kite Connect adapter for Nivesh. Part 4 is read-only: login,
-//! account data and live ticks. No code in this crate places, changes or
-//! cancels an order — that arrives in Part 6 behind the `live-trading`
-//! feature and the risk engine.
+//! Zerodha Kite Connect adapter for Nivesh: login, account data and live
+//! ticks. Order placement (`execution`) is compiled only with the
+//! `live-trading` feature: a default build cannot send an order to Zerodha.
+//! Even then it takes only risk-approved orders, and only
+//! `nivesh-exec::OrderGateway` may hold it.
 
 pub mod account;
 pub mod dump;
+#[cfg(feature = "live-trading")]
+pub mod execution;
 pub mod kite_account;
 pub mod login;
 pub mod parser;
@@ -14,6 +17,8 @@ pub mod stream;
 
 pub use account::parse_order_status;
 pub use dump::{KITE as KITE_BROKER, refresh as refresh_instrument_dump};
+#[cfg(feature = "live-trading")]
+pub use execution::{ExecutionConfig, KiteExecution, parse_order_update};
 pub use kite_account::KiteAccount;
 pub use login::{
     DEFAULT_REDIRECT_PORT, KEY_ACCESS_TOKEN, KEY_API_KEY, KEY_API_SECRET, KiteLogin, REDIRECT_PATH,

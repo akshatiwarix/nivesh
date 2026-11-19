@@ -4,6 +4,8 @@
 
 use std::fmt;
 
+use crate::BrokerError;
+
 use chrono::{DateTime, Utc};
 use nivesh_core::InstrumentId;
 use secrecy::SecretString;
@@ -172,6 +174,62 @@ impl fmt::Display for BrokerOrderId {
     }
 }
 
+/// The client tag Nivesh puts on every order it places: `NV`, the
+/// strategy id, `S`, a per-strategy sequence number. Alphanumeric and at most
+/// 20 characters, as brokers allow. It makes an ambiguous placement
+/// findable, and marks Nivesh's own orders apart from the user's.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct OrderTag(String);
+
+impl OrderTag {
+    pub const MAX_LEN: usize = 20;
+
+    pub fn new(strategy_id: i64, seq: u64) -> Result<Self, BrokerError> {
+        if strategy_id < 0 {
+            return Err(BrokerError::InvalidRequest(
+                "a strategy id is never negative".into(),
+            ));
+        }
+        let tag = format!("NV{strategy_id}S{seq}");
+        if tag.len() > Self::MAX_LEN {
+            return Err(BrokerError::InvalidRequest(format!(
+                "order tag {tag} is longer than {} characters",
+                Self::MAX_LEN
+            )));
+        }
+        Ok(Self(tag))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    /// Whether a broker order carries a Nivesh tag (the kill switch cancels
+    /// only these).
+    pub fn is_nivesh(tag: &str) -> bool {
+        tag.strip_prefix("NV").is_some_and(|rest| {
+            rest.split_once('S').is_some_and(|(id, seq)| {
+                !id.is_empty()
+                    && !seq.is_empty()
+                    && id.bytes().all(|b| b.is_ascii_digit())
+                    && seq.bytes().all(|b| b.is_ascii_digit())
+            })
+        })
+    }
+}
+
+impl fmt::Display for OrderTag {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+/// What a broker answers an order request with.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OrderAck {
+    pub id: BrokerOrderId,
+}
+
 /// One executed trade (a fill). A filled order can have several.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Trade {
@@ -226,5 +284,27 @@ mod tests {
         };
         let text = format!("{info:?}");
         assert!(!text.contains("token-that-must-not-print"));
+    }
+}
+
+#[cfg(test)]
+mod tag_tests {
+    use super::*;
+
+    #[test]
+    fn tags_are_short_alphanumeric_and_recognisable() {
+        let tag = OrderTag::new(42, 7).unwrap();
+        assert_eq!(tag.as_str(), "NV42S7");
+        assert!(tag.as_str().chars().all(|c| c.is_ascii_alphanumeric()));
+        assert!(OrderTag::is_nivesh("NV42S7"));
+        for other in ["", "NV", "NVS1", "NV1S", "XX1S2", "NV1S2x", "manual"] {
+            assert!(!OrderTag::is_nivesh(other), "{other}");
+        }
+        assert!(OrderTag::new(-1, 0).is_err());
+        assert!(
+            OrderTag::new(i64::MAX, u64::MAX).is_err(),
+            "too long for brokers"
+        );
+        assert!(OrderTag::new(999_999, 99_999_999_999).is_ok());
     }
 }

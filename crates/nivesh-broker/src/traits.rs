@@ -10,9 +10,10 @@ use url::Url;
 use crate::BrokerError;
 use crate::ticks::{TickMode, TickSubscription};
 use crate::types::{
-    BrokerId, Funds, Holding, LoginCallback, LoginState, Order, Positions, SessionInfo,
-    SessionStatus, Trade,
+    BrokerId, BrokerOrderId, Funds, Holding, LoginCallback, LoginState, Order, OrderAck, OrderTag,
+    Positions, SessionInfo, SessionStatus, Trade,
 };
+use nivesh_risk::ApprovedOrder;
 
 /// The login half of a broker: build the URL the user opens in their browser,
 /// then turn the redirect's callback into a session. Implementations store
@@ -58,4 +59,38 @@ pub trait MarketStream: Send + Sync {
         ids: &[InstrumentId],
         mode: TickMode,
     ) -> Result<TickSubscription, BrokerError>;
+}
+
+/// The only trait that trades. It takes an [`ApprovedOrder`], which only the
+/// risk engine can mint, **by value**, so an approval is spent once. Only
+/// `nivesh-exec::OrderGateway` holds one of these.
+///
+/// Placement is never retried by an implementation. When it fails with an
+/// error that [`BrokerError::placement_ambiguous`] flags, the order may or
+/// may not exist: the caller finds out with [`Self::find_by_tag`].
+#[async_trait]
+pub trait BrokerExecution: BrokerAccount {
+    /// Places the order under `tag`. An expired approval is refused before
+    /// anything is sent.
+    async fn place(&self, order: ApprovedOrder, tag: &OrderTag) -> Result<OrderAck, BrokerError>;
+
+    /// Changes an open order to the newly approved terms.
+    async fn modify(
+        &self,
+        id: &BrokerOrderId,
+        order: ApprovedOrder,
+    ) -> Result<OrderAck, BrokerError>;
+
+    /// Cancels an open order. Cancelling reduces risk, so it needs no
+    /// approval.
+    async fn cancel(&self, id: &BrokerOrderId) -> Result<OrderAck, BrokerError>;
+
+    /// Today's order carrying `tag`, if the broker has one.
+    async fn find_by_tag(&self, tag: &OrderTag) -> Result<Option<Order>, BrokerError> {
+        Ok(self
+            .orders()
+            .await?
+            .into_iter()
+            .find(|o| o.tag.as_deref() == Some(tag.as_str())))
+    }
 }

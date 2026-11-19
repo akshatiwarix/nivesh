@@ -28,7 +28,15 @@ tokio-tungstenite.workspace = true
 tracing.workspace = true
 url.workspace = true
 
+nivesh-risk = { path = "../nivesh-risk", optional = true }
+
+[features]
+# Order placement, modification and cancellation. Off by default: a build
+# without it has no code that can send an order to Zerodha.
+live-trading = ["dep:nivesh-risk"]
+
 [dev-dependencies]
+nivesh-risk = { path = "../nivesh-risk" }
 proptest.workspace = true
 tracing-subscriber.workspace = true
 wiremock.workspace = true

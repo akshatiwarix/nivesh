@@ -75,6 +75,10 @@ struct ClassLimits {
     quote: ClassLimiter,
     historical: ClassLimiter,
     general: ClassLimiter,
+    /// Order placement, modification and cancellation: **10 req/s**, on its
+    /// own budget so account reads never delay a cancel.
+    #[cfg(feature = "live-trading")]
+    orders: ClassLimiter,
 }
 
 impl KiteRest {
@@ -101,6 +105,8 @@ impl KiteRest {
                 quote: limiter(1),
                 historical: limiter(3),
                 general: limiter(10),
+                #[cfg(feature = "live-trading")]
+                orders: limiter(10),
             },
         })
     }
@@ -171,6 +177,44 @@ impl KiteRest {
             .text()
             .await
             .map_err(|e| BrokerError::Upstream(format!("reading the dump: {e}")))
+    }
+
+    /// An order request (`POST`, `PUT` or `DELETE` under `/orders`) with the
+    /// session headers, on the order limiter, decoded through the envelope.
+    /// It is sent **exactly once**: nothing here retries, whatever happens.
+    #[cfg(feature = "live-trading")]
+    pub(crate) async fn order_request(
+        &self,
+        method: reqwest::Method,
+        path: &str,
+        form: &[(&str, String)],
+    ) -> Result<Value, BrokerError> {
+        let Some(token) = self.access_token() else {
+            return Err(BrokerError::Unauthorized);
+        };
+        self.limits.orders.wait().await;
+        let url = self.url(path, &[])?;
+        let mut request = self
+            .http
+            .request(method, url)
+            .header("X-Kite-Version", KITE_VERSION)
+            .header(
+                "Authorization",
+                format!("token {}:{}", self.api_key, token.expose_secret()),
+            );
+        if !form.is_empty() {
+            request = request.form(form);
+        }
+        let response = request.send().await.map_err(|e| {
+            if e.is_timeout() {
+                BrokerError::Timeout
+            } else {
+                BrokerError::Upstream(e.to_string())
+            }
+        })?;
+        let status = response.status();
+        let headers = response.headers().clone();
+        decode(status, &headers, envelope_body(response).await?)
     }
 
     /// One rate-limited GET with the session headers; the caller owns the
