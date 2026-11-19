@@ -20,6 +20,11 @@ export type View =
   | { kind: "sec" }
   | { kind: "news"; symbol?: string }
   | { kind: "wl" }
+  | { kind: "port" }
+  | { kind: "pos" }
+  | { kind: "ord" }
+  | { kind: "trd" }
+  | { kind: "funds" }
   | { kind: "help" };
 
 export const EMPTY_VIEW: View = { kind: "empty" };
@@ -47,6 +52,16 @@ export function viewTitle(view: View): string {
       return "MKT · Indices";
     case "wl":
       return "Watchlists";
+    case "port":
+      return "Portfolio";
+    case "pos":
+      return "Positions";
+    case "ord":
+      return "Orders";
+    case "trd":
+      return "Trades";
+    case "funds":
+      return "Funds";
     case "help":
       return "Help";
   }

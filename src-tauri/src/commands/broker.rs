@@ -52,6 +52,11 @@ pub async fn broker_login(
             let _ = handle.emit(SESSION_EVENT, &manager.cancel_login().await);
         }
     });
+    // The URL is the app's own login page for its own API key: safe to open
+    // in the system browser directly.
+    if let Err(err) = tauri_plugin_opener::open_url(url.as_str(), None::<&str>) {
+        tracing::warn!(error = %err, "could not open the browser for the login");
+    }
     Ok(BrokerLoginDto {
         url: url.as_str().to_owned(),
     })
@@ -101,4 +106,86 @@ pub async fn broker_status(
     broker: State<'_, Arc<BrokerManager>>,
 ) -> Result<BrokerSessionDto, IpcError> {
     Ok(broker.status().await)
+}
+
+// ---- Account data -----------------------------------------------------------
+
+use crate::ipc::broker::{FundsDto, HoldingDto, OrderDto, PositionsDto, TradeDto};
+
+/// The account data source: the demo broker when it is active, else Kite.
+async fn account(
+    broker: &Arc<BrokerManager>,
+) -> Result<(String, Arc<dyn nivesh_broker::BrokerAccount>), IpcError> {
+    if let Some((_demo, _stream)) = broker.demo_wiring().await {
+        let account: Arc<dyn nivesh_broker::BrokerAccount> =
+            Arc::new(nivesh_broker::DemoBroker) as _;
+        return Ok(("demo".to_owned(), account));
+    }
+    if let Some(wiring) = broker.kite_wiring().await {
+        let account: Arc<dyn nivesh_broker::BrokerAccount> = wiring.account.clone();
+        return Ok(("kite".to_owned(), account));
+    }
+    Err(IpcError::new(
+        crate::ipc::ErrorCode::Unavailable,
+        "No broker is connected. LOGIN first, or LOGIN DEMO for the demo.",
+    ))
+}
+
+#[tauri::command]
+pub async fn broker_holdings(
+    broker: State<'_, Arc<BrokerManager>>,
+) -> Result<Vec<HoldingDto>, IpcError> {
+    let (name, account) = account(&broker).await?;
+    let _ = name;
+    Ok(account
+        .holdings()
+        .await
+        .map_err(IpcError::from)?
+        .iter()
+        .map(Into::into)
+        .collect())
+}
+
+#[tauri::command]
+pub async fn broker_positions(
+    broker: State<'_, Arc<BrokerManager>>,
+) -> Result<PositionsDto, IpcError> {
+    let (_name, account) = account(&broker).await?;
+    Ok(PositionsDto::from(
+        &account.positions().await.map_err(IpcError::from)?,
+    ))
+}
+
+#[tauri::command]
+pub async fn broker_orders(
+    broker: State<'_, Arc<BrokerManager>>,
+) -> Result<Vec<OrderDto>, IpcError> {
+    let (_name, account) = account(&broker).await?;
+    Ok(account
+        .orders()
+        .await
+        .map_err(IpcError::from)?
+        .iter()
+        .map(Into::into)
+        .collect())
+}
+
+#[tauri::command]
+pub async fn broker_trades(
+    broker: State<'_, Arc<BrokerManager>>,
+) -> Result<Vec<TradeDto>, IpcError> {
+    let (_name, account) = account(&broker).await?;
+    Ok(account
+        .trades()
+        .await
+        .map_err(IpcError::from)?
+        .iter()
+        .map(Into::into)
+        .collect())
+}
+
+#[tauri::command]
+pub async fn broker_funds(broker: State<'_, Arc<BrokerManager>>) -> Result<FundsDto, IpcError> {
+    let (_name, account) = account(&broker).await?;
+    Ok(account.funds().await.map_err(IpcError::from)?.into())
 }

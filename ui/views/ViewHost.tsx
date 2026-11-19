@@ -1,5 +1,12 @@
 import type { Component, JSX } from "solid-js";
 import { BreadthView } from "./breadth/BreadthView";
+import {
+  FundsView,
+  OrdersView,
+  PortfolioView,
+  PositionsView,
+  TradesView,
+} from "./broker/BrokerViews";
 import { ChartView } from "./chart/ChartView";
 import { PanelContext } from "./context";
 import { HelpView } from "./help/HelpView";
@@ -36,6 +43,16 @@ function renderView(view: View): JSX.Element {
       return <NewsView view={view} />;
     case "wl":
       return <WatchlistView />;
+    case "port":
+      return <PortfolioView />;
+    case "pos":
+      return <PositionsView />;
+    case "ord":
+      return <OrdersView />;
+    case "trd":
+      return <TradesView />;
+    case "funds":
+      return <FundsView />;
     case "help":
       return <HelpView />;
   }

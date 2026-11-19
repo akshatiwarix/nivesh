@@ -1,0 +1,57 @@
+/* Broker account views: the shared banner, badge row and funds summary. */
+
+.broker__hint {
+  margin: 0;
+  padding: var(--pad-y) var(--pad-x);
+  color: var(--c-fg-dim);
+  font-size: var(--fs-sm);
+}
+
+.broker__funds {
+  margin: 0;
+  padding: var(--pad-y) var(--pad-x);
+  color: var(--c-amber);
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.broker__tabs {
+  display: flex;
+  gap: 2px;
+  padding: var(--pad-y) var(--pad-x) 0;
+}
+
+.broker__tab {
+  height: var(--row-h);
+  padding: 0 var(--pad-x);
+  border: 1px solid transparent;
+  background: none;
+  color: var(--c-fg-dim);
+  font: inherit;
+  font-size: var(--fs-sm);
+  cursor: pointer;
+}
+
+.broker__tab--on {
+  border-color: var(--c-amber);
+  color: var(--c-amber);
+}
+
+.broker__funds-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--pad-x);
+  margin: 0;
+  padding: var(--pad-y) var(--pad-x);
+}
+
+.broker__funds-grid dt {
+  color: var(--c-fg-faint);
+  font-size: var(--fs-sm);
+}
+
+.broker__funds-grid dd {
+  margin: 0;
+  color: var(--c-amber);
+  font-variant-numeric: tabular-nums;
+}

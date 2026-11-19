@@ -2,13 +2,17 @@ export { appInfo } from "./app";
 export type { AppInfo } from "./bindings/AppInfo";
 export type { BarDto } from "./bindings/BarDto";
 export type { BreadthDto } from "./bindings/BreadthDto";
+export type { BrokerLoginDto } from "./bindings/BrokerLoginDto";
+export type { BrokerSessionDto } from "./bindings/BrokerSessionDto";
 export type { ConstituentsInfoDto } from "./bindings/ConstituentsInfoDto";
 export type { DmaBreadthDto } from "./bindings/DmaBreadthDto";
 export type { DmaPeriodDto } from "./bindings/DmaPeriodDto";
 export type { ErrorCode } from "./bindings/ErrorCode";
 export type { FreshnessDto } from "./bindings/FreshnessDto";
+export type { FundsDto } from "./bindings/FundsDto";
 export type { HealthDto } from "./bindings/HealthDto";
 export type { HistoryDto } from "./bindings/HistoryDto";
+export type { HoldingDto } from "./bindings/HoldingDto";
 export type { HubUpdateDto } from "./bindings/HubUpdateDto";
 export type { IndexQuoteDto } from "./bindings/IndexQuoteDto";
 export type { IndexSnapshotDto } from "./bindings/IndexSnapshotDto";
@@ -21,6 +25,8 @@ export type { MarketStatusDto } from "./bindings/MarketStatusDto";
 export type { MoversDto } from "./bindings/MoversDto";
 export type { NewsDto } from "./bindings/NewsDto";
 export type { NewsItemDto } from "./bindings/NewsItemDto";
+export type { OrderDto } from "./bindings/OrderDto";
+export type { PositionsDto } from "./bindings/PositionsDto";
 export type { ProgressDto } from "./bindings/ProgressDto";
 export type { ProvenanceDto } from "./bindings/ProvenanceDto";
 export type { ProviderStatusDto } from "./bindings/ProviderStatusDto";
@@ -31,10 +37,23 @@ export type { SessionKind } from "./bindings/SessionKind";
 export type { SourcedIndexQuoteDto } from "./bindings/SourcedIndexQuoteDto";
 export type { SourcedQuoteDto } from "./bindings/SourcedQuoteDto";
 export type { TopicDto } from "./bindings/TopicDto";
+export type { TradeDto } from "./bindings/TradeDto";
 export type { UiState } from "./bindings/UiState";
 export type { WatchItemDto } from "./bindings/WatchItemDto";
 export type { WatchlistDto } from "./bindings/WatchlistDto";
 export type { WatchlistsDto } from "./bindings/WatchlistsDto";
+export {
+  brokerDemo,
+  brokerFunds,
+  brokerHoldings,
+  brokerLogin,
+  brokerLogout,
+  brokerOrders,
+  brokerPositions,
+  brokerStatus,
+  brokerTrades,
+  onBrokerSession,
+} from "./broker";
 export {
   chartIndicators,
   computeIndicators,

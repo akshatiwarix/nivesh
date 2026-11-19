@@ -22,6 +22,7 @@ describe("help rows", () => {
     const nonF = KEYMAP.filter((b) => b.action.type !== "fkey");
     for (const b of nonF) expect(rows.some((r) => r.keys === b.keys.join(" / "))).toBe(true);
     expect(rows.some((r) => r.keys.startsWith("F1 "))).toBe(true);
-    expect(rows.some((r) => r.keys.startsWith("F9 "))).toBe(false);
+    // F9 lands on ORD now; an unassigned key must not appear.
+    expect(rows.some((r) => r.keys.startsWith("F10 "))).toBe(false);
   });
 });
