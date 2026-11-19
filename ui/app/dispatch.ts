@@ -6,6 +6,7 @@ import {
   type WatchlistStore,
   watchlistStore,
 } from "../data/watchlists";
+import { brokerDemo, brokerLogin, brokerLogout, inTauri } from "../ipc";
 import { DEFAULT_UNIVERSE, findUniverse } from "../lib/universe";
 import { parseChartArgs } from "../views/chart/model";
 import { sendViewCommand } from "../views/context";
@@ -110,6 +111,34 @@ export function runCommand(
       ws.open({ kind: "mov", index: universe.id });
       return undefined;
     }
+    case "port":
+      if (ws.currentView(ws.state.focused).kind !== "port") ws.open({ kind: "port" });
+      return undefined;
+    case "pos":
+      if (ws.currentView(ws.state.focused).kind !== "pos") ws.open({ kind: "pos" });
+      return undefined;
+    case "ord":
+      if (ws.currentView(ws.state.focused).kind !== "ord") ws.open({ kind: "ord" });
+      return undefined;
+    case "trd":
+      if (ws.currentView(ws.state.focused).kind !== "trd") ws.open({ kind: "trd" });
+      return undefined;
+    case "funds":
+      if (ws.currentView(ws.state.focused).kind !== "funds") ws.open({ kind: "funds" });
+      return undefined;
+    case "login": {
+      // LOGIN DEMO starts the demo broker; LOGIN starts the Kite login whose
+      // URL the backend already opened in the system browser.
+      const demo = args[0]?.toUpperCase() === "DEMO";
+      if (!inTauri()) {
+        return demo
+          ? "The demo broker runs in the Nivesh app."
+          : "Broker login runs in the Nivesh app.";
+      }
+      return runBrokerLogin(demo);
+    }
+    case "logout":
+      return runBrokerLogout();
     case "add":
     case "rm": {
       if (ws.currentView(ws.state.focused).kind !== "chart") {
@@ -132,6 +161,36 @@ export function runCommand(
 }
 
 export const WL_USAGE = "Usage: WL [ADD|RM SYMBOL… | NEW|USE|DEL NAME]";
+
+/** LOGIN / LOGIN DEMO: report the outcome in the command bar. */
+export function runBrokerLogin(demo: boolean): Promise<string | undefined> {
+  return (async () => {
+    try {
+      if (demo) {
+        await brokerDemo();
+        return undefined;
+      }
+      const outcome = await brokerLogin();
+      return outcome.url
+        ? "The Kite login page opened in your browser. LOGOUT cancels."
+        : undefined;
+    } catch (err) {
+      return describeError(err);
+    }
+  })();
+}
+
+/** LOGOUT: end whichever broker session is active. */
+export function runBrokerLogout(): Promise<string | undefined> {
+  return (async () => {
+    try {
+      await brokerLogout();
+      return "Logged out.";
+    } catch (err) {
+      return describeError(err);
+    }
+  })();
+}
 
 function showWatchlist(ws: Workspace) {
   if (ws.currentView(ws.state.focused).kind !== "wl") ws.open({ kind: "wl" });

@@ -63,7 +63,9 @@ describe("registry", () => {
 
   it("maps function keys to commands", () => {
     expect(commandForFunctionKey(1)?.id).toBe("help");
-    expect(commandForFunctionKey(9)).toBeUndefined();
+    // F8/F9 land on the broker views now.
+    expect(commandForFunctionKey(8)?.id).toBe("port");
+    expect(commandForFunctionKey(9)?.id).toBe("ord");
   });
 
   it("offers sorted completion words without punctuation-only names", () => {

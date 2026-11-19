@@ -90,6 +90,50 @@ export const COMMANDS: readonly CommandDef[] = [
     fkey: 7,
   },
   {
+    id: "port",
+    names: ["PORT", "PORTFOLIO"],
+    summary: "Holdings and available funds of the connected broker. LOGIN DEMO shows demo data",
+    usage: "PORT",
+    fkey: 8,
+  },
+  {
+    id: "pos",
+    names: ["POS", "POSITIONS"],
+    summary: "Day and net positions of the connected broker",
+    usage: "POS",
+  },
+  {
+    id: "ord",
+    names: ["ORD", "ORDERS"],
+    summary: "The day's orders. Read-only in Part 4: no order can be placed here",
+    usage: "ORD",
+    fkey: 9,
+  },
+  {
+    id: "trd",
+    names: ["TRD", "TRADES"],
+    summary: "The day's executed fills",
+    usage: "TRD",
+  },
+  {
+    id: "funds",
+    names: ["FUNDS"],
+    summary: "Available, used and total funds",
+    usage: "FUNDS",
+  },
+  {
+    id: "login",
+    names: ["LOGIN"],
+    summary: "Connect a broker. LOGIN starts the Kite login; LOGIN DEMO shows demo data",
+    usage: "LOGIN [DEMO]",
+  },
+  {
+    id: "logout",
+    names: ["LOGOUT"],
+    summary: "End the broker session (demo or Kite)",
+    usage: "LOGOUT",
+  },
+  {
     id: "add",
     names: ["ADD"],
     summary:

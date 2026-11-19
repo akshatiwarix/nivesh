@@ -13,7 +13,9 @@ use crate::commands::market::MarketStatusDto;
 use crate::commands::ui_state::UiState;
 use crate::commands::watchlists::WatchlistsDto;
 use crate::ipc::IpcError;
-use crate::ipc::broker::{BrokerLoginDto, BrokerSessionDto};
+use crate::ipc::broker::{
+    BrokerLoginDto, BrokerSessionDto, FundsDto, HoldingDto, OrderDto, PositionsDto, TradeDto,
+};
 use crate::ipc::chart::{BarDto, HistoryDto, IndicatorPreviewDto, IndicatorsDto};
 use crate::ipc::dto::{
     HubUpdateDto, IndexSnapshotDto, InstrumentDto, ProviderStatusDto, SourcedIndexQuoteDto,
@@ -37,6 +39,11 @@ pub fn export(dir: &Path) -> Result<(), ExportError> {
     AppInfo::export_all(&cfg)?;
     BrokerSessionDto::export_all(&cfg)?;
     BrokerLoginDto::export_all(&cfg)?;
+    HoldingDto::export_all(&cfg)?;
+    PositionsDto::export_all(&cfg)?;
+    OrderDto::export_all(&cfg)?;
+    TradeDto::export_all(&cfg)?;
+    FundsDto::export_all(&cfg)?;
     MarketStatusDto::export_all(&cfg)?;
     UiState::export_all(&cfg)?;
     InstrumentDto::export_all(&cfg)?;

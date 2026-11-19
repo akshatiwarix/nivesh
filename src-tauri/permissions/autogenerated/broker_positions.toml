@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-broker-positions"
+description = "Enables the broker_positions command without any pre-configured scope."
+commands.allow = ["broker_positions"]
+
+[[permission]]
+identifier = "deny-broker-positions"
+description = "Denies the broker_positions command without any pre-configured scope."
+commands.deny = ["broker_positions"]
