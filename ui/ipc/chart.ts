@@ -2,6 +2,7 @@
 import { Channel } from "@tauri-apps/api/core";
 import type { BarDto } from "./bindings/BarDto";
 import type { HistoryDto } from "./bindings/HistoryDto";
+import type { IndicatorPreviewDto } from "./bindings/IndicatorPreviewDto";
 import type { IndicatorsDto } from "./bindings/IndicatorsDto";
 import { call } from "./core";
 
@@ -60,6 +61,28 @@ export function computeIndicators(
   specs: readonly string[],
 ): Promise<IndicatorsDto> {
   return call<IndicatorsDto>("compute_indicators", { exchange, symbol, interval, range, specs });
+}
+
+/**
+ * The indicators' newest values with the forming bar folded in, for moving
+ * the series' last point while the bar is still forming.
+ */
+export function previewIndicators(
+  exchange: string,
+  symbol: string,
+  interval: string,
+  range: string | undefined,
+  specs: readonly string[],
+  bar: BarDto,
+): Promise<IndicatorPreviewDto> {
+  return call<IndicatorPreviewDto>("preview_indicators", {
+    exchange,
+    symbol,
+    interval,
+    range,
+    specs,
+    bar,
+  });
 }
 
 /** The indicators saved for a symbol (they follow it across intervals). */

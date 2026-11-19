@@ -15,7 +15,7 @@ use ts_rs::TS;
 use crate::ipc::IpcError;
 
 /// What the provenance badge shows.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum FreshnessDto {
     Live,
@@ -36,7 +36,7 @@ impl From<Freshness> for FreshnessDto {
 }
 
 /// Where a value came from and how fresh it is. Every market datum carries one.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct ProvenanceDto {
     /// `nse`, `yahoo`, ...

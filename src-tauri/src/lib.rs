@@ -70,6 +70,7 @@ pub fn run() -> anyhow::Result<()> {
             commands::app::app_info,
             commands::chart::chart_indicators,
             commands::chart::compute_indicators,
+            commands::chart::preview_indicators,
             commands::chart::get_history,
             commands::chart::save_chart_indicators,
             commands::chart::subscribe_forming_bar,
