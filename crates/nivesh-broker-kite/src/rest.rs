@@ -126,6 +126,12 @@ impl KiteRest {
             .is_some()
     }
 
+    /// The API key, which is not a secret (the UI shows it; the secret never
+    /// leaves the store).
+    pub fn api_key(&self) -> String {
+        self.api_key.clone()
+    }
+
     /// `GET path?query`, rate-limited per its class, decoded through the
     /// envelope. Fails before the call when no token is set: every account
     /// call needs the session.
