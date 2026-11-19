@@ -1,7 +1,7 @@
 //! Paper trades like the backtest: the same closed bars driven through the
 //! paper desk (runner → gateway → paper fill at the next open) produce
 //! exactly the backtester's trades, for every template, with stops and
-//! targets on.
+//! targets on, and with the same slippage and charges.
 
 #[cfg(test)]
 mod parity {
@@ -33,9 +33,10 @@ mod parity {
             .collect()
     }
 
-    /// (entry t, entry price, exit t, exit price, quantity) of each closed
-    /// round trip.
-    type Trip = (i64, f64, i64, f64, i64);
+    /// (entry t, entry price, exit t, exit price, quantity, net P&L) of
+    /// each closed round trip. Prices are after slippage; the P&L is net
+    /// of both fills' charges.
+    type Trip = (i64, f64, i64, f64, i64, f64);
 
     /// The paper round trips, and whether a position is still open.
     fn paper_trips(
@@ -51,12 +52,20 @@ mod parity {
         for bar in bars {
             let report = desk.on_closed_bar(1, *bar, bar.t).unwrap();
             assert!(report.refused.is_empty(), "{:?}", report.refused);
-            for fill in report.fills {
+            for fill in &report.fills {
                 match fill.side {
                     Side::Buy => open = Some((fill.bar_t, fill.price)),
                     Side::Sell => {
                         let (et, ep) = open.take().unwrap();
-                        trips.push((et, ep, fill.bar_t, fill.price, fill.quantity));
+                        let pnl = report
+                            .state
+                            .fills
+                            .iter()
+                            .rev()
+                            .find(|f| f.t == fill.bar_t)
+                            .and_then(|f| f.pnl)
+                            .unwrap();
+                        trips.push((et, ep, fill.bar_t, fill.price, fill.quantity, pnl));
                     }
                 }
             }
@@ -69,17 +78,22 @@ mod parity {
         let result = backtest(
             template.build(params),
             bars,
-            // Paper fills carry no costs yet: compare like with like.
-            BacktestOptions {
-                costs: nivesh_strategy::CostModel::FREE,
-                ..BacktestOptions::default()
-            },
+            BacktestOptions::default(),
             &mut progress,
         );
         result
             .trades
             .iter()
-            .map(|t| (t.entry_t, t.entry_price, t.exit_t, t.exit_price, t.quantity))
+            .map(|t| {
+                (
+                    t.entry_t,
+                    t.entry_price,
+                    t.exit_t,
+                    t.exit_price,
+                    t.quantity,
+                    t.pnl,
+                )
+            })
             .collect()
     }
 

@@ -17,6 +17,7 @@ pub mod desk;
 use nivesh_broker::BrokerError;
 use nivesh_core::{Candle, Side};
 use nivesh_risk::{ApprovedOrder, RiskContext, RiskEngine};
+use nivesh_strategy::CostModel;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -45,8 +46,10 @@ pub struct Fill {
     pub symbol: String,
     pub side: Side,
     pub quantity: i64,
-    /// Rupees.
+    /// Rupees, after slippage.
     pub price: f64,
+    /// Charges on the fill, rupees.
+    pub charges: f64,
     /// UTC ms of the bar whose open filled it.
     pub bar_t: i64,
     /// The risk decision the fill rode on (the audit link).
@@ -75,21 +78,42 @@ impl From<BrokerError> for GatewayError {
     }
 }
 
-/// The paper broker's fill model: the price an approved order fills at on
-/// `bar` (the first bar after the signal). Slippage and charges plug in
-/// here.
-pub trait PaperBroker: Send + Sync {
-    fn fill_price(&self, order: &ApprovedOrder, bar: &Candle) -> Result<f64, BrokerError>;
+/// A simulated fill: price after slippage, and the charges, rupees.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PaperFillTerms {
+    pub price: f64,
+    pub charges: f64,
 }
 
-/// Fills at the bar's open, no slippage.
+/// The paper broker's fill model: how an approved order fills on `bar`
+/// (the first bar after the signal).
+pub trait PaperBroker: Send + Sync {
+    fn fill(&self, order: &ApprovedOrder, bar: &Candle) -> Result<PaperFillTerms, BrokerError>;
+}
+
+/// Fills at the bar's open, with the cost model's slippage and charges:
+/// the backtester's fill, so paper and backtest agree.
 #[derive(Debug, Clone, Copy, Default)]
-pub struct NextOpen;
+pub struct NextOpen {
+    pub costs: CostModel,
+}
+
+impl NextOpen {
+    /// No slippage and no charges.
+    pub const FREE: Self = Self {
+        costs: CostModel::FREE,
+    };
+}
 
 impl PaperBroker for NextOpen {
-    fn fill_price(&self, _order: &ApprovedOrder, bar: &Candle) -> Result<f64, BrokerError> {
+    fn fill(&self, order: &ApprovedOrder, bar: &Candle) -> Result<PaperFillTerms, BrokerError> {
         if bar.o.is_finite() && bar.o > 0.0 {
-            Ok(bar.o)
+            let price = self.costs.fill_price(order.side(), bar.o);
+            let charges = self
+                .costs
+                .charges(order.side(), order.quantity(), price)
+                .total_rupees();
+            Ok(PaperFillTerms { price, charges })
         } else {
             Err(BrokerError::InvalidRequest(format!(
                 "no fill: the bar at {} has no usable open",
@@ -162,13 +186,14 @@ impl OrderGateway {
         let fills = due
             .into_iter()
             .map(|q| {
-                let price = self.paper.fill_price(&q.order, &bar)?;
+                let terms = self.paper.fill(&q.order, &bar)?;
                 Ok(Fill {
                     strategy_id,
                     symbol: symbol.to_owned(),
                     side: q.order.side(),
                     quantity: q.order.quantity(),
-                    price,
+                    price: terms.price,
+                    charges: terms.charges,
                     bar_t: bar.t,
                     decision_id: q.order.decision_id(),
                     paper: true,
@@ -256,7 +281,7 @@ mod tests {
     fn gateway() -> OrderGateway {
         OrderGateway::new(
             RiskEngine::new(nivesh_risk::RiskLimits::default()),
-            Arc::new(NextOpen),
+            Arc::new(NextOpen::FREE),
         )
     }
 

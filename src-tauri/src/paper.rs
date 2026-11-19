@@ -392,7 +392,16 @@ mod tests {
             .state
             .position
             .expect("filled at the second bar's open");
-        assert_eq!((pos.quantity, pos.entry_price), (1, 101.0));
+        // The default cost model: slippage on the price, charges on the fill.
+        let costs = nivesh_strategy::CostModel::default();
+        let price = costs.fill_price(nivesh_core::Side::Buy, 101.0);
+        assert_eq!((pos.quantity, pos.entry_price), (1, price));
+        assert_eq!(
+            saved.state.charges,
+            costs
+                .charges(nivesh_core::Side::Buy, 1, price)
+                .total_rupees()
+        );
 
         lock(&desk).stop(id);
         assert!(!on_closed_bar(
