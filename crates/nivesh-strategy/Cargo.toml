@@ -7,6 +7,7 @@ rust-version.workspace = true
 publish.workspace = true
 
 [dependencies]
+chrono = { workspace = true, features = ["clock"] }
 nivesh-core = { path = "../nivesh-core" }
 nivesh-indicators = { path = "../nivesh-indicators" }
 serde.workspace = true
