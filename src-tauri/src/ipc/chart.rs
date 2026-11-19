@@ -6,7 +6,7 @@
 
 use nivesh_core::{Candle, CandleSeries, Sourced};
 use nivesh_indicators::{LineStyle, Output, Placement};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use crate::ipc::dto::ProvenanceDto;
@@ -55,7 +55,7 @@ impl HistoryDto {
 }
 
 /// The bar in progress, pushed over a channel as quotes arrive.
-#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct BarDto {
     pub t: i64,
@@ -80,6 +80,39 @@ impl BarDto {
             provenance,
         }
     }
+
+    pub fn candle(&self) -> Candle {
+        Candle {
+            t: self.t,
+            o: self.o,
+            h: self.h,
+            l: self.l,
+            c: self.c,
+            v: self.v,
+        }
+    }
+}
+
+/// The last indicator values with the forming bar folded in, aligned to
+/// `compute_indicators`' indicators and lines, so the chart can move an
+/// indicator's newest point without recomputing the whole series.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct IndicatorPreviewDto {
+    /// The bar time the values were computed at, epoch ms.
+    pub t: i64,
+    /// One entry per requested spec, in the order given.
+    pub indicators: Vec<IndicatorPreviewLinesDto>,
+}
+
+/// One indicator's last values. `lines` matches `IndicatorDto::lines` order
+/// for the same id; `null` while the indicator is still warming up.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct IndicatorPreviewLinesDto {
+    /// Canonical spec id, e.g. `SMA 50`.
+    pub id: String,
+    pub lines: Vec<Option<f64>>,
 }
 
 /// One indicator's drawable lines, aligned to `IndicatorsDto::t`. A `null`

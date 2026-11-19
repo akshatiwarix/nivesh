@@ -39,6 +39,7 @@ export {
   chartIndicators,
   computeIndicators,
   getHistory,
+  previewIndicators,
   saveChartIndicators,
   subscribeFormingBar,
 } from "./chart";

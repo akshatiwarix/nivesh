@@ -6,6 +6,7 @@ const COMMANDS: &[&str] = &[
     "app_info",
     "chart_indicators",
     "compute_indicators",
+    "preview_indicators",
     "get_breadth",
     "get_dma_breadth",
     "get_history",

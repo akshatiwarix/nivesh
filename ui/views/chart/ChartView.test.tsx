@@ -6,6 +6,7 @@ import {
   chartIndicators,
   computeIndicators,
   getHistory,
+  previewIndicators,
   saveChartIndicators,
   subscribeFormingBar,
 } from "../../ipc";
@@ -19,6 +20,7 @@ vi.mock("../../ipc", () => ({
   subscribeFormingBar: vi.fn(),
   chartIndicators: vi.fn(),
   computeIndicators: vi.fn(),
+  previewIndicators: vi.fn(),
   saveChartIndicators: vi.fn(),
   toIpcError: (e: unknown) => ({ code: "INTERNAL", message: String(e), retryable: false }),
   IpcFailure: class extends Error {},
@@ -222,6 +224,58 @@ describe("ChartView", () => {
     await tick();
     expect(stop).toHaveBeenCalled();
     expect(calls.removed).toBe(1);
+  });
+
+  it("moves the indicators' newest point with the forming bar", async () => {
+    const h = history();
+    getHistoryMock.mockResolvedValue(h);
+    vi.mocked(chartIndicators).mockResolvedValue(["SMA 50"]);
+    vi.mocked(computeIndicators).mockResolvedValue({
+      t: h.t,
+      indicators: [
+        {
+          id: "SMA 50",
+          kind: "SMA",
+          placement: "overlay",
+          lines: [{ name: "SMA 50", values: h.t.map(() => 100), style: "line" }],
+          bounds: null,
+          guides: [],
+        },
+      ],
+    });
+    const previewMock = vi.mocked(previewIndicators);
+    const t = Date.UTC(2026, 6, 20);
+    previewMock.mockResolvedValue({ t, indicators: [{ id: "SMA 50", lines: [101.5] }] });
+    mount(view());
+    await tick();
+    push({
+      t,
+      o: 120,
+      h: 125,
+      l: 119,
+      c: 124,
+      v: 0,
+      provenance: {
+        provider: "yahoo",
+        freshness: "DELAYED",
+        asOfMs: AS_OF + 5000,
+        fetchedAtMs: AS_OF,
+      },
+    });
+    await tick();
+    expect(previewMock).toHaveBeenCalledWith(
+      "NSE",
+      "RELIANCE",
+      "1d",
+      "5y",
+      ["SMA 50"],
+      expect.objectContaining({ t }),
+    );
+    const lineUpdates = calls.updates.filter((u) => (u as { name: string }).name === "line@0");
+    expect(lineUpdates).toContainEqual({
+      name: "line@0",
+      p: { time: t / 1000, value: 101.5 },
+    });
   });
 
   it("coalesces bars that arrive within one frame into a single draw of the newest", async () => {

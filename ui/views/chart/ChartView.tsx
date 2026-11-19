@@ -26,6 +26,7 @@ import {
   computeIndicators,
   getHistory,
   inTauri,
+  previewIndicators,
   saveChartIndicators,
   subscribeFormingBar,
 } from "../../ipc";
@@ -91,6 +92,18 @@ interface ChartHandle {
   palette: string[];
   /** Series drawn for indicators, removed and rebuilt when they change. */
   extra: ISeriesApi<SeriesType>[];
+  /** One ref per indicator line, for moving the newest point as the forming
+   * bar updates. Same order as `extra`. */
+  indicatorLines: IndicatorLineRef[];
+}
+
+interface IndicatorLineRef {
+  /** Canonical spec id, e.g. `SMA 50`. */
+  id: string;
+  series: ISeriesApi<SeriesType>;
+  histogram: boolean;
+  /** Pane the line lives in (0 = price pane). */
+  pane: number;
 }
 
 /** Runs `run` on the next animation frame (a timer where there are none, as in tests). */
@@ -210,6 +223,7 @@ export const ChartView: Component<{ view: ChartViewDef }> = (props) => {
         css("--c-warn", "#ffd04d"),
       ],
       extra: [],
+      indicatorLines: [],
     };
     setReady(true);
   });
@@ -261,6 +275,7 @@ export const ChartView: Component<{ view: ChartViewDef }> = (props) => {
       const hd = handle;
       for (const s of hd.extra) hd.chart.removeSeries(s);
       hd.extra = [];
+      hd.indicatorLines = [];
       if (!result || list.length === 0 || result.t.length !== h.t.length) return;
       const { lib, chart } = hd;
       const { overlays, panes } = splitByPlacement(result.indicators);
@@ -282,6 +297,7 @@ export const ChartView: Component<{ view: ChartViewDef }> = (props) => {
           );
           s.setData(linePoints(result.t, line) as never);
           hd.extra.push(s);
+          hd.indicatorLines.push({ id: ind.id, series: s, histogram: false, pane: 0 });
         }
         color++;
       }
@@ -325,6 +341,12 @@ export const ChartView: Component<{ view: ChartViewDef }> = (props) => {
               ? histogramPoints(result.t, line, { up: hd.colors.upDim, down: hd.colors.downDim })
               : linePoints(result.t, line)) as never,
           );
+          hd.indicatorLines.push({
+            id: ind.id,
+            series: s,
+            histogram: line.style === "histogram",
+            pane: paneIndex,
+          });
           if (n === 0 || ind.lines.length === 1) {
             for (const g of ind.guides) {
               s.createPriceLine({
@@ -377,6 +399,46 @@ export const ChartView: Component<{ view: ChartViewDef }> = (props) => {
       // animation frame.
       let latest: BarDto | undefined;
       let frame: number | undefined;
+      // Indicators: the series' newest point moves with the forming bar, so a
+      // tick shows SMA/RSI/MACD on the live bar, not one bar behind. Recompute
+      // at most twice a second — indicators don't move faster than that.
+      let lastPreviewMs = 0;
+      let previewBusy = false;
+      const preview = (b: BarDto) => {
+        if (closed || !handle || specs().length === 0 || previewBusy) return;
+        const now = Date.now();
+        if (now - lastPreviewMs < 600) return;
+        lastPreviewMs = now;
+        previewBusy = true;
+        previewIndicators(h.exchange, h.symbol, h.interval, h.range, specs(), b)
+          .then((p) => {
+            previewBusy = false;
+            const hd = handle;
+            if (closed || !hd) return;
+            const time = (p.t / 1000) as UTCTimestamp;
+            for (const ind of p.indicators) {
+              const refs = hd.indicatorLines.filter((r) => r.id === ind.id);
+              refs.forEach((r, k) => {
+                const v = ind.lines[k];
+                if (v === null || v === undefined || !Number.isFinite(v)) {
+                  // Whitespace keeps the line honest through warm-up.
+                  r.series.update({ time } as never);
+                } else if (r.histogram) {
+                  r.series.update({
+                    time,
+                    value: v,
+                    color: v >= 0 ? hd.colors.upDim : hd.colors.downDim,
+                  } as never);
+                } else {
+                  r.series.update({ time, value: v } as never);
+                }
+              });
+            }
+          })
+          .catch(() => {
+            previewBusy = false;
+          });
+      };
       const draw = () => {
         frame = undefined;
         const b = latest;
@@ -390,6 +452,7 @@ export const ChartView: Component<{ view: ChartViewDef }> = (props) => {
           color: b.c >= b.o ? handle.colors.upDim : handle.colors.downDim,
         });
         setLive({ bar: b, provenance: b.provenance });
+        preview(b);
       };
       subscribeFormingBar(h.exchange, h.symbol, h.interval, h.range, (b: BarDto) => {
         latest = b;

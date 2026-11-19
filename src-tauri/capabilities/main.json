@@ -8,6 +8,7 @@
     "allow-app-info",
     "allow-chart-indicators",
     "allow-compute-indicators",
+    "allow-preview-indicators",
     "allow-get-breadth",
     "allow-get-dma-breadth",
     "allow-get-history",
