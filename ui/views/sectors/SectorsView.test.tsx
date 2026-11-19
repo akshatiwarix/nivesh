@@ -143,6 +143,30 @@ describe("SectorsView", () => {
   it("builds tiles from constituents in the index's order", () => {
     const tiles = tilesFor(snapshot("NIFTY50", ["A", "B"]));
     expect(tiles.map((t) => t.label)).toEqual(["A", "B"]);
+    expect(tiles.map((t) => t.weight)).toEqual([null, null]);
     expect(tilesFor(undefined)).toEqual([]);
+  });
+
+  it("weights tiles by EOD turnover and says so", async () => {
+    vi.mocked(indexSnapshot).mockImplementation(async (code) => ({
+      ...snapshot(code, ["BIGCO", "SMALLCO"]),
+      activity: {
+        asOf: "2026-11-18",
+        source: "NSE bhavcopy",
+        turnover: { BIGCO: 600, SMALLCO: 300 },
+      },
+    }));
+    mount();
+    await tick();
+    expect(text()).toContain("SIZE = TURNOVER (EOD 2026-11-18)");
+    const tiles = tilesFor({
+      ...snapshot("NIFTY50", ["BIGCO", "SMALLCO"]),
+      activity: {
+        asOf: "2026-11-18",
+        source: "NSE bhavcopy",
+        turnover: { BIGCO: 600, SMALLCO: 300 },
+      },
+    });
+    expect(tiles.map((t) => t.weight)).toEqual([600, 300]);
   });
 });

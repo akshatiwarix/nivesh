@@ -31,12 +31,14 @@ const COLUMNS: readonly Column<SectorRowDto>[] = [
   ),
 ];
 
-/** Heatmap tiles for an index's constituents, in the index's own order. */
+/** Heatmap tiles for an index's constituents, in the index's own order.
+ * Tile area tracks the last session's traded value when the app has it. */
 export function tilesFor(snapshot: IndexSnapshotDto | undefined): Tile[] {
   return (snapshot?.constituents ?? []).map((q) => ({
     id: `${q.exchange}:${q.symbol}`,
     label: q.symbol,
     pct: Number.isFinite(q.changePct) ? q.changePct : null,
+    weight: snapshot?.activity?.turnover[q.symbol] ?? null,
   }));
 }
 
@@ -150,6 +152,9 @@ export const SectorsView: Component = () => {
         <Show when={row()}>
           <p class="sec__head">
             {row()?.title} CONSTITUENTS BY % CHANGE
+            <Show when={heat.data()?.activity}>
+              {(a) => <span class="sec__eod"> · SIZE = TURNOVER (EOD {a().asOf})</span>}
+            </Show>
             <span class="sec__hint"> [ ] tile · Enter open · Alt+Up/Down index</span>
           </p>
           <Show when={heatEmpty()}>

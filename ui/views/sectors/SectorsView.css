@@ -24,6 +24,10 @@
   color: var(--c-fg-faint);
 }
 
+.sec__eod {
+  color: var(--c-fg-dim);
+}
+
 .sec__msg {
   margin: 0;
   padding: 0 var(--pad-x);
