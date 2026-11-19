@@ -7,6 +7,7 @@ export type { BreadthDto } from "./bindings/BreadthDto";
 export type { BrokerLoginDto } from "./bindings/BrokerLoginDto";
 export type { BrokerSessionDto } from "./bindings/BrokerSessionDto";
 export type { ConstituentsInfoDto } from "./bindings/ConstituentsInfoDto";
+export type { CurvePointDto } from "./bindings/CurvePointDto";
 export type { DmaBreadthDto } from "./bindings/DmaBreadthDto";
 export type { DmaPeriodDto } from "./bindings/DmaPeriodDto";
 export type { ErrorCode } from "./bindings/ErrorCode";
