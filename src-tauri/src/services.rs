@@ -7,6 +7,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::Context as _;
 use nivesh_core::{MarketCalendar, ProviderId, Session};
+use nivesh_data::activity::ActivityList;
 use nivesh_data::bse::BseListProvider;
 use nivesh_data::constituents::{self, ConstituentsList};
 use nivesh_data::http::{HostLimits, HttpClient, HttpConfig};
@@ -14,7 +15,8 @@ use nivesh_data::news::{RssProvider, default_feeds};
 use nivesh_data::nse::{NseConfig, NseProvider};
 use nivesh_data::yahoo::YahooProvider;
 use nivesh_data::{
-    CacheConfig, DataError, DataProvider, HubConfig, InstrumentMaster, MarketData, QuoteHub,
+    ACTIVITY_BASES, CacheConfig, DataError, DataProvider, HubConfig, InstrumentMaster, MarketData,
+    QuoteHub,
 };
 use nivesh_store::Store;
 use tauri::{AppHandle, Emitter as _};
@@ -30,10 +32,14 @@ pub struct Services {
     pub instruments: Arc<InstrumentMaster>,
     /// The index membership lists (bundled, or a newer download).
     pub constituents: Arc<ConstituentsList>,
+    /// The daily bhavcopy's per-stock activity (bundled, or a newer download).
+    pub activity: Arc<ActivityList>,
     /// Providers that can supply instrument lists, for the daily refresh.
     list_sources: Vec<Arc<dyn DataProvider>>,
     /// How to download the membership lists; `None` in tests.
     list_download: Option<ListDownload>,
+    /// Where the activity file is downloaded from; `None` in tests.
+    activity_bases: Option<Vec<String>>,
 }
 
 struct ListDownload {
@@ -152,6 +158,7 @@ pub fn build(store: Arc<Store>, overrides: &Overrides) -> anyhow::Result<Service
         [nse, yahoo].into_iter().chain(rss).collect(),
         list_only,
         &overrides.force_fail,
+        overrides.nse_url.as_deref(),
         Some(list_download),
     )
 }
@@ -162,7 +169,16 @@ pub fn build_with_providers(
     providers: Vec<Arc<dyn DataProvider>>,
     force_fail: &[ProviderId],
 ) -> anyhow::Result<Services> {
-    assemble(store, providers, Vec::new(), force_fail, None)
+    assemble(store, providers, Vec::new(), force_fail, None, None)
+}
+
+/// The activity file lives on NSE's archive host; fixture mode points at the
+/// local server's products path instead.
+fn activity_bases(nse_url: Option<&str>) -> Vec<String> {
+    match nse_url {
+        Some(url) => vec![format!("{}/products/content", url.trim_end_matches('/'))],
+        None => ACTIVITY_BASES.iter().map(|b| (*b).to_owned()).collect(),
+    }
 }
 
 fn assemble(
@@ -170,6 +186,7 @@ fn assemble(
     providers: Vec<Arc<dyn DataProvider>>,
     list_only: Vec<Arc<dyn DataProvider>>,
     force_fail: &[ProviderId],
+    nse_url: Option<&str>,
     list_download: Option<ListDownload>,
 ) -> anyhow::Result<Services> {
     let cutoff_ms = (now_secs() - i64::try_from(CACHE_KEEP.as_secs()).unwrap_or(i64::MAX)) * 1000;
@@ -180,12 +197,15 @@ fn assemble(
     let constituents = Arc::new(
         ConstituentsList::open(Arc::clone(&store)).context("opening the constituent lists")?,
     );
+    let activity =
+        Arc::new(ActivityList::open(Arc::clone(&store)).context("opening the activity table")?);
     let instruments = Arc::new(
         InstrumentMaster::open_ranked(Arc::clone(&store), constituents.popularity())
             .context("opening the instrument master")?,
     );
     let mut builder = MarketData::builder()
         .constituents(Arc::clone(&constituents))
+        .activity(Arc::clone(&activity))
         .tagger(Arc::new(instruments.tagger()))
         .cache(CacheConfig {
             persistent: Some(Arc::clone(&store) as Arc<dyn nivesh_data::PersistentCache>),
@@ -204,13 +224,16 @@ fn assemble(
     let hub = QuoteHub::spawn(market.clone(), HubConfig::default(), move || {
         calendar.status_at(now_secs()).session != Session::Closed
     });
+    let has_download = list_download.is_some();
     Ok(Services {
         market,
         hub,
         instruments,
         constituents,
+        activity,
         list_sources: providers.into_iter().chain(list_only).collect(),
         list_download,
+        activity_bases: has_download.then(|| activity_bases(nse_url)),
     })
 }
 
@@ -237,6 +260,12 @@ impl Services {
                             .set_popularity(services.constituents.popularity())
                     {
                         tracing::warn!(%err, "re-ranking search after a constituent refresh failed");
+                    }
+                    if let Some(bases) = &services.activity_bases {
+                        services
+                            .activity
+                            .refresh_if_due(&download.http, bases, now_ms)
+                            .await;
                     }
                 }
                 tokio::time::sleep(LIST_CHECK_EVERY).await;
