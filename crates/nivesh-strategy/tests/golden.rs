@@ -10,7 +10,7 @@ use nivesh_strategy::{BacktestOptions, Template, TemplateParams, backtest};
 fn series(n: usize) -> Vec<Candle> {
     (0..n)
         .map(|i| {
-            let t = 1_764_000_000_000 + i64::try_from(i).unwrap() * 86_400_000;
+            let t = 1_764_000_000_000 + i64::from(i as u32) * 86_400_000;
             let wave = f64::sin(i as f64 / 5.0) * 40.0;
             let drift = f64::from(i as u32 % 30);
             let close = 1_000.0 + wave + drift;

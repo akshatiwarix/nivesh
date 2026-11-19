@@ -11,7 +11,7 @@ fn series_from(closes: &[i32]) -> Vec<Candle> {
         .iter()
         .enumerate()
         .map(|(i, &c)| {
-            let t = 1_764_000_000_000 + i64::try_from(i).unwrap() * 86_400_000;
+            let t = 1_764_000_000_000 + i64::from(i as u32) * 86_400_000;
             let close = f64::from(c) + 1_000.0;
             Candle {
                 t,
