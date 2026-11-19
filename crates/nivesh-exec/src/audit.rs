@@ -10,6 +10,8 @@ use std::sync::Mutex;
 
 use nivesh_core::Side;
 use nivesh_risk::{RiskCheck, RiskRejection};
+
+use crate::kill::KillReason;
 use serde::Serialize;
 
 /// One audited event.
@@ -63,6 +65,14 @@ pub enum AuditEvent {
         decision_id: u64,
         reason: String,
     },
+    /// An intent arrived while the kill switch was engaged.
+    KillBlocked { strategy_id: i64 },
+    /// The kill switch engaged.
+    KillEngaged { reason: KillReason, detail: String },
+    /// Engaging it cancelled these open orders (decision ids).
+    OrdersCancelled { decision_ids: Vec<u64> },
+    /// The kill switch was reset (typed confirmation, after the cool-down).
+    KillReset,
 }
 
 impl AuditEvent {
@@ -75,17 +85,24 @@ impl AuditEvent {
             Self::OrderRouted { .. } => "order.routed",
             Self::Fill { .. } => "fill",
             Self::FillRefused { .. } => "fill.refused",
+            Self::KillBlocked { .. } => "kill.blocked",
+            Self::KillEngaged { .. } => "kill.engaged",
+            Self::OrdersCancelled { .. } => "order.cancelled",
+            Self::KillReset => "kill.reset",
         }
     }
 
-    pub fn strategy_id(&self) -> i64 {
+    /// The strategy it concerns; account-wide events have none.
+    pub fn strategy_id(&self) -> Option<i64> {
         match self {
             Self::Intent { strategy_id, .. }
             | Self::Stale { strategy_id, .. }
             | Self::RiskRejected { strategy_id, .. }
             | Self::OrderRouted { strategy_id, .. }
             | Self::Fill { strategy_id, .. }
-            | Self::FillRefused { strategy_id, .. } => *strategy_id,
+            | Self::FillRefused { strategy_id, .. }
+            | Self::KillBlocked { strategy_id } => Some(*strategy_id),
+            Self::KillEngaged { .. } | Self::OrdersCancelled { .. } | Self::KillReset => None,
         }
     }
 

@@ -14,6 +14,7 @@
 
 pub mod audit;
 pub mod desk;
+pub mod kill;
 
 use nivesh_broker::BrokerError;
 use nivesh_core::{Candle, Side};
@@ -27,6 +28,10 @@ use std::sync::Arc;
 
 pub use audit::{AuditEvent, AuditSink, MemoryAudit};
 pub use desk::{PaperDesk, StepReport};
+pub use kill::{
+    KillError, KillMonitor, KillReason, KillState, KillSwitch, KillTriggers, Observation,
+    RESET_COOLDOWN_MS, RESET_PHRASE,
+};
 
 /// What a strategy asks the gateway for.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -77,6 +82,12 @@ pub enum GatewayError {
     /// The audit record could not be written, so the step did not happen.
     #[error("the audit log could not be written: {0}")]
     AuditFailed(String),
+    /// The kill switch is engaged: no new orders.
+    #[error("the kill switch is engaged")]
+    KillSwitchEngaged,
+    /// A kill-switch reset was refused.
+    #[error(transparent)]
+    Kill(#[from] KillError),
 }
 
 impl From<BrokerError> for GatewayError {
@@ -141,6 +152,7 @@ pub struct OrderGateway {
     engine: RiskEngine,
     paper: Arc<dyn PaperBroker>,
     audit: Arc<dyn AuditSink>,
+    kill: KillSwitch,
     /// The last closed bar per (strategy, symbol) stream.
     last_closed: HashMap<(i64, String), Candle>,
     /// Approved orders waiting to fill, in approval order.
@@ -174,6 +186,7 @@ impl OrderGateway {
             engine,
             paper,
             audit,
+            kill: KillSwitch::default(),
             last_closed: HashMap::new(),
             queued: Vec::new(),
             approvals: Vec::new(),
@@ -259,6 +272,68 @@ impl OrderGateway {
         fills
     }
 
+    /// The kill switch's state, for the harness to persist.
+    pub fn kill_state(&self) -> &KillState {
+        self.kill.state()
+    }
+
+    /// Restores the persisted kill switch (an engaged one stays engaged).
+    pub fn restore_kill(&mut self, state: KillState) {
+        self.kill = KillSwitch::from_state(state);
+    }
+
+    pub fn risk_limits(&self) -> &RiskLimits {
+        &self.engine.limits
+    }
+
+    /// Engages the kill switch: from now on every intent is refused, and
+    /// every queued order is cancelled. Returns the cancelled decision ids,
+    /// or `None` if it was already engaged. Engaging never waits on the
+    /// audit log: it is recorded best-effort, because stopping trading must
+    /// not depend on anything.
+    pub fn engage_kill(
+        &mut self,
+        reason: KillReason,
+        detail: &str,
+        now_ms: i64,
+    ) -> Option<Vec<u64>> {
+        if !self.kill.engage(reason, detail, now_ms) {
+            return None;
+        }
+        let _ = self.audit.record(
+            now_ms,
+            &AuditEvent::KillEngaged {
+                reason,
+                detail: detail.to_owned(),
+            },
+        );
+        let cancelled: Vec<u64> = std::mem::take(&mut self.queued)
+            .into_iter()
+            .map(|q| q.order.decision_id())
+            .collect();
+        if !cancelled.is_empty() {
+            let _ = self.audit.record(
+                now_ms,
+                &AuditEvent::OrdersCancelled {
+                    decision_ids: cancelled.clone(),
+                },
+            );
+        }
+        Some(cancelled)
+    }
+
+    /// Resets the kill switch: the typed phrase, after the cool-down. The
+    /// reset is audited first; without the record it does not happen.
+    pub fn reset_kill(&mut self, typed: &str, now_ms: i64) -> Result<(), GatewayError> {
+        let mut next = self.kill.clone();
+        next.reset(typed, now_ms)?;
+        self.audit
+            .record(now_ms, &AuditEvent::KillReset)
+            .map_err(GatewayError::AuditFailed)?;
+        self.kill = next;
+        Ok(())
+    }
+
     /// Submits an intent. A late intent is refused before the risk check;
     /// an approved one is queued to fill on the stream's next bar. Returns
     /// the risk decision id.
@@ -281,6 +356,12 @@ impl OrderGateway {
             signal_price: intent.signal_price,
             signal_bar_t: intent.signal_bar_t,
         })?;
+        if self.kill.is_engaged() {
+            audit(AuditEvent::KillBlocked {
+                strategy_id: intent.strategy_id,
+            })?;
+            return Err(GatewayError::KillSwitchEngaged);
+        }
         let fresh = self
             .last_closed
             .get(&(intent.strategy_id, intent.symbol.clone()))

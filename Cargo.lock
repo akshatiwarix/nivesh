@@ -2999,6 +2999,7 @@ dependencies = [
  "nivesh-strategy",
  "proptest",
  "serde",
+ "serde_json",
  "thiserror 2.0.21",
 ]
 

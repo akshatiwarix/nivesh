@@ -24,6 +24,7 @@ export type { IndicatorLineDto } from "./bindings/IndicatorLineDto";
 export type { IndicatorsDto } from "./bindings/IndicatorsDto";
 export type { InstrumentDto } from "./bindings/InstrumentDto";
 export type { IpcError } from "./bindings/IpcError";
+export type { KillStatusDto } from "./bindings/KillStatusDto";
 export type { MarketStatusDto } from "./bindings/MarketStatusDto";
 export type { MoversDto } from "./bindings/MoversDto";
 export type { NewsDto } from "./bindings/NewsDto";
@@ -90,6 +91,7 @@ export {
   getSectors,
   openNewsLink,
 } from "./markets";
+export { killEngage, killReset, killStatus } from "./risk";
 export {
   backtestResult,
   backtestStrategy,

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-kill-engage"
+description = "Enables the kill_engage command without any pre-configured scope."
+commands.allow = ["kill_engage"]
+
+[[permission]]
+identifier = "deny-kill-engage"
+description = "Denies the kill_engage command without any pre-configured scope."
+commands.deny = ["kill_engage"]
