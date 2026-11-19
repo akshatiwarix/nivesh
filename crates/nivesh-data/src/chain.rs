@@ -268,7 +268,9 @@ impl MarketData {
     }
 
     /// The provider map, mutable: the inner is shared behind an Arc.
-    fn providers_write(&self) -> std::sync::MutexGuard<'_, HashMap<ProviderId, Arc<dyn DataProvider>>> {
+    fn providers_write(
+        &self,
+    ) -> std::sync::MutexGuard<'_, HashMap<ProviderId, Arc<dyn DataProvider>>> {
         lock(&self.inner.providers)
     }
 

@@ -59,10 +59,7 @@ impl DataProvider for KiteQuoteProvider {
         FeedKind::Live
     }
 
-    async fn quotes(
-        &self,
-        ids: &[InstrumentId],
-    ) -> Result<Vec<Sourced<Quote>>, DataError> {
+    async fn quotes(&self, ids: &[InstrumentId]) -> Result<Vec<Sourced<Quote>>, DataError> {
         if ids.is_empty() {
             return Ok(Vec::new());
         }
@@ -84,12 +81,12 @@ impl DataProvider for KiteQuoteProvider {
             let Some(row) = quotes.get(&kite_key(id)) else {
                 continue;
             };
-            let f64_at = |field: &str| -> Option<f64> {
-                row.get(field).and_then(serde_json::Value::as_f64)
-            };
+            let f64_at =
+                |field: &str| -> Option<f64> { row.get(field).and_then(serde_json::Value::as_f64) };
             let ohlc = row.get("ohlc");
             let oc = |field: &str| -> Option<f64> {
-                ohlc.and_then(|o| o.get(field)).and_then(serde_json::Value::as_f64)
+                ohlc.and_then(|o| o.get(field))
+                    .and_then(serde_json::Value::as_f64)
             };
             // Kite reports prices in rupees; the display type is f64 rupees.
             let ltp = f64_at("last_price").unwrap_or(0.0);
@@ -115,12 +112,7 @@ impl DataProvider for KiteQuoteProvider {
                     upper_band: None,
                     lower_band: None,
                 },
-                Provenance::new(
-                    ProviderId::Kite,
-                    FeedKind::Live,
-                    now,
-                    now,
-                ),
+                Provenance::new(ProviderId::Kite, FeedKind::Live, now, now),
             ));
         }
         if out.is_empty() {
@@ -128,12 +120,6 @@ impl DataProvider for KiteQuoteProvider {
         }
         Ok(out)
     }
-}
-
-/// The provider never serves these; the chain's defaults cover them.
-#[allow(unused_variables)]
-async fn unsupported_marker() -> Result<(), DataError> {
-    Err(DataError::Unsupported)
 }
 
 #[cfg(test)]

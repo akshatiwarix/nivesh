@@ -53,9 +53,11 @@ pub async fn broker_login(
                 // The broker's live quotes join the chain at the front of
                 // the routing order; every value they serve is LIVE.
                 if let Some(wiring) = manager.kite_wiring().await {
-                    services.market.register(Arc::new(
-                        nivesh_broker_kite::KiteQuoteProvider::new(wiring.rest),
-                    ));
+                    services
+                        .market
+                        .register(Arc::new(nivesh_broker_kite::KiteQuoteProvider::new(
+                            wiring.rest,
+                        )));
                 }
                 let _ = handle.emit(SESSION_EVENT, &session);
             }
