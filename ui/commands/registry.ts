@@ -131,8 +131,9 @@ export const COMMANDS: readonly CommandDef[] = [
   {
     id: "bt",
     names: ["BT", "BACKTEST"],
-    summary: "Backtest a strategy: BT <NAME> [INTERVAL] [RANGE]. Deterministic, no lookahead",
-    usage: "BT <NAME> [1D 1Y]",
+    summary:
+      "Backtest a strategy: BT <NAME> [SYMBOL] [INTERVAL] [RANGE]. Deterministic, no lookahead, net of costs",
+    usage: "BT <NAME> [SYMBOL] [1D 1Y]",
   },
   {
     id: "paper",

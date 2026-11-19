@@ -17,7 +17,7 @@ import {
   strategySave,
 } from "../ipc";
 import { DEFAULT_UNIVERSE, findUniverse } from "../lib/universe";
-import { parseChartArgs } from "../views/chart/model";
+import { parseChartArgs, parseInterval } from "../views/chart/model";
 import { sendViewCommand } from "../views/context";
 import type { Workspace } from "./workspace";
 
@@ -167,15 +167,19 @@ export function runCommand(
       })();
     }
     case "bt": {
-      const name = args[0];
-      if (name === undefined) return "Which strategy? BT <NAME>.";
-      const interval = args[1]?.toUpperCase() ?? "1D";
-      const range = args[2]?.toUpperCase() ?? "1Y";
+      const [name, ...rest] = args;
+      if (name === undefined) return "Which strategy? BT <NAME> [SYMBOL] [INTERVAL] [RANGE].";
+      // An optional symbol comes first; anything that reads as an interval
+      // is the interval (the older BT <NAME> [INTERVAL] [RANGE] form).
+      const symbol =
+        rest[0] !== undefined && parseInterval(rest[0]) === undefined ? rest.shift() : undefined;
+      const interval = rest[0]?.toUpperCase() ?? "1D";
+      const range = rest[1]?.toUpperCase() ?? "1Y";
       ws.open({ kind: "bt", name });
       if (!inTauri()) return undefined;
       return (async () => {
         try {
-          await backtestStrategy(name, interval, range);
+          await backtestStrategy(name, interval, range, symbol);
           return undefined;
         } catch (err) {
           return describeError(err);
