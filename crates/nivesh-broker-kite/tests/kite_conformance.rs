@@ -297,3 +297,102 @@ async fn the_adapter_identifies_as_kite() {
     let (_server, account) = served_account().await;
     assert_eq!(account.broker_id(), BrokerId::Kite);
 }
+
+/// The execution suite against a scripted Kite: placement, reconciliation
+/// by tag, cancellation and an expired approval. Only with `live-trading`.
+#[cfg(test)]
+#[cfg(feature = "live-trading")]
+mod execution {
+    use super::*;
+    use nivesh_broker::conformance::{ExecutionExpectations, execution_suite};
+    use nivesh_broker::{BrokerOrderId, OrderTag};
+    use nivesh_broker_kite::{ExecutionConfig, KiteExecution};
+    use nivesh_risk::{ApprovedOrder, OrderRequest, Product, RiskContext, RiskEngine, RiskLimits};
+
+    fn approval(minted_at: i64) -> ApprovedOrder {
+        RiskEngine::new(RiskLimits {
+            trading_window: None,
+            ..RiskLimits::default()
+        })
+        .check(
+            &OrderRequest {
+                symbol: "NSE:RELIANCE".into(),
+                side: Side::Buy,
+                quantity: 1,
+                price: None,
+                product: Product::Delivery,
+            },
+            &RiskContext {
+                ltp: 1_375.6,
+                position_quantity: 0,
+                symbol_exposure_paise: 0,
+                open_positions: 0,
+                recent_orders: &[],
+                day_pnl_paise: 0,
+                strategy_limits: None,
+                now_ms: minted_at,
+            },
+        )
+        .unwrap()
+    }
+
+    #[tokio::test]
+    async fn the_kite_execution_passes_the_execution_suite() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/orders/regular"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_string(r#"{"status":"success","data":{"order_id":"7001"}}"#),
+            )
+            .expect(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/orders"))
+            .respond_with(ResponseTemplate::new(200).set_body_string(support::body(
+                r#"[{"order_id":"7001","exchange":"NSE","tradingsymbol":"RELIANCE",
+                    "transaction_type":"BUY","order_type":"LIMIT","product":"CNC",
+                    "quantity":1,"filled_quantity":0,"price":1375.6,"average_price":0,
+                    "status":"OPEN","order_timestamp":"2026-11-20 10:15:00","tag":"NV3S1"}]"#,
+            )))
+            .mount(&server)
+            .await;
+        Mock::given(method("DELETE"))
+            .and(path("/orders/regular/7001"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_string(r#"{"status":"success","data":{"order_id":"7001"}}"#),
+            )
+            .expect(1)
+            .mount(&server)
+            .await;
+        let rest = Arc::new(KiteRest::new(Some(server.uri()), "testkey".into()).unwrap());
+        rest.set_token(secrecy::SecretString::from("day-token"));
+        let secrets = Arc::new(InMemorySecretStore::new());
+        secrets
+            .put(
+                nivesh_broker_kite::KEY_ACCESS_TOKEN,
+                secrecy::SecretString::from("day-token"),
+            )
+            .unwrap();
+        let kite = KiteExecution::new(
+            KiteAccount::new(Arc::clone(&rest), secrets),
+            rest,
+            ExecutionConfig::default(),
+        );
+        let now = nivesh_risk::now_ms();
+        execution_suite(
+            &kite,
+            approval(now),
+            approval(now - 10 * 60_000),
+            &ExecutionExpectations {
+                placed_id: BrokerOrderId("7001".into()),
+                tag: OrderTag::new(3, 1).unwrap(),
+                unknown_tag: OrderTag::new(3, 2).unwrap(),
+            },
+        )
+        .await
+        .unwrap();
+    }
+}
