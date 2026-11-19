@@ -134,7 +134,7 @@ pub async fn backtest_strategy(
         .await?;
     let candles: Vec<nivesh_core::Candle> = series.data.candles.clone();
 
-    let run_id = store.open_backtest(row.id, &interval, &range, now_ms())?;
+    let run_id = store.open_backtest(row.id, "NSE:RELIANCE", &interval, &range, now_ms())?;
     let mut progress = |_, _| true;
     let result = backtest(set, &candles, BacktestOptions::default(), &mut progress);
     let trades_json = serde_json::to_string(&result.trades)
