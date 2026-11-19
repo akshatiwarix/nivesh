@@ -10,7 +10,7 @@
 
 use async_trait::async_trait;
 use nivesh_broker::BrokerError;
-use nivesh_core::{Exchange, FeedKind, InstrumentId, Provenance, ProviderId, Quote, Sourced};
+use nivesh_core::{FeedKind, InstrumentId, Provenance, ProviderId, Quote, Sourced};
 use std::sync::Arc;
 
 use crate::rest::{KiteRest, RateClass};
@@ -135,7 +135,7 @@ mod tests {
     }
 
     fn id(symbol: &str) -> InstrumentId {
-        InstrumentId::new(Exchange::Nse, symbol).unwrap()
+        InstrumentId::new(nivesh_core::Exchange::Nse, symbol).unwrap()
     }
 
     const QUOTE: &str = r#"{"status":"success","data":{
