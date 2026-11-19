@@ -14,6 +14,7 @@ use nivesh_core::{Candle, Side};
 use nivesh_risk::{RiskEngine, RiskLimits, paise};
 use nivesh_strategy::{IntentSide, PaperRunner, PaperState};
 
+use crate::kill::{KillMonitor, KillReason, KillState, KillTriggers, Observation};
 use crate::{
     AccountView, AuditSink, Fill, GatewayError, NextOpen, OrderGateway, OrderIntent, PaperBroker,
 };
@@ -29,6 +30,8 @@ pub struct StepReport {
     pub refused: Vec<GatewayError>,
     /// The runner's state after the bar: persist it.
     pub state: PaperState,
+    /// Set when this bar engaged the kill switch: persist it.
+    pub kill: Option<KillState>,
 }
 
 pub struct PaperDesk {
@@ -38,6 +41,8 @@ pub struct PaperDesk {
     limits: HashMap<i64, RiskLimits>,
     /// The latest close seen per symbol: the mark for MTM and exposure.
     marks: HashMap<String, f64>,
+    /// The kill switch's automatic triggers.
+    monitor: KillMonitor,
 }
 
 impl PaperDesk {
@@ -52,12 +57,59 @@ impl PaperDesk {
         paper: Arc<dyn PaperBroker>,
         audit: Arc<dyn AuditSink>,
     ) -> Self {
+        // The kill switch trips at the same daily loss the risk check
+        // refuses new risk at.
+        let monitor = KillMonitor::new(KillTriggers {
+            max_daily_loss_paise: engine.limits.max_daily_loss_paise,
+            ..KillTriggers::default()
+        });
         Self {
             gateway: OrderGateway::new(engine, paper, audit),
             runners: BTreeMap::new(),
             limits: HashMap::new(),
             marks: HashMap::new(),
+            monitor,
         }
+    }
+
+    pub fn kill_state(&self) -> &KillState {
+        self.gateway.kill_state()
+    }
+
+    /// Restores the persisted kill switch at startup.
+    pub fn restore_kill(&mut self, state: KillState) {
+        self.gateway.restore_kill(state);
+    }
+
+    /// Engages the kill switch (the one-keystroke action). Returns the
+    /// cancelled orders' decision ids, or `None` if it was already engaged.
+    pub fn engage_kill(
+        &mut self,
+        reason: KillReason,
+        detail: &str,
+        now_ms: i64,
+    ) -> Option<Vec<u64>> {
+        let cancelled = self.gateway.engage_kill(reason, detail, now_ms)?;
+        // The cancelled orders will never fill: every runner goes back to
+        // the position it really holds.
+        for runner in self.runners.values_mut() {
+            runner.on_rejected();
+        }
+        Some(cancelled)
+    }
+
+    /// Resets the kill switch with the typed phrase, after the cool-down.
+    pub fn reset_kill(&mut self, typed: &str, now_ms: i64) -> Result<(), GatewayError> {
+        self.gateway.reset_kill(typed, now_ms)
+    }
+
+    /// Reports something the harness saw (a disconnect, stale data, clock
+    /// drift); engages the kill switch if it calls for it. Returns the new
+    /// state when it engaged.
+    pub fn observe(&mut self, seen: Observation, now_ms: i64) -> Option<KillState> {
+        let (reason, detail) = self.monitor.observe(seen, now_ms)?;
+        self.engage_kill(reason, &detail, now_ms)
+            .map(|_| self.gateway.kill_state().clone())
     }
 
     /// Starts (or restarts) a strategy. Anything it had queued is dropped.
@@ -185,13 +237,24 @@ impl PaperDesk {
                 }
             }
         }
-        let runner = self.runners.get(&strategy_id)?;
+        // 4. The automatic kill-switch triggers: rejections, and the day's
+        //    loss marked at this bar.
+        let mut kill = None;
+        for err in &refused {
+            if matches!(err, GatewayError::RiskRejected(_) | GatewayError::Broker(_)) {
+                kill = kill.or(self.observe(Observation::Rejection, now_ms));
+            }
+        }
+        let day_pnl = self.account_view(strategy_id, &symbol).day_pnl_paise;
+        kill = kill.or(self.observe(Observation::DayPnl(day_pnl), now_ms));
 
+        let runner = self.runners.get(&strategy_id)?;
         Some(StepReport {
             fills,
             placed,
             refused,
             state: runner.state().clone(),
+            kill,
         })
     }
 }
@@ -296,9 +359,9 @@ mod tests {
     }
 
     #[test]
-    fn a_strategy_can_still_exit_after_the_daily_loss_limit_is_hit() {
+    fn a_daily_loss_breach_engages_the_kill_switch_and_cancels_open_orders() {
         // Long 100 at 100, then the price halves: a ₹5,000 MTM loss, far
-        // over a ₹1,000 daily-loss limit. The exit must still go through.
+        // over a ₹1,000 daily-loss limit.
         let set = RuleSet {
             exit: Rule::Cmp {
                 left: nivesh_strategy::Operand::Close,
@@ -307,6 +370,7 @@ mod tests {
             },
             ..always_in(100)
         };
+        let audit = Arc::new(crate::MemoryAudit::default());
         let mut desk = PaperDesk::with_broker(
             RiskEngine::new(RiskLimits {
                 trading_window: None,
@@ -314,35 +378,116 @@ mod tests {
                 ..RiskLimits::default()
             }),
             Arc::new(NextOpen::FREE),
-            Arc::new(crate::MemoryAudit::default()),
+            Arc::clone(&audit) as Arc<dyn AuditSink>,
         );
         desk.start(1, PaperRunner::new(set, "NSE:RELIANCE", 100_000.0).unwrap());
         desk.on_closed_bar(1, bar(0, 100.0, 100.0), T0);
-        desk.on_closed_bar(1, bar(1, 100.0, 100.0), T0 + DAY); // filled at 100
+        let r = desk
+            .on_closed_bar(1, bar(1, 100.0, 100.0), T0 + DAY)
+            .unwrap();
+        assert!(r.kill.is_none());
         let view = desk.account_view(1, "NSE:RELIANCE");
         assert_eq!((view.position_quantity, view.open_positions), (100, 1));
+
         let r = desk
             .on_closed_bar(1, bar(2, 60.0, 50.0), T0 + 2 * DAY)
             .unwrap();
         let view = desk.account_view(1, "NSE:RELIANCE");
         assert_eq!(view.day_pnl_paise, -5_000 * 100, "MTM at the 50 close");
         assert_eq!(view.symbol_exposure_paise, 100 * 50 * 100);
-        assert!(
-            r.refused.is_empty(),
-            "the exit is approved: {:?}",
-            r.refused
-        );
+        // The risk check lets the exit through (it reduces the position)...
+        assert!(r.refused.is_empty(), "{:?}", r.refused);
         assert!(r.placed.is_some());
-        let r = desk
-            .on_closed_bar(1, bar(3, 51.0, 52.0), T0 + 3 * DAY)
-            .unwrap();
-        assert_eq!(r.fills.len(), 1, "sold at the next open");
-        // Re-entry is new risk: refused while the loss stands.
+        // ...but the breach engages the kill switch, which cancels every
+        // open order, the exit included.
+        let kill = r.kill.expect("engaged");
+        assert_eq!(kill.reason, Some(KillReason::DailyLoss));
+        assert!(desk.kill_state().engaged);
+        assert_eq!(desk.queued(), 0);
+        let kinds = audit.kinds();
         assert!(
-            matches!(&r.refused[..], [GatewayError::RiskRejected(x)] if x.check == RiskCheck::DailyLoss),
-            "{:?}",
-            r.refused
+            kinds.ends_with(&["kill.engaged", "order.cancelled"]),
+            "{kinds:?}"
         );
+
+        // Squaring off is a separate, confirmed action: the position stays,
+        // and every new intent is refused.
+        let r = desk
+            .on_closed_bar(1, bar(3, 51.0, 40.0), T0 + 3 * DAY)
+            .unwrap();
+        assert!(r.fills.is_empty());
+        assert_eq!(r.refused, vec![GatewayError::KillSwitchEngaged]);
+        assert_eq!(desk.account_view(1, "NSE:RELIANCE").position_quantity, 100);
+    }
+
+    #[test]
+    fn a_storm_of_rejections_engages_the_kill_switch() {
+        // Over the 1,000-share cap on every bar: five refusals in a row.
+        let mut desk = desk_with(7, always_in(10_000));
+        let mut kill = None;
+        for i in 0..5 {
+            let r = desk
+                .on_closed_bar(7, bar(i, 100.0, 100.0), T0 + i * 1_000)
+                .unwrap();
+            kill = kill.or(r.kill);
+        }
+        assert_eq!(
+            kill.and_then(|k| k.reason),
+            Some(KillReason::RejectionStorm)
+        );
+    }
+
+    #[test]
+    fn the_kill_switch_survives_a_restart_and_resets_only_deliberately() {
+        let mut desk = desk_with(7, always_in(1));
+        desk.on_closed_bar(7, bar(0, 100.0, 100.0), T0);
+        assert_eq!(desk.queued(), 1);
+        assert_eq!(
+            desk.engage_kill(KillReason::Manual, "pressed", T0)
+                .map(|c| c.len()),
+            Some(1)
+        );
+        let saved = desk.kill_state().clone();
+
+        // A fresh desk (an app restart) restores it engaged.
+        let mut desk = desk_with(7, always_in(1));
+        desk.restore_kill(saved);
+        let r = desk
+            .on_closed_bar(7, bar(1, 100.0, 100.0), T0 + DAY)
+            .unwrap();
+        assert_eq!(r.refused, vec![GatewayError::KillSwitchEngaged]);
+        assert!(matches!(
+            desk.reset_kill("reset", T0 + DAY),
+            Err(GatewayError::Kill(crate::KillError::WrongPhrase))
+        ));
+        assert!(matches!(
+            desk.reset_kill(crate::RESET_PHRASE, T0 + 60_000),
+            Err(GatewayError::Kill(crate::KillError::CoolingDown { .. }))
+        ));
+        desk.reset_kill(crate::RESET_PHRASE, T0 + DAY).unwrap();
+        let r = desk
+            .on_closed_bar(7, bar(2, 100.0, 100.0), T0 + 2 * DAY)
+            .unwrap();
+        assert!(r.placed.is_some(), "trading again after the reset");
+    }
+
+    #[test]
+    fn a_failed_audit_blocks_the_reset_but_never_the_engage() {
+        let mut desk = PaperDesk::with_broker(
+            RiskEngine::new(RiskLimits {
+                trading_window: None,
+                ..RiskLimits::default()
+            }),
+            Arc::new(NextOpen::FREE),
+            Arc::new(crate::MemoryAudit::failing()),
+        );
+        assert!(desk.engage_kill(KillReason::Manual, "", T0).is_some());
+        assert!(desk.kill_state().engaged);
+        assert!(matches!(
+            desk.reset_kill(crate::RESET_PHRASE, T0 + DAY),
+            Err(GatewayError::AuditFailed(_))
+        ));
+        assert!(desk.kill_state().engaged, "stays engaged without a record");
     }
 
     #[test]

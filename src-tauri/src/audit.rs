@@ -15,7 +15,7 @@ impl AuditSink for StoreAudit {
             .append_audit(&AuditEntry {
                 at_ms,
                 kind: event.kind(),
-                strategy_id: Some(event.strategy_id()),
+                strategy_id: event.strategy_id(),
                 payload: &payload,
             })
             .map(|_| ())
