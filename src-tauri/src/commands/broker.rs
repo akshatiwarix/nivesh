@@ -9,6 +9,7 @@ use tauri::{AppHandle, Emitter as _, State};
 use crate::broker::BrokerManager;
 use crate::ipc::IpcError;
 use crate::ipc::broker::{BrokerLoginDto, BrokerSessionDto};
+use crate::services::Services;
 
 /// The event the UI listens to for session changes.
 pub const SESSION_EVENT: &str = "broker:session";
@@ -34,9 +35,11 @@ pub async fn broker_setup(
 pub async fn broker_login(
     app: AppHandle,
     broker: State<'_, Arc<BrokerManager>>,
+    services: State<'_, Arc<Services>>,
 ) -> Result<BrokerLoginDto, IpcError> {
     let url = broker.begin_login().await.map_err(IpcError::from)?;
     let manager = Arc::clone(&*broker);
+    let services = Arc::clone(&*services);
     let handle = app.clone();
     tauri::async_runtime::spawn(async move {
         // The listener lives at most five minutes; either outcome updates
@@ -45,11 +48,23 @@ pub async fn broker_login(
             Ok(callback) => manager.complete_login(callback).await,
             Err(_) => Ok(manager.cancel_login().await),
         };
-        if let Ok(session) = outcome {
-            let _ = handle.emit(SESSION_EVENT, &session);
-        } else if let Err(err) = outcome {
-            tracing::warn!(error = %err, "broker login did not complete");
-            let _ = handle.emit(SESSION_EVENT, &manager.cancel_login().await);
+        match outcome {
+            Ok(session) => {
+                // The broker's live quotes join the chain at the front of
+                // the routing order; every value they serve is LIVE.
+                if let Some(wiring) = manager.kite_wiring().await {
+                    services
+                        .market
+                        .register(Arc::new(nivesh_broker_kite::KiteQuoteProvider::new(
+                            wiring.rest,
+                        )));
+                }
+                let _ = handle.emit(SESSION_EVENT, &session);
+            }
+            Err(err) => {
+                tracing::warn!(error = %err, "broker login did not complete");
+                let _ = handle.emit(SESSION_EVENT, &manager.cancel_login().await);
+            }
         }
     });
     // The URL is the app's own login page for its own API key: safe to open
@@ -94,8 +109,12 @@ pub async fn broker_demo(
 pub async fn broker_logout(
     app: AppHandle,
     broker: State<'_, Arc<BrokerManager>>,
+    services: State<'_, Arc<Services>>,
 ) -> Result<BrokerSessionDto, IpcError> {
     let session = broker.logout().await.map_err(IpcError::from)?;
+    // The live provider leaves the chain; quotes fall back to the public
+    // sources and their DELAYED provenance.
+    services.market.unregister(nivesh_core::ProviderId::Kite);
     let _ = app.emit(SESSION_EVENT, &session);
     Ok(session)
 }
