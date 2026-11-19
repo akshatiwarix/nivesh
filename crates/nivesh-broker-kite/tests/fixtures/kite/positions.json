@@ -1,0 +1,47 @@
+{
+  "net": [
+    {
+      "tradingsymbol": "SBIN",
+      "exchange": "NSE",
+      "product": "MIS",
+      "quantity": 20,
+      "overnight_quantity": 0,
+      "average_price": 810.5,
+      "last_price": 812.0,
+      "m2m": 30.0,
+      "pnl": 30.0,
+      "realised": 0.0,
+      "unrealised": 30.0,
+      "day_buy_quantity": 20,
+      "day_sell_quantity": 0
+    },
+    {
+      "tradingsymbol": "HDFCBANK",
+      "exchange": "NSE",
+      "product": "CNC",
+      "quantity": -5,
+      "overnight_quantity": -5,
+      "average_price": 1600.0,
+      "last_price": 1620.0,
+      "m2m": -100.0,
+      "realised": 0.0,
+      "unrealised": -100.0,
+      "day_buy_quantity": 0,
+      "day_sell_quantity": 0
+    }
+  ],
+  "day": [
+    {
+      "tradingsymbol": "SBIN",
+      "exchange": "NSE",
+      "product": "MIS",
+      "quantity": 20,
+      "average_price": 810.5,
+      "last_price": 812.0,
+      "m2m": 30.0,
+      "realised": 0.0,
+      "day_buy_quantity": 20,
+      "day_sell_quantity": 0
+    }
+  ]
+}

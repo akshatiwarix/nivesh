@@ -1,0 +1,46 @@
+[
+  {
+    "order_id": "2511190001",
+    "tradingsymbol": "SBIN",
+    "exchange": "NSE",
+    "transaction_type": "BUY",
+    "order_type": "LIMIT",
+    "product": "CNC",
+    "quantity": 10,
+    "filled_quantity": 10,
+    "price": 812.5,
+    "average_price": 812.3,
+    "status": "COMPLETE",
+    "order_timestamp": "2026-11-19 09:45:12",
+    "tag": "nivesh-1"
+  },
+  {
+    "order_id": "2511190002",
+    "tradingsymbol": "TATASTEEL",
+    "exchange": "NSE",
+    "transaction_type": "SELL",
+    "order_type": "SL",
+    "product": "MIS",
+    "quantity": 5,
+    "filled_quantity": 2,
+    "price": 145.0,
+    "average_price": 0.0,
+    "status": "TRIGGER PENDING",
+    "order_timestamp": "2026-11-19 10:02:30"
+  },
+  {
+    "order_id": "2511190003",
+    "tradingsymbol": "INFY",
+    "exchange": "NSE",
+    "transaction_type": "BUY",
+    "order_type": "MARKET",
+    "product": "MIS",
+    "quantity": 1,
+    "filled_quantity": 0,
+    "price": 0.0,
+    "average_price": 0.0,
+    "status": "REJECTED",
+    "order_timestamp": "2026-11-19 10:05:00",
+    "tag": "nivesh-2"
+  }
+]
