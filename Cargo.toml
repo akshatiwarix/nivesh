@@ -26,6 +26,7 @@ rusqlite = { version = "0.43.0", features = ["bundled"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 tempfile = "3.27.0"
+insta = { version = "1.43.1", default-features = false, features = ["json", "redactions"] }
 proptest = { version = "1.6.0", default-features = false, features = ["std"] }
 criterion = { version = "0.7.0", default-features = false, features = ["cargo_bench_support"] }
 tauri = { version = "2.12.6", features = [] }

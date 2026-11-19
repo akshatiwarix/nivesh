@@ -14,4 +14,4 @@ pub use paper::{PaperPosition, PaperRunner, PaperState};
 pub use rules::{
     Comparison, CrossDirection, IntentSide, Operand, OrderIntent, Rule, RuleSet, Sizing,
 };
-pub use templates::Template;
+pub use templates::{Template, TemplateParams};
