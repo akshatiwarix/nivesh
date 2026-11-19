@@ -126,6 +126,10 @@ const MIGRATIONS: &[&str] = &[
     "
     ALTER TABLE backtests ADD COLUMN symbol TEXT NOT NULL DEFAULT 'NSE:RELIANCE';
     ",
+    // v8: the walk-forward / out-of-sample check saved with each run.
+    "
+    ALTER TABLE backtests ADD COLUMN walk_forward_json TEXT;
+    ",
 ];
 
 /// The schema version a fully migrated database has.

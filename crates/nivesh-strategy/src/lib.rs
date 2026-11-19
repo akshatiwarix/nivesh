@@ -8,8 +8,9 @@ pub mod evaluate;
 pub mod paper;
 pub mod rules;
 pub mod templates;
+pub mod walk_forward;
 
-pub use backtest::{BacktestOptions, BacktestResult, BacktestTrade, backtest};
+pub use backtest::{BacktestOptions, BacktestResult, BacktestTrade, backtest, backtest_range};
 pub use costs::{ChargeSchedule, Charges, CostModel};
 pub use evaluate::{Evaluator, validate};
 pub use paper::{PaperFill, PaperPosition, PaperRunner, PaperState};
@@ -17,3 +18,6 @@ pub use rules::{
     Comparison, CrossDirection, IntentSide, Operand, OrderIntent, Rule, RuleSet, Sizing,
 };
 pub use templates::{TEMPLATE_ATR_MULTIPLE, TEMPLATE_ATR_PERIOD, Template, TemplateParams};
+pub use walk_forward::{
+    WalkForward, WalkForwardOptions, WindowResult, walk_forward, window_bounds,
+};

@@ -11,7 +11,14 @@ import { DataPanel } from "../../components/DataPanel";
 import { type Column, DataTable } from "../../components/DataTable";
 import { describeError } from "../../data/errors";
 import { createPoll } from "../../data/poll";
-import type { BacktestResultDto, PaperFillDto, PaperStateDto, StrategyDto } from "../../ipc";
+import type {
+  BacktestResultDto,
+  PaperFillDto,
+  PaperStateDto,
+  StrategyDto,
+  WalkForwardDto,
+  WindowDto,
+} from "../../ipc";
 import { backtestResult, inTauri, paperStates, paperStop, strategies } from "../../ipc";
 import { changeTone, formatPrice } from "../../lib/format";
 import { formatIstDate, formatIstHm } from "../../lib/time";
@@ -121,6 +128,50 @@ const TRADE_COLUMNS: readonly Column<BacktestResultDto["trades"][number]>[] = [
   },
 ];
 
+type WindowRow = WindowDto & { label: string };
+
+const WINDOW_COLUMNS: readonly Column<WindowRow>[] = [
+  { id: "label", header: "Window", width: "10ch", value: (w) => w.label, tone: () => "accent" },
+  {
+    id: "period",
+    header: "Period (IST)",
+    width: "24ch",
+    value: (w) => `${formatIstDate(w.startT)} – ${formatIstDate(w.endT)}`,
+  },
+  { id: "trades", header: "Trades", width: "7ch", align: "right", value: (w) => String(w.trades) },
+  {
+    id: "win",
+    header: "Win %",
+    width: "7ch",
+    align: "right",
+    value: (w) => (w.winRate === null ? "—" : `${Math.round(w.winRate * 100)}`),
+  },
+  {
+    id: "pnl",
+    header: "Net P&L ₹",
+    width: "12ch",
+    align: "right",
+    value: (w) => formatPrice(w.netPnl),
+    tone: (w) => changeTone(w.netPnl),
+  },
+  {
+    id: "dd",
+    header: "Max DD ₹",
+    width: "11ch",
+    align: "right",
+    value: (w) => formatPrice(w.maxDrawdown),
+  },
+];
+
+/** The in-sample/out-of-sample rows, then the walk-forward windows. */
+function windowRows(wf: WalkForwardDto): WindowRow[] {
+  return [
+    { ...wf.inSample, label: "IN 70%" },
+    { ...wf.outOfSample, label: "OUT 30%" },
+    ...wf.windows.map((w, i) => ({ ...w, label: `W${i + 1}` })),
+  ];
+}
+
 /** `BT <NAME>`: the latest backtest result of a strategy. */
 export const BacktestView: Component<{ name?: string }> = (props) => {
   const [result] = createResource(
@@ -167,9 +218,26 @@ export const BacktestView: Component<{ name?: string }> = (props) => {
           rows={trades()}
           emptyText={emptyText()}
         />
+        <Show when={result()?.walkForward}>
+          {(wf) => (
+            <>
+              <p class="strat__funds">
+                OUT OF SAMPLE · {wf().profitableWindows}/{wf().windows.length} windows profitable ·
+                worst window {formatPrice(wf().worstWindowPnl)}
+              </p>
+              <DataTable
+                label="Out-of-sample and walk-forward windows"
+                columns={WINDOW_COLUMNS}
+                rows={windowRows(wf())}
+              />
+            </>
+          )}
+        </Show>
         <p class="strat__hint">
           Simulated fills on simulated money, at the next bar's open. Net of Zerodha-style equity
           delivery charges (STT, exchange, SEBI, stamp, GST, DP) and 5 bps of slippage per fill.
+          Each window warms up on the bars before it, trades only inside itself and closes at its
+          end.
         </p>
       </DataPanel>
     </div>

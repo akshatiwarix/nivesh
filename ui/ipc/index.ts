@@ -44,9 +44,11 @@ export type { StrategyDto } from "./bindings/StrategyDto";
 export type { TopicDto } from "./bindings/TopicDto";
 export type { TradeDto } from "./bindings/TradeDto";
 export type { UiState } from "./bindings/UiState";
+export type { WalkForwardDto } from "./bindings/WalkForwardDto";
 export type { WatchItemDto } from "./bindings/WatchItemDto";
 export type { WatchlistDto } from "./bindings/WatchlistDto";
 export type { WatchlistsDto } from "./bindings/WatchlistsDto";
+export type { WindowDto } from "./bindings/WindowDto";
 export {
   brokerDemo,
   brokerFunds,
