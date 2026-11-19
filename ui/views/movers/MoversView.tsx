@@ -125,14 +125,23 @@ export const MoversView: Component<{ view: Extract<View, { kind: "mov" }> }> = (
     if (poll.error() && !poll.data()) return `${poll.error()}. Retrying.`;
     if (!poll.data()) return "Loading…";
     if (tab() === "active") {
-      return "No volume from this source. Most active needs NSE's index quotes.";
+      return "No volume data. Most active needs per-stock volumes or the daily bhavcopy.";
     }
     return "No stocks in this list.";
   };
 
+  // The most-active list carries its own provenance when it is ranked from
+  // the daily bhavcopy instead of the panel's source.
+  const provenance = () =>
+    tab() === "active" ? (poll.data()?.mostActiveProvenance ?? null) : null;
+  const eod = () => (tab() === "active" ? (poll.data()?.mostActiveRankedAsOf ?? null) : null);
+
   return (
     <div class="view mov" data-view="movers">
-      <DataPanel provenance={poll.data()?.provenance ?? null} title={`MOVERS · ${title()}`}>
+      <DataPanel
+        provenance={provenance() ?? poll.data()?.provenance ?? null}
+        title={`MOVERS · ${title()}`}
+      >
         <div class="mov__tabs" role="tablist" aria-label="Movers list">
           {TABS.map((t) => (
             <button
@@ -147,6 +156,9 @@ export const MoversView: Component<{ view: Extract<View, { kind: "mov" }> }> = (
               {TAB_LABEL[t]}
             </button>
           ))}
+          <Show when={eod()}>
+            <span class="mov__eod">EOD {eod()}</span>
+          </Show>
           <span class="mov__hint">[ ] list · Alt+←/→ index</span>
         </div>
         <Show when={poll.data() && poll.error()}>

@@ -22,6 +22,12 @@
   color: var(--c-amber);
 }
 
+.mov__eod {
+  margin-left: 4px;
+  color: var(--c-fg-faint);
+  font-size: var(--fs-sm);
+}
+
 .mov__hint {
   margin-left: auto;
   color: var(--c-fg-faint);

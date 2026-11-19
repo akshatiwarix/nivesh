@@ -3,7 +3,9 @@ import type { ProvenanceDto } from "./ProvenanceDto";
 import type { QuoteDto } from "./QuoteDto";
 
 /**
- * Top movers of one index universe, from one source.
+ * Top movers of one index universe. Gainers and losers share the panel's
+ * source; the most-active list may be an EOD ranking with its own
+ * provenance (see `most_active_provenance`).
  */
 export type MoversDto = { 
 /**
@@ -11,6 +13,17 @@ export type MoversDto = {
  */
 index: string, gainers: Array<QuoteDto>, losers: Array<QuoteDto>, 
 /**
- * By volume. Empty when the source reports no volume per stock.
+ * By volume, or — when the source reports no per-stock volume — by the
+ * last full session's traded value (the daily bhavcopy).
  */
-mostActive: Array<QuoteDto>, provenance: ProvenanceDto, };
+mostActive: Array<QuoteDto>, 
+/**
+ * The most-active rows' own provenance when they are ranked from EOD
+ * turnover instead of the panel's source; `null` when all three lists
+ * share the panel's provenance.
+ */
+mostActiveProvenance: ProvenanceDto | null, 
+/**
+ * `YYYY-MM-DD` of the session the EOD ranking came from.
+ */
+mostActiveRankedAsOf: string | null, provenance: ProvenanceDto, };
