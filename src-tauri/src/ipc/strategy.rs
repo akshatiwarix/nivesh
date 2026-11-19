@@ -29,6 +29,9 @@ pub struct BacktestTradeDto {
     pub entry_price: f64,
     pub exit_price: f64,
     pub quantity: i64,
+    /// Charges on both fills, rupees.
+    pub charges: f64,
+    /// Net of charges, rupees.
     pub pnl: f64,
     /// UTC ms of the fills.
     pub entry_t: i64,
@@ -39,7 +42,10 @@ pub struct BacktestTradeDto {
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct BacktestResultDto {
+    /// Net of charges and slippage, rupees.
     pub total_pnl: f64,
+    /// Charges paid over the run, rupees.
+    pub total_charges: f64,
     pub max_drawdown: f64,
     pub trades: Vec<BacktestTradeDto>,
     pub bars_in_market: usize,
@@ -54,9 +60,11 @@ pub struct PaperFillDto {
     pub t: i64,
     pub side: SideDto,
     pub quantity: i64,
-    /// Rupees.
+    /// Rupees, after slippage.
     pub price: f64,
-    /// Realised P&L of the round trip, on the closing fill.
+    /// Charges on this fill, rupees.
+    pub charges: f64,
+    /// Realised P&L of the round trip net of charges, on the closing fill.
     pub pnl: Option<f64>,
 }
 
@@ -80,8 +88,11 @@ pub struct PaperStateDto {
     pub entry_price: Option<f64>,
     /// Today's (IST) realised paper P&L, rupees.
     pub day_pnl: f64,
-    /// Realised paper P&L since the strategy first started, rupees.
+    /// Realised paper P&L since the strategy first started, net of
+    /// charges, rupees.
     pub realised_pnl: f64,
+    /// Charges paid since the strategy first started, rupees.
+    pub charges: f64,
     /// The newest fills, newest first.
     pub fills: Vec<PaperFillDto>,
 }
