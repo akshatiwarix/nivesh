@@ -45,10 +45,10 @@ fn run(template: Template, n: usize) -> String {
 fn ma_crossover_golden() {
     insta::assert_snapshot!(run(Template::MaCrossover, 400), @r###"
 MA Crossover
-trades: 0
-total_pnl: 0.00
-max_drawdown: 0.00
-bars_in_market: 0
+trades: 11
+total_pnl: -355.30
+max_drawdown: 356.80
+bars_in_market: 42
 
 "###);
 }
@@ -69,10 +69,10 @@ bars_in_market: 44
 fn breakout_golden() {
     insta::assert_snapshot!(run(Template::Breakout, 400), @r###"
 N-Bar Breakout
-trades: 0
-total_pnl: 0.00
-max_drawdown: 0.00
-bars_in_market: 0
+trades: 13
+total_pnl: 367.70
+max_drawdown: 69.76
+bars_in_market: 115
 
 "###);
 }
