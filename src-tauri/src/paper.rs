@@ -358,7 +358,11 @@ mod tests {
             sizing: nivesh_strategy::Sizing::FixedQuantity(1),
             ..RuleSet::default()
         };
-        let desk = Mutex::new(PaperDesk::new(RiskEngine::new(RiskLimits::default())));
+        // The test bars are stamped with the wall clock: no trading window.
+        let desk = Mutex::new(PaperDesk::new(RiskEngine::new(RiskLimits {
+            trading_window: None,
+            ..RiskLimits::default()
+        })));
         lock(&desk).start(id, PaperRunner::new(set, "NSE:TCS", PAPER_EQUITY).unwrap());
         let mut record = PaperRecord::default();
         let t0 = now_ms();

@@ -1,17 +1,29 @@
 //! The pre-trade risk engine.
 //!
 //! **One gate, enforced by types:** an [`ApprovedOrder`] cannot be
-//! constructed outside this crate (its fields are private and only
-//! [`RiskEngine::check`] mints one), so nothing downstream can trade
-//! without the engine's decision. Part 6 adds the full limit model on the
-//! same skeleton; the basic checks here cover quantity, value, segment
-//! and price sanity, plus the order-rate guard.
+//! constructed outside this crate (its fields are private, it cannot be
+//! deserialised, and only [`RiskEngine::check`] mints one), so nothing
+//! downstream can trade without the engine's decision.
 //!
-//! Everything is pure: no I/O, no clock — the caller supplies `now_ms` so
-//! the engine is deterministic and property-testable.
+//! The limits are PLAN.md §11.4's hard limits: per-order quantity and value,
+//! per-symbol exposure, open positions, orders per minute and per day, daily
+//! loss (realised plus MTM), a price band around the LTP, allowed products
+//! and segments (cash equity only), and a trading window. Money is integer
+//! paise. A strategy may carry its own limits, which can only make the
+//! global ones tighter ([`RiskLimits::tightened_by`]).
+//!
+//! Orders that **reduce** a position (selling shares the strategy holds) are
+//! not subject to the limits that guard against adding risk: open
+//! positions, symbol exposure, daily loss and the trading window. A strategy
+//! must always be able to get out. Quantity, value, rate, segment and price
+//! band still apply to them.
+//!
+//! Everything is pure: no I/O and no clock of its own. The caller supplies
+//! `now_ms`, so the engine is deterministic and property-testable.
 
 use nivesh_core::Side;
 use serde::{Deserialize, Serialize};
+use std::fmt;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 /// The current UTC time in milliseconds; tests inject a fixed clock.
@@ -22,68 +34,228 @@ pub fn now_ms() -> i64 {
         .unwrap_or(0)
 }
 
+/// IST is UTC+05:30. Days, and the trading window, are Indian.
+const IST_OFFSET_MS: i64 = 19_800_000;
+const DAY_MS: i64 = 86_400_000;
+const MINUTE_MS: i64 = 60_000;
+
+/// Rupees to paise, rounded to the nearest paisa.
+pub fn paise(rupees: f64) -> i64 {
+    (rupees * 100.0).round() as i64
+}
+
+/// Which margin product an order uses. Cash equity only.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum Product {
+    /// Delivery (CNC): held across sessions.
+    Delivery,
+    /// Intraday (MIS): squared off the same day.
+    Intraday,
+}
+
+/// The part of the IST day new risk may be added in, as minutes after IST
+/// midnight, `[start, end)`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TradingWindow {
+    pub start_min: u16,
+    pub end_min: u16,
+}
+
+impl TradingWindow {
+    /// NSE's cash session: 09:15 to 15:30 IST.
+    pub const NSE_SESSION: Self = Self {
+        start_min: 9 * 60 + 15,
+        end_min: 15 * 60 + 30,
+    };
+
+    pub fn contains(&self, now_ms: i64) -> bool {
+        let minute = (now_ms + IST_OFFSET_MS).rem_euclid(DAY_MS) / MINUTE_MS;
+        (i64::from(self.start_min)..i64::from(self.end_min)).contains(&minute)
+    }
+
+    /// The overlap of two windows (empty when they don't overlap).
+    fn intersect(self, other: Self) -> Self {
+        let start_min = self.start_min.max(other.start_min);
+        Self {
+            start_min,
+            end_min: self.end_min.min(other.end_min).max(start_min),
+        }
+    }
+
+    /// An empty window allows nothing, so it is within any window.
+    fn is_within(&self, outer: &Self) -> bool {
+        self.start_min >= self.end_min
+            || (self.start_min >= outer.start_min && self.end_min <= outer.end_min)
+    }
+}
+
 /// The limits every order is checked against.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RiskLimits {
     /// Maximum shares in one order.
     pub max_order_quantity: i64,
-    /// Maximum notional (rupees) in one order.
-    pub max_order_value: f64,
-    /// Maximum open positions the account may hold.
+    /// Maximum notional of one order, paise.
+    pub max_order_value_paise: i64,
+    /// Maximum notional held in one symbol after the order, paise.
+    pub max_symbol_exposure_paise: i64,
+    /// Maximum open positions.
     pub max_open_positions: usize,
     /// Orders per rolling minute.
     pub max_orders_per_minute: u32,
-    /// Orders per calendar day.
+    /// Orders per IST day.
     pub max_orders_per_day: u32,
-    /// The daily loss (realised + MTM, rupees, negative is worse) that must
-    /// stop trading. Part 6 wires the auto-kill-switch; the gateway checks
-    /// this from Part 5.
-    pub max_daily_loss: f64,
-    /// A limit price must sit within this fraction of the LTP
-    /// (`0.1` = within 10%).
+    /// The loss (realised plus MTM, paise, a positive number) at which new
+    /// risk is refused. The kill switch auto-engages on it too.
+    pub max_daily_loss_paise: i64,
+    /// A limit price must sit within this fraction of the LTP (`0.1` = 10%).
     pub price_band: f64,
+    /// The products orders may use.
+    pub allowed_products: Vec<Product>,
+    /// When new risk may be added; `None` means at any time (simulations
+    /// over synthetic clocks).
+    pub trading_window: Option<TradingWindow>,
 }
 
 impl Default for RiskLimits {
+    /// Conservative defaults for a small retail account.
     fn default() -> Self {
         Self {
             max_order_quantity: 1_000,
-            max_order_value: 500_000.0,
+            max_order_value_paise: 500_000 * 100, // ₹5,00,000
+            max_symbol_exposure_paise: 1_000_000 * 100, // ₹10,00,000
             max_open_positions: 20,
             max_orders_per_minute: 10,
             max_orders_per_day: 200,
-            max_daily_loss: 50_000.0,
+            max_daily_loss_paise: 50_000 * 100, // ₹50,000
             price_band: 0.10,
+            allowed_products: vec![Product::Delivery],
+            trading_window: Some(TradingWindow::NSE_SESSION),
         }
     }
 }
 
-/// One rejected or approved decision, for the audit trail.
+impl RiskLimits {
+    /// The limits in force when a strategy's own `strategy` limits apply on
+    /// top of these: every number is the smaller, products the common ones,
+    /// the window the overlap. The result is never looser than `self`.
+    pub fn tightened_by(&self, strategy: &RiskLimits) -> RiskLimits {
+        RiskLimits {
+            max_order_quantity: self.max_order_quantity.min(strategy.max_order_quantity),
+            max_order_value_paise: self
+                .max_order_value_paise
+                .min(strategy.max_order_value_paise),
+            max_symbol_exposure_paise: self
+                .max_symbol_exposure_paise
+                .min(strategy.max_symbol_exposure_paise),
+            max_open_positions: self.max_open_positions.min(strategy.max_open_positions),
+            max_orders_per_minute: self
+                .max_orders_per_minute
+                .min(strategy.max_orders_per_minute),
+            max_orders_per_day: self.max_orders_per_day.min(strategy.max_orders_per_day),
+            max_daily_loss_paise: self.max_daily_loss_paise.min(strategy.max_daily_loss_paise),
+            price_band: if strategy.price_band.is_finite() {
+                self.price_band.min(strategy.price_band)
+            } else {
+                self.price_band
+            },
+            allowed_products: self
+                .allowed_products
+                .iter()
+                .copied()
+                .filter(|p| strategy.allowed_products.contains(p))
+                .collect(),
+            trading_window: match (self.trading_window, strategy.trading_window) {
+                (Some(a), Some(b)) => Some(a.intersect(b)),
+                (a, b) => a.or(b),
+            },
+        }
+    }
+
+    /// Whether these limits are nowhere looser than `outer`. Loosening a
+    /// limit is a deliberate, confirmed and audited act; this tells the
+    /// caller which kind of change it is looking at.
+    pub fn is_within(&self, outer: &RiskLimits) -> bool {
+        self.max_order_quantity <= outer.max_order_quantity
+            && self.max_order_value_paise <= outer.max_order_value_paise
+            && self.max_symbol_exposure_paise <= outer.max_symbol_exposure_paise
+            && self.max_open_positions <= outer.max_open_positions
+            && self.max_orders_per_minute <= outer.max_orders_per_minute
+            && self.max_orders_per_day <= outer.max_orders_per_day
+            && self.max_daily_loss_paise <= outer.max_daily_loss_paise
+            && self.price_band <= outer.price_band
+            && self
+                .allowed_products
+                .iter()
+                .all(|p| outer.allowed_products.contains(p))
+            && match (self.trading_window, outer.trading_window) {
+                (Some(inner), Some(outer)) => inner.is_within(&outer),
+                (Some(_), None) => true,
+                (None, Some(_)) => false,
+                (None, None) => true,
+            }
+    }
+}
+
+/// Which hard limit refused an order.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum RiskCheck {
+    Quantity,
+    OrderValue,
+    Price,
+    PriceBand,
+    Segment,
+    Product,
+    TradingWindow,
+    OpenPositions,
+    SymbolExposure,
+    DailyLoss,
+    OrdersPerMinute,
+    OrdersPerDay,
+}
+
+/// A refusal: which check, and why in plain language (for the audit log
+/// and the UI).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, thiserror::Error)]
+#[error("{reason}")]
+pub struct RiskRejection {
+    pub check: RiskCheck,
+    pub reason: String,
+}
+
+/// What is being asked for.
 #[derive(Debug, Clone, PartialEq)]
-pub struct RiskDecision {
-    pub approved: bool,
-    /// Why (when rejected), in plain language.
-    pub reason: Option<String>,
+pub struct OrderRequest {
+    /// The instrument, `NSE:RELIANCE` shaped.
+    pub symbol: String,
+    pub side: Side,
+    pub quantity: i64,
+    /// The limit price, rupees; `None` prices it at the LTP.
+    pub price: Option<f64>,
+    pub product: Product,
 }
 
 /// What the engine knows when it checks an order.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct RiskContext<'a> {
-    /// The instrument, `NSE:RELIANCE` shaped.
-    pub symbol: &'a str,
     /// The last traded price, rupees.
     pub ltp: f64,
-    /// How many positions are open right now.
+    /// Shares the strategy holds in this symbol (long-only: zero or more).
+    pub position_quantity: i64,
+    /// Notional the account holds in this symbol now, paise.
+    pub symbol_exposure_paise: i64,
+    /// Positions open across the account.
     pub open_positions: usize,
-    /// Timestamps (ms) of recent order approvals, newest first.
+    /// Timestamps (ms) of recent approvals, any order.
     pub recent_orders: &'a [i64],
-    /// Today's realised P&L so far, rupees (negative is a loss).
-    pub day_pnl: f64,
-    /// Now, ms.
+    /// Today's P&L, realised plus MTM, paise (negative is a loss).
+    pub day_pnl_paise: i64,
+    /// The strategy's own limits, if it has any (they can only tighten).
+    pub strategy_limits: Option<&'a RiskLimits>,
+    /// Now, UTC ms.
     pub now_ms: i64,
 }
 
-/// The risk engine: immutable limits, pure checks.
+/// The risk engine: the global limits and pure checks.
 #[derive(Debug, Clone)]
 pub struct RiskEngine {
     pub limits: RiskLimits,
@@ -102,8 +274,9 @@ pub struct ApprovedOrder {
     symbol: String,
     side: Side,
     quantity: i64,
-    /// The limit price the caller asked for, rupees.
+    /// The approved price, rupees (the limit, or the LTP it was checked at).
     price: Option<f64>,
+    product: Product,
     /// The engine's decision id, linking it to the audit log.
     decision_id: u64,
     /// When the approval dies (5 minutes out).
@@ -111,32 +284,30 @@ pub struct ApprovedOrder {
 }
 
 impl ApprovedOrder {
-    /// The instrument.
     pub fn symbol(&self) -> &str {
         &self.symbol
     }
 
-    /// Buy or sell.
     pub fn side(&self) -> Side {
         self.side
     }
 
-    /// Shares.
     pub fn quantity(&self) -> i64 {
         self.quantity
     }
 
-    /// The approved limit price, if any.
     pub fn price(&self) -> Option<f64> {
         self.price
     }
 
-    /// The decision id for the audit log.
+    pub fn product(&self) -> Product {
+        self.product
+    }
+
     pub fn decision_id(&self) -> u64 {
         self.decision_id
     }
 
-    /// Whether the approval is still valid at `now_ms`.
     pub fn is_valid_at(&self, now_ms: i64) -> bool {
         now_ms <= self.expires_at_ms
     }
@@ -145,10 +316,17 @@ impl ApprovedOrder {
     pub const VALIDITY: Duration = Duration::from_secs(5 * 60);
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
-pub enum RiskError {
-    #[error("the order breaks a hard limit")]
-    Rejected,
+impl fmt::Display for Product {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Product::Delivery => "delivery",
+            Product::Intraday => "intraday",
+        })
+    }
+}
+
+fn rupees(paise: i64) -> String {
+    format!("₹{:.0}", paise as f64 / 100.0)
 }
 
 impl RiskEngine {
@@ -156,111 +334,191 @@ impl RiskEngine {
         Self { limits }
     }
 
-    /// Checks the order against every hard limit and, on a pass, mints the
-    /// approval. Pure: no I/O, no clock of its own.
+    /// Checks the order against every hard limit (the global ones, tightened
+    /// by the strategy's) and, on a pass, mints the approval.
     pub fn check(
         &self,
-        symbol: &str,
-        side: Side,
-        quantity: i64,
-        price: Option<f64>,
+        order: &OrderRequest,
         ctx: &RiskContext<'_>,
-    ) -> Result<ApprovedOrder, RiskError> {
-        let reject = |reason: String| -> RiskError {
-            let _ = reason;
-            RiskError::Rejected
+    ) -> Result<ApprovedOrder, RiskRejection> {
+        let tightened;
+        let limits = match ctx.strategy_limits {
+            Some(strategy) => {
+                tightened = self.limits.tightened_by(strategy);
+                &tightened
+            }
+            None => &self.limits,
         };
+        let reject = |check: RiskCheck, reason: String| Err(RiskRejection { check, reason });
+        let quantity = order.quantity;
+        // Long-only: a sell reduces when the strategy holds that many shares.
+        let reduces = order.side == Side::Sell && ctx.position_quantity >= quantity;
 
-        // Quantity and value.
+        // Segment and product.
+        if !is_cash_equity(&order.symbol) {
+            return reject(
+                RiskCheck::Segment,
+                format!("{} is not a cash-equity symbol", order.symbol),
+            );
+        }
+        if !limits.allowed_products.contains(&order.product) {
+            return reject(
+                RiskCheck::Product,
+                format!("{} orders are not allowed", order.product),
+            );
+        }
+        if order.side == Side::Sell && !reduces {
+            return reject(
+                RiskCheck::Quantity,
+                format!(
+                    "selling {quantity} needs that many shares held; {} are (no short selling)",
+                    ctx.position_quantity
+                ),
+            );
+        }
+
+        // Quantity, price and value.
         if quantity <= 0 {
-            return Err(reject("quantity must be positive".into()));
+            return reject(RiskCheck::Quantity, "quantity must be positive".into());
         }
-        if quantity > self.limits.max_order_quantity {
-            return Err(reject(format!(
-                "quantity {quantity} exceeds the per-order cap {}",
-                self.limits.max_order_quantity
-            )));
+        if quantity > limits.max_order_quantity {
+            return reject(
+                RiskCheck::Quantity,
+                format!(
+                    "quantity {quantity} exceeds the per-order cap {}",
+                    limits.max_order_quantity
+                ),
+            );
         }
-        let price = price.unwrap_or(ctx.ltp);
+        let price = order.price.unwrap_or(ctx.ltp);
         if !price.is_finite() || price <= 0.0 || !ctx.ltp.is_finite() || ctx.ltp <= 0.0 {
-            return Err(reject("order price and LTP must be positive".into()));
+            return reject(
+                RiskCheck::Price,
+                "order price and LTP must be positive".into(),
+            );
         }
-        let value = price * quantity as f64;
-        if value > self.limits.max_order_value {
-            return Err(reject(format!(
-                "order value ₹{value:.0} exceeds the per-order cap ₹{:.0}",
-                self.limits.max_order_value
-            )));
+        if (price - ctx.ltp).abs() / ctx.ltp > limits.price_band {
+            return reject(
+                RiskCheck::PriceBand,
+                format!(
+                    "price ₹{price:.2} is outside the {:.0}% band around LTP ₹{:.2}",
+                    limits.price_band * 100.0,
+                    ctx.ltp
+                ),
+            );
         }
-        // Price band: a limit price far from the LTP is a fat finger.
-        if (price - ctx.ltp).abs() / ctx.ltp > self.limits.price_band {
-            return Err(reject(format!(
-                "price ₹{price:.2} is outside the {:.0}% band around LTP ₹{:.2}",
-                self.limits.price_band * 100.0,
-                ctx.ltp
-            )));
-        }
-        // Open positions.
-        if ctx.open_positions >= self.limits.max_open_positions {
-            return Err(reject(
-                "the maximum number of open positions is reached".into(),
-            ));
-        }
-        // Rate: orders per minute (rolling) and per day.
-        let minute_ago = ctx.now_ms - 60_000;
-        let per_minute = ctx
-            .recent_orders
-            .iter()
-            .filter(|t| **t >= minute_ago && **t <= ctx.now_ms)
-            .count();
-        if per_minute >= self.limits.max_orders_per_minute as usize {
-            return Err(reject(format!(
-                "the per-minute order cap ({}) is reached; wait a moment",
-                self.limits.max_orders_per_minute
-            )));
-        }
-        let day_start = ctx.now_ms - (ctx.now_ms % 86_400_000);
-        let per_day = ctx
-            .recent_orders
-            .iter()
-            .filter(|t| **t >= day_start && **t <= ctx.now_ms)
-            .count();
-        if per_day >= self.limits.max_orders_per_day as usize {
-            return Err(reject(format!(
-                "the per-day order cap ({}) is reached",
-                self.limits.max_orders_per_day
-            )));
-        }
-        // Daily loss.
-        if ctx.day_pnl <= -self.limits.max_daily_loss {
-            return Err(reject(format!(
-                "the daily loss (₹{:.0}) has reached the limit (₹{:.0})",
-                -ctx.day_pnl, self.limits.max_daily_loss
-            )));
-        }
-        // Cash-only segments: the symbol must be an NSE/BSE equity shape.
-        if !symbol_starts_valid(symbol) {
-            return Err(reject("only cash-equity symbols are allowed".into()));
+        let value = paise(price).saturating_mul(quantity);
+        if value > limits.max_order_value_paise {
+            return reject(
+                RiskCheck::OrderValue,
+                format!(
+                    "order value {} exceeds the per-order cap {}",
+                    rupees(value),
+                    rupees(limits.max_order_value_paise)
+                ),
+            );
         }
 
-        let decision_id = decision_counter(ctx.now_ms, symbol, quantity);
+        // Limits on adding risk.
+        if !reduces {
+            if let Some(window) = limits.trading_window
+                && !window.contains(ctx.now_ms)
+            {
+                return reject(
+                    RiskCheck::TradingWindow,
+                    format!(
+                        "outside the trading window {:02}:{:02}–{:02}:{:02} IST",
+                        window.start_min / 60,
+                        window.start_min % 60,
+                        window.end_min / 60,
+                        window.end_min % 60
+                    ),
+                );
+            }
+            if ctx.day_pnl_paise <= -limits.max_daily_loss_paise {
+                return reject(
+                    RiskCheck::DailyLoss,
+                    format!(
+                        "today's loss ({}) has reached the limit ({})",
+                        rupees(-ctx.day_pnl_paise),
+                        rupees(limits.max_daily_loss_paise)
+                    ),
+                );
+            }
+            if ctx.position_quantity == 0 && ctx.open_positions >= limits.max_open_positions {
+                return reject(
+                    RiskCheck::OpenPositions,
+                    format!(
+                        "{} positions are open, the maximum",
+                        limits.max_open_positions
+                    ),
+                );
+            }
+            let exposure = ctx.symbol_exposure_paise.saturating_add(value);
+            if exposure > limits.max_symbol_exposure_paise {
+                return reject(
+                    RiskCheck::SymbolExposure,
+                    format!(
+                        "exposure to {} would be {}, over the cap {}",
+                        order.symbol,
+                        rupees(exposure),
+                        rupees(limits.max_symbol_exposure_paise)
+                    ),
+                );
+            }
+        }
+
+        // Order rate: per rolling minute and per IST day, for every order.
+        let minute_ago = ctx.now_ms - MINUTE_MS;
+        let in_window = |from: i64| {
+            ctx.recent_orders
+                .iter()
+                .filter(|t| **t > from && **t <= ctx.now_ms)
+                .count()
+        };
+        if in_window(minute_ago) >= limits.max_orders_per_minute as usize {
+            return reject(
+                RiskCheck::OrdersPerMinute,
+                format!(
+                    "the per-minute order cap ({}) is reached; wait a moment",
+                    limits.max_orders_per_minute
+                ),
+            );
+        }
+        let day_start = ist_day_start(ctx.now_ms);
+        if in_window(day_start - 1) >= limits.max_orders_per_day as usize {
+            return reject(
+                RiskCheck::OrdersPerDay,
+                format!(
+                    "the per-day order cap ({}) is reached",
+                    limits.max_orders_per_day
+                ),
+            );
+        }
+
         Ok(ApprovedOrder {
-            symbol: symbol.to_owned(),
-            side,
+            symbol: order.symbol.clone(),
+            side: order.side,
             quantity,
             price: Some(price),
-            decision_id,
+            product: order.product,
+            decision_id: decision_id(ctx.now_ms, &order.symbol, quantity),
             expires_at_ms: ctx.now_ms
                 + i64::try_from(ApprovedOrder::VALIDITY.as_millis()).unwrap_or(i64::MAX),
         })
     }
 }
 
-/// `NSE:SYMBOL` / `BSE:SYMBOL` / bare symbols; F&O instrument shapes
-/// (month codes) are refused.
-fn symbol_starts_valid(symbol: &str) -> bool {
-    // Cash-equity symbols are letters plus &, - and _; digits inside the
-    // body (strike prices, expiry codes) mark derivatives.
+/// UTC ms of the IST midnight that starts `now_ms`'s IST day.
+fn ist_day_start(now_ms: i64) -> i64 {
+    let ist = now_ms + IST_OFFSET_MS;
+    ist - ist.rem_euclid(DAY_MS) - IST_OFFSET_MS
+}
+
+/// `NSE:SYMBOL` / `BSE:SYMBOL` / bare symbols. Cash-equity symbols are
+/// letters plus `&`, `-` and `_`; digits (strikes, expiry codes) mark
+/// derivatives.
+fn is_cash_equity(symbol: &str) -> bool {
     let bare = symbol.split(':').next_back().unwrap_or(symbol);
     !bare.is_empty()
         && bare
@@ -269,9 +527,8 @@ fn symbol_starts_valid(symbol: &str) -> bool {
 }
 
 /// A deterministic decision id from the order's facts: time, symbol and
-/// quantity. Collisions in practice would need the same order twice in the
-/// same millisecond.
-fn decision_counter(now_ms: i64, symbol: &str, quantity: i64) -> u64 {
+/// quantity.
+fn decision_id(now_ms: i64, symbol: &str, quantity: i64) -> u64 {
     let mut hash = u64::from_ne_bytes(now_ms.to_ne_bytes());
     for b in symbol.as_bytes() {
         hash = hash.wrapping_mul(31).wrapping_add(u64::from(*b));
@@ -280,123 +537,4 @@ fn decision_counter(now_ms: i64, symbol: &str, quantity: i64) -> u64 {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn engine() -> RiskEngine {
-        RiskEngine::new(RiskLimits::default())
-    }
-
-    fn ctx(now_ms: i64) -> RiskContext<'static> {
-        RiskContext {
-            symbol: "NSE:RELIANCE",
-            ltp: 1_000.0,
-            open_positions: 0,
-            recent_orders: &[],
-            day_pnl: 0.0,
-            now_ms,
-        }
-    }
-
-    const NOW: i64 = 1_800_000_000_000;
-
-    #[test]
-    fn a_normal_order_is_approved_and_carries_the_facts() {
-        let approved = engine()
-            .check("NSE:RELIANCE", Side::Buy, 10, Some(1_000.0), &ctx(NOW))
-            .unwrap();
-        assert_eq!(approved.symbol(), "NSE:RELIANCE");
-        assert_eq!(approved.side(), Side::Buy);
-        assert_eq!(approved.quantity(), 10);
-        assert_eq!(approved.price(), Some(1_000.0));
-        assert!(approved.is_valid_at(NOW + 1000));
-        assert!(
-            !approved.is_valid_at(NOW + 6 * 60_000),
-            "expires in 5 minutes"
-        );
-    }
-
-    #[test]
-    fn a_sell_carries_its_side() {
-        let approved = engine()
-            .check("NSE:RELIANCE", Side::Sell, 10, None, &ctx(NOW))
-            .unwrap();
-        assert_eq!(approved.side(), Side::Sell);
-        assert_eq!(approved.price(), Some(1_000.0), "priced at the LTP");
-    }
-
-    #[test]
-    fn hard_limits_reject() {
-        let e = engine();
-        assert!(
-            e.check("NSE:REL", Side::Buy, 0, None, &ctx(NOW)).is_err(),
-            "zero qty"
-        );
-        assert!(
-            e.check("NSE:REL", Side::Buy, 5_000, None, &ctx(NOW))
-                .is_err(),
-            "over the quantity cap"
-        );
-        assert!(
-            e.check("NSE:REL", Side::Buy, 1_000, Some(1_000.0), &ctx(NOW))
-                .is_err(),
-            "value 1M over the ₹500k cap"
-        );
-        assert!(
-            e.check("NSE:REL", Side::Buy, 100, Some(1_500.0), &ctx(NOW))
-                .is_err(),
-            "50% above LTP is outside the 10% band"
-        );
-        assert!(
-            e.check("NSE:REL", Side::Buy, 100, Some(900.0), &ctx(NOW))
-                .is_ok(),
-            "10% below LTP is inside the band"
-        );
-    }
-
-    #[test]
-    fn the_rate_and_position_limits_reject() {
-        let e = engine();
-        // Ten orders in the last minute: the 11th is refused.
-        let recent: Vec<i64> = (0..10).map(|i| NOW - i64::from(i) * 1_000).collect();
-        let busy = RiskContext {
-            recent_orders: &recent,
-            ..ctx(NOW)
-        };
-        assert!(e.check("NSE:REL", Side::Buy, 1, None, &busy).is_err());
-        // Outside the minute window they no longer count.
-        let old: Vec<i64> = recent.iter().map(|t| t - 120_000).collect();
-        let calm = RiskContext {
-            recent_orders: &old,
-            ..ctx(NOW)
-        };
-        assert!(e.check("NSE:REL", Side::Buy, 1, None, &calm).is_ok());
-
-        // Twenty open positions: the 21st is refused.
-        let full = RiskContext {
-            open_positions: 20,
-            ..ctx(NOW)
-        };
-        assert!(e.check("NSE:REL", Side::Buy, 1, None, &full).is_err());
-
-        // A deep daily loss refuses everything new.
-        let losing = RiskContext {
-            day_pnl: -50_000.0,
-            ..ctx(NOW)
-        };
-        assert!(e.check("NSE:REL", Side::Buy, 1, None, &losing).is_err());
-    }
-
-    #[test]
-    fn non_equity_shapes_are_refused() {
-        let e = engine();
-        assert!(
-            e.check("NSE:NIFTY25NOV24000CE", Side::Buy, 1, None, &ctx(NOW))
-                .is_err()
-        );
-        assert!(
-            e.check("NSE:RELIANCE", Side::Buy, 1, None, &ctx(NOW))
-                .is_ok()
-        );
-    }
-}
+mod tests;

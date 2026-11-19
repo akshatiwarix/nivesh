@@ -16,7 +16,9 @@ pub mod desk;
 
 use nivesh_broker::BrokerError;
 use nivesh_core::{Candle, Side};
-use nivesh_risk::{ApprovedOrder, RiskContext, RiskEngine};
+use nivesh_risk::{
+    ApprovedOrder, OrderRequest, Product, RiskContext, RiskEngine, RiskLimits, RiskRejection,
+};
 use nivesh_strategy::CostModel;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -60,8 +62,8 @@ pub struct Fill {
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum GatewayError {
-    #[error("the risk engine refused the order")]
-    RiskRejected,
+    #[error("the risk engine refused the order: {0}")]
+    RiskRejected(RiskRejection),
     #[error("the intent is stale: its signal bar is not the last closed bar")]
     StaleIntent,
     #[error("the approval expired; the intent must be re-checked")]
@@ -140,10 +142,22 @@ pub struct OrderGateway {
     /// Timestamps of approved orders, newest first (the risk context's
     /// rate-limiter feed).
     approvals: Vec<i64>,
-    /// Today's realised P&L across strategies, rupees.
-    day_pnl: f64,
-    /// How many positions are open across strategies.
-    open_positions: usize,
+}
+
+/// The account as the risk check sees it for one intent. The harness owns
+/// the books, so it builds this; the gateway only checks against it.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct AccountView {
+    /// Shares the intent's strategy holds in its symbol.
+    pub position_quantity: i64,
+    /// Notional held in the symbol across the account, paise.
+    pub symbol_exposure_paise: i64,
+    /// Positions open across the account.
+    pub open_positions: usize,
+    /// Today's P&L, realised plus MTM, paise.
+    pub day_pnl_paise: i64,
+    /// The strategy's own limits, which can only tighten the global ones.
+    pub strategy_limits: Option<RiskLimits>,
 }
 
 impl OrderGateway {
@@ -154,8 +168,6 @@ impl OrderGateway {
             last_closed: HashMap::new(),
             queued: Vec::new(),
             approvals: Vec::new(),
-            day_pnl: 0.0,
-            open_positions: 0,
         }
     }
 
@@ -204,16 +216,15 @@ impl OrderGateway {
         fills
     }
 
-    /// The account's view of positions and P&L, for the risk context.
-    pub fn set_account_state(&mut self, open_positions: usize, day_pnl: f64) {
-        self.open_positions = open_positions;
-        self.day_pnl = day_pnl;
-    }
-
     /// Submits an intent. A late intent is refused before the risk check;
     /// an approved one is queued to fill on the stream's next bar. Returns
     /// the risk decision id.
-    pub fn submit(&mut self, intent: &OrderIntent, now_ms: i64) -> Result<u64, GatewayError> {
+    pub fn submit(
+        &mut self,
+        intent: &OrderIntent,
+        account: &AccountView,
+        now_ms: i64,
+    ) -> Result<u64, GatewayError> {
         let last = self
             .last_closed
             .get(&(intent.strategy_id, intent.symbol.clone()))
@@ -222,17 +233,26 @@ impl OrderGateway {
             return Err(GatewayError::StaleIntent);
         }
         let ctx = RiskContext {
-            symbol: &intent.symbol,
             ltp: intent.signal_price,
-            open_positions: self.open_positions,
+            position_quantity: account.position_quantity,
+            symbol_exposure_paise: account.symbol_exposure_paise,
+            open_positions: account.open_positions,
             recent_orders: &self.approvals,
-            day_pnl: self.day_pnl,
+            day_pnl_paise: account.day_pnl_paise,
+            strategy_limits: account.strategy_limits.as_ref(),
             now_ms,
+        };
+        let request = OrderRequest {
+            symbol: intent.symbol.clone(),
+            side: intent.side,
+            quantity: intent.quantity,
+            price: None,
+            product: Product::Delivery,
         };
         let approved = self
             .engine
-            .check(&intent.symbol, intent.side, intent.quantity, None, &ctx)
-            .map_err(|_| GatewayError::RiskRejected)?;
+            .check(&request, &ctx)
+            .map_err(GatewayError::RiskRejected)?;
         if !approved.is_valid_at(now_ms) {
             return Err(GatewayError::ApprovalExpired);
         }
@@ -306,7 +326,9 @@ mod tests {
             gw.on_closed_bar(1, "NSE:RELIANCE", bar(NOW, 1_000.0))
                 .is_empty()
         );
-        let decision = gw.submit(&intent(NOW, 1), NOW).unwrap();
+        let decision = gw
+            .submit(&intent(NOW, 1), &AccountView::default(), NOW)
+            .unwrap();
         assert_eq!(gw.queued(), 1, "queued, not filled");
         let fills = gw.on_closed_bar(1, "NSE:RELIANCE", bar(NOW + MIN, 1_002.0));
         assert_eq!(fills.len(), 1);
@@ -325,7 +347,9 @@ mod tests {
     fn a_stale_intent_is_refused_before_the_risk_check() {
         let mut gw = gateway();
         gw.on_closed_bar(1, "NSE:RELIANCE", bar(NOW, 1_000.0));
-        let err = gw.submit(&intent(NOW - MIN, 1), NOW).unwrap_err();
+        let err = gw
+            .submit(&intent(NOW - MIN, 1), &AccountView::default(), NOW)
+            .unwrap_err();
         assert_eq!(err, GatewayError::StaleIntent);
         assert_eq!(gw.approvals(), 0, "no decision was minted");
         // An intent on a stream the gateway never saw is stale too.
@@ -333,7 +357,10 @@ mod tests {
             strategy_id: 2,
             ..intent(NOW, 1)
         };
-        assert_eq!(gw.submit(&other, NOW), Err(GatewayError::StaleIntent));
+        assert_eq!(
+            gw.submit(&other, &AccountView::default(), NOW),
+            Err(GatewayError::StaleIntent)
+        );
     }
 
     #[test]
@@ -341,8 +368,12 @@ mod tests {
         let mut gw = gateway();
         gw.on_closed_bar(1, "NSE:RELIANCE", bar(NOW, 1_000.0));
         // 600 shares at ₹1000 = ₹600k, over the ₹500k cap.
-        let err = gw.submit(&intent(NOW, 600), NOW).unwrap_err();
-        assert_eq!(err, GatewayError::RiskRejected);
+        let err = gw
+            .submit(&intent(NOW, 600), &AccountView::default(), NOW)
+            .unwrap_err();
+        assert!(
+            matches!(err, GatewayError::RiskRejected(r) if r.check == nivesh_risk::RiskCheck::OrderValue)
+        );
         assert_eq!(gw.queued(), 0);
         assert!(
             gw.on_closed_bar(1, "NSE:RELIANCE", bar(NOW + MIN, 1_000.0))
@@ -355,7 +386,8 @@ mod tests {
         let mut gw = gateway();
         gw.on_closed_bar(1, "NSE:RELIANCE", bar(NOW, 1_000.0));
         gw.on_closed_bar(2, "NSE:RELIANCE", bar(NOW, 1_000.0));
-        gw.submit(&intent(NOW, 1), NOW).unwrap();
+        gw.submit(&intent(NOW, 1), &AccountView::default(), NOW)
+            .unwrap();
         // Strategy 2's next bar fills nothing of strategy 1's.
         assert!(
             gw.on_closed_bar(2, "NSE:RELIANCE", bar(NOW + MIN, 1_000.0))
@@ -372,7 +404,8 @@ mod tests {
     fn a_replayed_bar_fills_nothing_and_forget_drops_the_queue() {
         let mut gw = gateway();
         gw.on_closed_bar(1, "NSE:RELIANCE", bar(NOW, 1_000.0));
-        gw.submit(&intent(NOW, 1), NOW).unwrap();
+        gw.submit(&intent(NOW, 1), &AccountView::default(), NOW)
+            .unwrap();
         assert!(
             gw.on_closed_bar(1, "NSE:RELIANCE", bar(NOW, 1_000.0))
                 .is_empty()
@@ -390,7 +423,8 @@ mod tests {
     fn a_bar_without_an_open_fills_nothing() {
         let mut gw = gateway();
         gw.on_closed_bar(1, "NSE:RELIANCE", bar(NOW, 1_000.0));
-        gw.submit(&intent(NOW, 1), NOW).unwrap();
+        gw.submit(&intent(NOW, 1), &AccountView::default(), NOW)
+            .unwrap();
         let settled = gw.on_closed_bar(1, "NSE:RELIANCE", bar(NOW + MIN, 0.0));
         assert!(matches!(&settled[..], [Err(GatewayError::Broker(_))]));
         assert_eq!(gw.queued(), 0, "dropped, never retried blindly");

@@ -44,7 +44,11 @@ mod parity {
         params: &TemplateParams,
         bars: &[Candle],
     ) -> (Vec<Trip>, bool) {
-        let mut desk = PaperDesk::new(RiskEngine::new(RiskLimits::default()));
+        // The synthetic bars sit outside market hours: no trading window.
+        let mut desk = PaperDesk::new(RiskEngine::new(RiskLimits {
+            trading_window: None,
+            ..RiskLimits::default()
+        }));
         let runner = PaperRunner::new(template.build(params), "NSE:RELIANCE", 100_000.0).unwrap();
         desk.start(1, runner);
         let mut trips = Vec::new();
