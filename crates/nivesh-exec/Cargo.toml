@@ -1,6 +1,6 @@
 [package]
 name = "nivesh-exec"
-description = "Nivesh's order gateway: the ONLY path from OrderIntents to brokers. Paper routing now; live routing arrives in Part 6 behind the risk engine, the kill switch and the audit log."
+description = "Nivesh's order gateway and paper desk: the ONLY path from OrderIntents to brokers. Paper routing now; live routing arrives in Part 6 behind the risk engine, the kill switch and the audit log."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -10,8 +10,12 @@ publish.workspace = true
 nivesh-broker = { path = "../nivesh-broker" }
 nivesh-core = { path = "../nivesh-core" }
 nivesh-risk = { path = "../nivesh-risk" }
+nivesh-strategy = { path = "../nivesh-strategy" }
 serde.workspace = true
 thiserror.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
 
 [lints]
 workspace = true

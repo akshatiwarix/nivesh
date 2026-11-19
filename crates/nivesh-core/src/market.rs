@@ -262,6 +262,13 @@ pub struct SnapshotActivity {
 }
 
 /// One OHLCV bar. `t` is the bar's start, UTC epoch milliseconds.
+/// Buy or sell. Shared by the risk engine, the gateway and the brokers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Side {
+    Buy,
+    Sell,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct Candle {
     pub t: i64,

@@ -11,7 +11,6 @@ async-trait.workspace = true
 chrono = { workspace = true, features = ["clock"] }
 nivesh-core = { path = "../nivesh-core" }
 secrecy.workspace = true
-serde.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 url.workspace = true

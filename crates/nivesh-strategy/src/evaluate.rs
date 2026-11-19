@@ -166,6 +166,9 @@ impl StreamingIndicator {
 pub struct Evaluator {
     set: RuleSet,
     symbol: String,
+    /// The distinct (kind, params) series, entry's first then exit's;
+    /// `states`, `prev` and `last` are indexed like this.
+    specs: Vec<(String, Vec<f64>)>,
     /// Streaming states per (kind, params) in the set's indicator order.
     states: Vec<StreamingIndicator>,
     /// The last two values of each series, so `Cross` can compare this bar
@@ -224,6 +227,7 @@ impl Evaluator {
         Ok(Self {
             set,
             symbol: String::new(),
+            specs: unique,
             states,
             prev: vec![None; n],
             last: vec![None; n],
@@ -247,7 +251,14 @@ impl Evaluator {
     pub fn feed(&mut self, bar: &Candle) -> Option<OrderIntent> {
         let this_prev_close = self.prev_close.replace(bar.c);
         // 1. Advance every indicator series with this closed bar.
-        for (state, last) in self.states.iter_mut().zip(self.last.iter_mut()) {
+        //    The value before this bar becomes `prev`, for crosses.
+        for ((state, last), prev) in self
+            .states
+            .iter_mut()
+            .zip(self.last.iter_mut())
+            .zip(self.prev.iter_mut())
+        {
+            *prev = *last;
             *last = state.update(bar);
         }
         // 2. Decide, exits first.
@@ -293,6 +304,21 @@ impl Evaluator {
     pub fn with_symbol(mut self, symbol: impl Into<String>) -> Self {
         self.symbol = symbol.into();
         self
+    }
+
+    /// Aligns the evaluator's position view with the account's: `entry` is
+    /// the open position's entry price, `None` when flat. The harness calls
+    /// this after a restart (the indicators were re-warmed from history, but
+    /// the position is the ledger's) and after the gateway refused an
+    /// intent (the evaluator assumed it would fill).
+    pub fn sync_position(&mut self, entry: Option<f64>) {
+        self.in_position = entry.is_some();
+        self.entry_price = entry;
+        self.high_watermark = entry;
+        self.stop = match (entry, self.set.stop_loss) {
+            (Some(e), Some(f)) => Some(e * (1.0 - f)),
+            _ => None,
+        };
     }
 
     fn check_exit(&mut self, bar: &Candle, prev_close: Option<f64>) -> Option<OrderIntent> {
@@ -404,12 +430,9 @@ impl Evaluator {
     fn index_of(&self, op: &Operand) -> Option<usize> {
         match op {
             Operand::Indicator { kind, params } => self
-                .set
-                .entry
-                .indicators()
-                .into_iter()
-                .chain(self.set.exit.indicators())
-                .position(|(k, p)| k == *kind && *p == *params),
+                .specs
+                .iter()
+                .position(|(k, p)| k == kind && p == params),
             _ => None,
         }
     }
@@ -595,6 +618,79 @@ mod tests {
         // And the entry can fire again on the next cross.
         assert!(ev.feed(&candle(6, 100.0)).is_none());
         assert!(ev.feed(&candle(7, 101.0)).is_some());
+    }
+
+    fn sma(n: f64) -> Operand {
+        Operand::Indicator {
+            kind: "SMA".into(),
+            params: vec![n],
+        }
+    }
+
+    #[test]
+    fn an_indicator_cross_fires() {
+        // SMA(1) is the close itself; SMA(3) lags it. A dip then a rally
+        // makes the fast series cross above the slow one exactly once.
+        let set = RuleSet {
+            entry: Rule::Cross {
+                left: sma(1.0),
+                direction: CrossDirection::Above,
+                right: sma(3.0),
+            },
+            exit: Rule::False,
+            sizing: Sizing::FixedQuantity(1),
+            ..RuleSet::default()
+        };
+        let mut ev = Evaluator::new(set, 100_000.0).unwrap().with_symbol("X");
+        let closes = [100.0, 99.0, 98.0, 97.0, 99.0, 101.0, 102.0];
+        let fired: Vec<i64> = closes
+            .iter()
+            .enumerate()
+            .filter_map(|(i, c)| ev.feed(&candle(i as i64, *c)).map(|x| x.signal_bar_t))
+            .collect();
+        // SMA(3) at bar 4 is (98+97+99)/3 = 98 < 99, and at bar 3 it was
+        // 98 > 97: the cross is on bar 4.
+        assert_eq!(fired, vec![4]);
+    }
+
+    #[test]
+    fn exit_only_indicators_read_their_own_series() {
+        // Entry uses SMA(1) and SMA(2); exit uses SMA(2) and SMA(5). The
+        // exit's SMA(5) is the third distinct series, not the fourth.
+        let set = RuleSet {
+            entry: Rule::Cmp {
+                left: sma(1.0),
+                cmp: Comparison::Greater,
+                right: sma(2.0),
+            },
+            exit: Rule::Cmp {
+                left: sma(2.0),
+                cmp: Comparison::Less,
+                right: sma(5.0),
+            },
+            sizing: Sizing::FixedQuantity(1),
+            ..RuleSet::default()
+        };
+        let mut ev = Evaluator::new(set, 100_000.0).unwrap().with_symbol("X");
+        let mut sides = Vec::new();
+        for (i, c) in [100.0, 100.0, 100.0, 100.0, 100.0, 101.0, 102.0, 90.0, 80.0]
+            .iter()
+            .enumerate()
+        {
+            if let Some(intent) = ev.feed(&candle(i as i64, *c)) {
+                sides.push((i, intent.side));
+            }
+        }
+        // The up-tick on bar 5 enters (101 > 100.5). On bar 7 SMA(2) = 96
+        // drops under SMA(5) = 98.6, so the exit is bar 7. Reading SMA(5)
+        // from a fourth, non-existent slot would panic instead.
+        assert_eq!(
+            sides,
+            vec![
+                (5, crate::rules::IntentSide::Buy),
+                (7, crate::rules::IntentSide::Sell)
+            ]
+        );
     }
 
     #[test]

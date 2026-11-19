@@ -2920,7 +2920,6 @@ dependencies = [
  "chrono",
  "nivesh-core",
  "secrecy",
- "serde",
  "thiserror 2.0.21",
  "tokio",
  "url",
@@ -2995,6 +2994,8 @@ dependencies = [
  "nivesh-broker",
  "nivesh-core",
  "nivesh-risk",
+ "nivesh-strategy",
+ "proptest",
  "serde",
  "thiserror 2.0.21",
 ]
@@ -3013,6 +3014,7 @@ dependencies = [
 name = "nivesh-risk"
 version = "0.1.0"
 dependencies = [
+ "nivesh-core",
  "serde",
  "thiserror 2.0.21",
 ]

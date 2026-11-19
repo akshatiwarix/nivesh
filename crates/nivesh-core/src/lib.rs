@@ -17,6 +17,6 @@ pub use index::{CATALOGUE as INDEX_CATALOGUE, IndexId, IndexInfo};
 pub use instrument::{Exchange, Instrument, InstrumentId, InstrumentIdError};
 pub use market::{
     Candle, CandleSeries, ConstituentsInfo, IndexQuote, IndexSnapshot, Interval, Price, Quote,
-    SnapshotActivity, change_from,
+    Side, SnapshotActivity, change_from,
 };
 pub use provenance::{FeedKind, Freshness, Provenance, ProviderId, Sourced};

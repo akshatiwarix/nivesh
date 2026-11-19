@@ -1,239 +1,206 @@
-//! The paper trading runner: drives an evaluator live over the quote hub's
-//! closed bars and routes the intents through the gateway into the paper
-//! broker. Everything it produces is **PAPER**: simulated fills on
-//! simulated money, labelled as such everywhere it shows up.
+//! The paper trading runner: one strategy on one symbol's closed bars.
+//! Everything it produces is **PAPER**: simulated fills on simulated
+//! money, labelled as such everywhere it shows up.
 //!
-//! Running state persists in the store so a paper strategy resumes after a
-//! restart (the runner itself is stateless per bar: the evaluator's state
-//! is rebuilt from the strategy's position, which the store holds).
+//! The runner never fills its own orders. It turns each closed bar into at
+//! most one [`OrderIntent`]; the harness hands that to the order gateway
+//! (`nivesh-exec`), which risk-checks it, queues it and fills it at the next
+//! bar's open, then reports the fill back through [`PaperRunner::on_fill`].
+//! The decisions and the fill convention are the backtester's, so a paper
+//! run over the same bars trades exactly like a backtest (tested in
+//! `nivesh-exec`).
+//!
+//! [`PaperState`] is everything that must survive a restart. The indicator
+//! state does not need to: the harness re-warms it from history
+//! ([`PaperRunner::warm_up`]) and the evaluator then adopts the saved
+//! position.
 
 use nivesh_core::Candle;
+use serde::{Deserialize, Serialize};
 
-use crate::evaluate::Evaluator;
-use crate::rules::RuleSet;
+use crate::evaluate::{Evaluator, RuleError};
+use crate::rules::{IntentSide, OrderIntent, RuleSet};
 
-/// The paper position a running strategy holds.
-#[derive(Debug, Clone, PartialEq, Default)]
+/// How many fills the state keeps for the dashboard (oldest dropped).
+pub const MAX_FILLS: usize = 200;
+
+/// IST is UTC+05:30; paper "days" follow the Indian trading day.
+const IST_OFFSET_MS: i64 = 19_800_000;
+const DAY_MS: i64 = 86_400_000;
+
+/// The paper position a running strategy holds (long-only in v1).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PaperPosition {
     pub symbol: String,
     pub quantity: i64,
-    /// The fill price the paper broker gave (rupees).
+    /// The paper fill price, rupees.
     pub entry_price: f64,
-    /// UTC ms of the fill.
+    /// UTC ms of the bar whose open filled it.
     pub entry_t: i64,
-    /// The trailing stop's watermark, when the strategy trails.
-    pub high_watermark: Option<f64>,
-    /// The effective stop level, rupees.
-    pub stop: Option<f64>,
-    /// The target level, rupees.
-    pub target: Option<f64>,
 }
 
-/// The runner's state, persisted by the caller between bars.
-#[derive(Debug, Clone, PartialEq, Default)]
+/// One paper fill, for the dashboard's order list.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PaperFill {
+    /// UTC ms of the bar whose open filled it.
+    pub t: i64,
+    pub side: IntentSide,
+    pub quantity: i64,
+    /// Rupees.
+    pub price: f64,
+    /// Realised P&L of the round trip, on the closing fill.
+    pub pnl: Option<f64>,
+}
+
+/// Everything a paper strategy needs to resume after a restart.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[serde(default)]
 pub struct PaperState {
     pub position: Option<PaperPosition>,
-    /// Today's realised P&L, rupees.
+    /// Realised P&L since the strategy first started, rupees.
+    pub realised_pnl: f64,
+    /// Realised P&L of the current IST day, rupees.
     pub day_pnl: f64,
+    /// The IST day `day_pnl` belongs to (days since the epoch).
+    pub day: i64,
+    /// The newest closed bar the runner has decided on. Older bars are
+    /// ignored, so a bar replayed after a reconnect is never traded twice.
+    pub last_bar_t: Option<i64>,
+    /// The newest fills, oldest first, at most [`MAX_FILLS`].
+    pub fills: Vec<PaperFill>,
 }
 
-/// What one closed bar produced: the new state and, if the gateway filled
-/// it, the paper fill.
-#[derive(Debug, Clone, PartialEq)]
-pub struct PaperOutcome {
-    pub state: PaperState,
-    /// `Some((side, quantity, price))` when a paper fill happened.
-    pub fill: Option<(crate::rules::IntentSide, i64, f64)>,
-    /// The intent the runner wants the gateway to check, if any.
-    pub intent: Option<crate::rules::OrderIntent>,
-}
-
-/// The runner: one evaluator, one position, one symbol, over closed bars.
-/// The same semantics as the backtester (signals on closed bars, exits
-/// before entries, stops on the touch), live.
+/// The runner: one evaluator, one position, one symbol.
 pub struct PaperRunner {
-    set: RuleSet,
     evaluator: Evaluator,
     state: PaperState,
-    /// The trailing watermark tracking, mirroring the evaluator's own.
-    pending_intent: Option<crate::rules::OrderIntent>,
-    /// The symbol everything is about.
     symbol: String,
-    /// The paper equity, for sizing.
+    /// Starting paper equity, rupees (sizing and the equity mark).
     equity: f64,
 }
 
 impl PaperRunner {
-    pub fn new(
-        set: RuleSet,
-        symbol: impl Into<String>,
-        equity: f64,
-    ) -> Result<Self, crate::evaluate::RuleError> {
+    pub fn new(set: RuleSet, symbol: impl Into<String>, equity: f64) -> Result<Self, RuleError> {
         let symbol = symbol.into();
         Ok(Self {
-            set: set.clone(),
             evaluator: Evaluator::new(set, equity)?.with_symbol(symbol.clone()),
             state: PaperState::default(),
-            pending_intent: None,
             symbol,
             equity,
         })
     }
 
-    /// The persisted state (position + day P&L), saved by the caller.
+    /// Restores a saved state. Call [`Self::warm_up`] afterwards (or with no
+    /// bars) so the evaluator adopts the saved position.
+    pub fn with_state(mut self, state: PaperState) -> Self {
+        self.state = state;
+        self.sync_evaluator();
+        self
+    }
+
+    pub fn symbol(&self) -> &str {
+        &self.symbol
+    }
+
+    /// The state to persist after every bar.
     pub fn state(&self) -> &PaperState {
         &self.state
     }
 
-    /// Restores a saved state: the position and day P&L. The evaluator's
-    /// indicator warm-up restarts; bars re-feed from the restored position.
-    pub fn restore(&mut self, state: PaperState) {
-        self.state = state;
+    /// Feeds already-closed history bars to the indicators without trading
+    /// them, then aligns the evaluator with the saved position. Bars that
+    /// closed while the app was not running are skipped, never traded late.
+    pub fn warm_up(&mut self, bars: &[Candle]) {
+        for bar in bars {
+            let _ = self.evaluator.feed(bar);
+        }
+        if let Some(last) = bars.last() {
+            self.state.last_bar_t = Some(self.state.last_bar_t.map_or(last.t, |t| t.max(last.t)));
+        }
+        self.sync_evaluator();
     }
 
-    /// The intent waiting to fill on the next bar's open, if any.
-    pub fn pending_intent(&self) -> Option<&crate::rules::OrderIntent> {
-        self.pending_intent.as_ref()
-    }
-
-    /// Feeds one closed bar. Returns the outcome: the (possibly updated)
-    /// state and the intent to hand the gateway. The CALLER fills pending
-    /// intents at the next bar's open by calling [`Self::fill_pending`]
-    /// with that bar.
-    pub fn feed(&mut self, bar: &Candle) -> PaperOutcome {
-        let mut fill = None;
-
-        // 1. A pending entry fills at this bar's open (the signal bar was
-        //    the previous closed bar).
-        if let Some(intent) = self.pending_intent.take()
-            && intent.side == crate::rules::IntentSide::Buy
-        {
-            let qty = intent.quantity;
-            if qty > 0 && bar.o > 0.0 {
-                let set_stop = intent.stop_loss.map(|f| bar.o * (1.0 - f));
-                let set_target = intent.target.map(|f| bar.o * (1.0 + f));
-                self.state.position = Some(PaperPosition {
-                    symbol: self.symbol.clone(),
-                    quantity: qty,
-                    entry_price: bar.o,
-                    entry_t: bar.t,
-                    high_watermark: Some(bar.h),
-                    stop: set_stop,
-                    target: set_target,
-                });
-                fill = Some((crate::rules::IntentSide::Buy, qty, bar.o));
-            }
-        }
-
-        // 2. If holding a position: stop/target exits on the touch, rule
-        //    exits on the close, trailing rides the watermark.
-        if let Some(pos) = self.state.position.clone() {
-            let stop_touched = pos.stop.is_some_and(|s| bar.l <= s);
-            let target_touched = pos.target.is_some_and(|t| bar.h >= t);
-            let watermark = pos.high_watermark.unwrap_or(bar.h).max(bar.h);
-            let trailing_stop = self
-                .evaluator_set()
-                .trailing_stop
-                .map(|f| watermark * (1.0 - f));
-            if stop_touched || target_touched {
-                let price = if stop_touched { pos.stop } else { pos.target }.unwrap_or(bar.c);
-                self.state.day_pnl += (price - pos.entry_price) * pos.quantity as f64;
-                let intent = crate::rules::OrderIntent {
-                    symbol: self.symbol.clone(),
-                    side: crate::rules::IntentSide::Sell,
-                    quantity: pos.quantity,
-                    signal_price: price,
-                    signal_bar_t: bar.t,
-                    stop_loss: None,
-                    target: None,
-                    trailing_stop: None,
-                };
-                fill = Some((crate::rules::IntentSide::Sell, pos.quantity, price));
-                self.state.position = None;
-                return PaperOutcome {
-                    state: self.state.clone(),
-                    fill,
-                    intent: Some(intent),
-                };
-            }
-            // A rule exit: the evaluator decided on this closed bar; the
-            // paper fill happens at this bar's close.
-            if let Some(intent) = self.evaluator.feed(bar)
-                && intent.side == crate::rules::IntentSide::Sell
-            {
-                let price = intent.signal_price;
-                self.state.day_pnl += (price - pos.entry_price) * pos.quantity as f64;
-                fill = Some((crate::rules::IntentSide::Sell, pos.quantity, price));
-                self.state.position = None;
-                return PaperOutcome {
-                    state: self.state.clone(),
-                    fill,
-                    intent: Some(intent),
-                };
-            }
-            // Still holding: trail the stop and mark the watermark.
-            let _ = trailing_stop;
-            self.state.position = Some(PaperPosition {
-                high_watermark: Some(watermark),
-                ..pos
-            });
-            return PaperOutcome {
-                state: self.state.clone(),
-                fill,
-                intent: None,
-            };
-        }
-
-        // 3. Flat: the evaluator's entry intent waits for the next open.
-        if let Some(intent) = self.evaluator.feed(bar)
-            && intent.side == crate::rules::IntentSide::Buy
-            && intent.quantity > 0
-        {
-            self.pending_intent = Some(intent.clone());
-            return PaperOutcome {
-                state: self.state.clone(),
-                fill: None,
-                intent: Some(intent),
-            };
-        }
-        PaperOutcome {
-            state: self.state.clone(),
-            fill: None,
-            intent: None,
-        }
-    }
-
-    /// Fills the pending entry at this bar's open, the caller's next-bar
-    /// convention. Returns the fill.
-    pub fn fill_pending(&mut self, bar: &Candle) -> Option<(i64, f64)> {
-        let intent = self.pending_intent.take()?;
-        let qty = intent.quantity;
-        if qty <= 0 || bar.o <= 0.0 {
+    /// Decides on one closed bar. Returns the intent for the gateway, if
+    /// any. A bar at or before the last one decided on returns `None`.
+    pub fn on_bar(&mut self, bar: &Candle) -> Option<OrderIntent> {
+        if self.state.last_bar_t.is_some_and(|t| bar.t <= t) {
             return None;
         }
-        self.state.position = Some(PaperPosition {
-            symbol: self.symbol.clone(),
-            quantity: qty,
-            entry_price: bar.o,
-            entry_t: bar.t,
-            high_watermark: Some(bar.h),
-            stop: intent.stop_loss.map(|f| bar.o * (1.0 - f)),
-            target: intent.target.map(|f| bar.o * (1.0 + f)),
+        self.state.last_bar_t = Some(bar.t);
+        self.roll_day(bar.t);
+        let intent = self.evaluator.feed(bar)?;
+        // The backtester's relevance rule: no pyramiding, no exits while
+        // flat.
+        let relevant = match intent.side {
+            IntentSide::Buy => self.state.position.is_none() && intent.quantity > 0,
+            IntentSide::Sell => self.state.position.is_some(),
+        };
+        if !relevant {
+            self.sync_evaluator();
+            return None;
+        }
+        Some(intent)
+    }
+
+    /// The gateway filled an intent this runner emitted.
+    pub fn on_fill(&mut self, side: IntentSide, quantity: i64, price: f64, t: i64) {
+        self.roll_day(t);
+        let pnl = match side {
+            IntentSide::Buy => {
+                self.state.position = Some(PaperPosition {
+                    symbol: self.symbol.clone(),
+                    quantity,
+                    entry_price: price,
+                    entry_t: t,
+                });
+                None
+            }
+            IntentSide::Sell => self.state.position.take().map(|pos| {
+                let pnl = (price - pos.entry_price) * pos.quantity as f64;
+                self.state.realised_pnl += pnl;
+                self.state.day_pnl += pnl;
+                pnl
+            }),
+        };
+        self.state.fills.push(PaperFill {
+            t,
+            side,
+            quantity,
+            price,
+            pnl,
         });
-        Some((qty, bar.o))
+        if self.state.fills.len() > MAX_FILLS {
+            let excess = self.state.fills.len() - MAX_FILLS;
+            self.state.fills.drain(..excess);
+        }
     }
 
-    fn evaluator_set(&self) -> &RuleSet {
-        // The runner keeps the set reachable through the evaluator's API;
-        // the trailing stop lives in the set.
-        &self.set
+    /// The gateway refused (or dropped) an intent: the evaluator assumed
+    /// it would fill, so bring it back in line with the real position.
+    pub fn on_rejected(&mut self) {
+        self.sync_evaluator();
     }
 
-    /// Equity snapshot (cash + position at `mark`), for the dashboard.
+    /// Paper equity marked at `mark` (rupees).
     pub fn equity(&self, mark: f64) -> f64 {
-        match &self.state.position {
-            Some(pos) => self.equity + (mark - pos.entry_price) * pos.quantity as f64,
-            None => self.equity,
+        let open = self
+            .state
+            .position
+            .as_ref()
+            .map_or(0.0, |p| (mark - p.entry_price) * p.quantity as f64);
+        self.equity + self.state.realised_pnl + open
+    }
+
+    fn sync_evaluator(&mut self) {
+        self.evaluator
+            .sync_position(self.state.position.as_ref().map(|p| p.entry_price));
+    }
+
+    fn roll_day(&mut self, t: i64) {
+        let day = (t + IST_OFFSET_MS).div_euclid(DAY_MS);
+        if day != self.state.day {
+            self.state.day = day;
+            self.state.day_pnl = 0.0;
         }
     }
 }
@@ -272,71 +239,126 @@ mod tests {
     }
 
     #[test]
-    fn an_entry_fills_on_the_next_bar_open() {
+    fn a_cross_emits_an_entry_intent_and_the_fill_opens_the_position() {
         let mut runner = PaperRunner::new(crossing_set(), "RELIANCE", 100_000.0).unwrap();
-        assert!(runner.feed(&candle(1, 99.0, 99.0)).fill.is_none());
-        assert!(runner.feed(&candle(2, 100.0, 100.0)).fill.is_none());
-        // The cross fires on the 3rd closed bar; the intent waits...
-        let o3 = runner.feed(&candle(3, 100.0, 101.0));
-        assert!(o3.intent.is_some(), "the gateway gets the entry intent");
-        assert!(o3.fill.is_none(), "the fill is on the NEXT bar's open");
-        // ...and fills on the 4th bar's open.
-        let fill = runner.fill_pending(&candle(4, 102.0, 103.0)).unwrap();
-        assert_eq!(fill, (1, 102.0));
-        assert!(runner.state().position.is_some());
-        assert_eq!(runner.state().position.as_ref().unwrap().entry_price, 102.0);
+        assert!(runner.on_bar(&candle(1, 99.0, 99.0)).is_none());
+        assert!(runner.on_bar(&candle(2, 100.0, 100.0)).is_none());
+        let intent = runner.on_bar(&candle(3, 100.0, 101.0)).expect("entry");
+        assert_eq!(intent.side, IntentSide::Buy);
+        assert_eq!(intent.signal_bar_t, 3);
+        assert!(runner.state().position.is_none(), "no fill until reported");
+        runner.on_fill(IntentSide::Buy, 1, 102.0, 4);
+        let pos = runner.state().position.as_ref().unwrap();
+        assert_eq!((pos.quantity, pos.entry_price, pos.entry_t), (1, 102.0, 4));
     }
 
     #[test]
-    fn a_rule_exit_fills_at_this_close() {
+    fn an_exit_fill_realises_the_pnl() {
         let mut runner = PaperRunner::new(crossing_set(), "RELIANCE", 100_000.0).unwrap();
-        runner.feed(&candle(1, 99.0, 99.0));
-        runner.feed(&candle(2, 100.0, 100.0));
-        runner.feed(&candle(3, 100.0, 101.0));
-        runner.fill_pending(&candle(4, 102.0, 103.0)).unwrap();
-        // The exit cross fires on the 5th closed bar; the paper fill is
-        // this bar's close (the runner's own fill model).
-        let o5 = runner.feed(&candle(5, 99.0, 99.0));
-        let (_, qty, price) = o5.fill.expect("exited");
-        assert_eq!(qty, 1);
-        assert_eq!(price, 99.0);
+        runner.on_bar(&candle(1, 99.0, 99.0));
+        runner.on_bar(&candle(2, 100.0, 100.0));
+        runner.on_bar(&candle(3, 100.0, 101.0)).unwrap();
+        runner.on_fill(IntentSide::Buy, 1, 102.0, 4);
+        assert!(runner.on_bar(&candle(4, 102.0, 103.0)).is_none());
+        let exit = runner.on_bar(&candle(5, 99.0, 99.0)).expect("exit");
+        assert_eq!(exit.side, IntentSide::Sell);
+        runner.on_fill(IntentSide::Sell, 1, 98.0, 6);
         assert!(runner.state().position.is_none());
-        assert!(runner.state().day_pnl < 0.0);
+        assert_eq!(runner.state().realised_pnl, -4.0);
+        assert_eq!(runner.state().fills.len(), 2);
+        assert_eq!(runner.state().fills[1].pnl, Some(-4.0));
+        assert_eq!(runner.equity(0.0), 99_996.0);
     }
 
     #[test]
-    fn a_stop_closes_the_position_at_the_stop() {
+    fn a_replayed_bar_is_never_decided_twice() {
         let set = RuleSet {
             entry: Rule::True,
-            stop_loss: Some(0.02),
             sizing: Sizing::FixedQuantity(1),
             ..RuleSet::default()
         };
         let mut runner = PaperRunner::new(set, "X", 100_000.0).unwrap();
-        runner.feed(&candle(1, 100.0, 100.0));
-        let fill = runner.fill_pending(&candle(2, 100.0, 100.0)).unwrap();
-        assert_eq!(fill, (1, 100.0));
-        // The next bar dips to the 2% stop.
-        let mut bar = candle(3, 99.0, 99.0);
-        bar.l = 98.0;
-        let outcome = runner.feed(&bar);
-        let (_, _, price) = outcome.fill.expect("stopped out");
-        assert_eq!(price, 98.0);
-        assert!(runner.state().position.is_none());
-        assert_eq!(runner.state().day_pnl, -2.0);
+        assert!(runner.on_bar(&candle(10, 100.0, 100.0)).is_some());
+        runner.on_rejected();
+        assert!(runner.on_bar(&candle(10, 100.0, 100.0)).is_none());
+        assert!(runner.on_bar(&candle(9, 100.0, 100.0)).is_none());
     }
 
     #[test]
-    fn equity_tracks_the_mark() {
+    fn a_rejected_entry_leaves_the_runner_flat_and_ready_to_retry() {
         let set = RuleSet {
             entry: Rule::True,
-            sizing: Sizing::FixedQuantity(10),
+            sizing: Sizing::FixedQuantity(1),
             ..RuleSet::default()
         };
         let mut runner = PaperRunner::new(set, "X", 100_000.0).unwrap();
-        runner.feed(&candle(1, 100.0, 100.0));
-        runner.fill_pending(&candle(2, 100.0, 100.0)).unwrap();
-        // Marked at 101: equity = 100k + (101 - 100) * 10.
-        assert_eq!(runner.equity(101.0), 100_010.0);
+        assert!(runner.on_bar(&candle(1, 100.0, 100.0)).is_some());
+        runner.on_rejected();
+        // The evaluator would think it was long without the resync, and
+        // never enter again.
+        let again = runner.on_bar(&candle(2, 100.0, 100.0)).expect("re-entry");
+        assert_eq!(again.side, IntentSide::Buy);
+    }
+
+    #[test]
+    fn state_round_trips_and_resumes_the_position() {
+        let mut runner = PaperRunner::new(crossing_set(), "RELIANCE", 100_000.0).unwrap();
+        runner.on_bar(&candle(1, 99.0, 99.0));
+        runner.on_bar(&candle(2, 100.0, 100.0));
+        runner.on_bar(&candle(3, 100.0, 101.0)).unwrap();
+        runner.on_fill(IntentSide::Buy, 1, 102.0, 4);
+        runner.on_bar(&candle(4, 102.0, 103.0));
+        let json = serde_json::to_string(runner.state()).unwrap();
+
+        // A restart: a fresh runner, the saved state, re-warmed history.
+        let saved: PaperState = serde_json::from_str(&json).unwrap();
+        let mut resumed = PaperRunner::new(crossing_set(), "RELIANCE", 100_000.0)
+            .unwrap()
+            .with_state(saved.clone());
+        resumed.warm_up(&[
+            candle(1, 99.0, 99.0),
+            candle(2, 100.0, 100.0),
+            candle(3, 100.0, 101.0),
+            candle(4, 102.0, 103.0),
+        ]);
+        assert_eq!(resumed.state(), &saved, "warm-up changes no state");
+        // The evaluator knows it is long, so the exit cross fires.
+        let exit = resumed.on_bar(&candle(5, 99.0, 99.0)).expect("exit");
+        assert_eq!(exit.side, IntentSide::Sell);
+    }
+
+    #[test]
+    fn warm_up_skips_bars_that_closed_while_the_app_was_off() {
+        let set = RuleSet {
+            entry: Rule::True,
+            sizing: Sizing::FixedQuantity(1),
+            ..RuleSet::default()
+        };
+        let mut runner = PaperRunner::new(set, "X", 100_000.0).unwrap();
+        runner.warm_up(&[candle(1, 100.0, 100.0), candle(2, 100.0, 100.0)]);
+        assert_eq!(runner.state().last_bar_t, Some(2));
+        assert!(runner.on_bar(&candle(2, 100.0, 100.0)).is_none());
+        assert!(runner.on_bar(&candle(3, 100.0, 100.0)).is_some());
+    }
+
+    #[test]
+    fn the_day_pnl_resets_at_the_ist_day_boundary() {
+        let mut runner = PaperRunner::new(crossing_set(), "RELIANCE", 100_000.0).unwrap();
+        // 2026-11-20 10:30 IST and 2026-11-21 10:30 IST.
+        let day1 = 1_795_150_800_000;
+        let day2 = day1 + DAY_MS;
+        runner.on_fill(IntentSide::Buy, 1, 100.0, day1);
+        runner.on_fill(IntentSide::Sell, 1, 110.0, day1 + 60_000);
+        assert_eq!(runner.state().day_pnl, 10.0);
+        runner.on_fill(IntentSide::Buy, 1, 100.0, day2);
+        assert_eq!(runner.state().day_pnl, 0.0, "a new day");
+        assert_eq!(runner.state().realised_pnl, 10.0, "the total carries");
+    }
+
+    #[test]
+    fn an_old_saved_state_still_loads() {
+        // Part 5's first cut stored only the day P&L.
+        let state: PaperState = serde_json::from_str(r#"{"day_pnl":0.0}"#).unwrap();
+        assert_eq!(state, PaperState::default());
     }
 }

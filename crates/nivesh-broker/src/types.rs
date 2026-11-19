@@ -7,7 +7,6 @@ use std::fmt;
 use chrono::{DateTime, Utc};
 use nivesh_core::InstrumentId;
 use secrecy::SecretString;
-use serde::{Deserialize, Serialize};
 
 use crate::status::OrderStatus;
 
@@ -115,12 +114,8 @@ pub struct Positions {
     pub net: Vec<Position>,
 }
 
-/// Buy or sell.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum Side {
-    Buy,
-    Sell,
-}
+/// Buy or sell (defined in `nivesh-core` so the risk engine can share it).
+pub use nivesh_core::Side;
 
 /// How the order executes. Limit is the default everywhere; market orders
 /// arrive in Part 6 behind market protection.
