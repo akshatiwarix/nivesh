@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-kill-reset"
+description = "Enables the kill_reset command without any pre-configured scope."
+commands.allow = ["kill_reset"]
+
+[[permission]]
+identifier = "deny-kill-reset"
+description = "Denies the kill_reset command without any pre-configured scope."
+commands.deny = ["kill_reset"]

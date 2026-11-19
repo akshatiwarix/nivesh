@@ -15,7 +15,7 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use nivesh_core::{Candle, FeedKind, Sourced};
 use nivesh_data::forming::FormingBar;
 use nivesh_data::{HubUpdate, QuoteHub, SubscriptionId, Topic};
-use nivesh_exec::PaperDesk;
+use nivesh_exec::{KillReason, KillState, PaperDesk};
 use nivesh_risk::{RiskEngine, RiskLimits};
 use nivesh_store::Store;
 use nivesh_strategy::{PaperRunner, PaperState, RuleSet};
@@ -94,16 +94,39 @@ fn now_ms() -> i64 {
 }
 
 impl PaperManager {
+    /// A desk over the store, with the kill switch as it was saved: an
+    /// engaged switch stays engaged across a restart.
     pub fn new(store: Arc<Store>) -> Self {
         let audit = Arc::new(crate::audit::StoreAudit(Arc::clone(&store)));
+        let mut desk = PaperDesk::new(RiskEngine::new(RiskLimits::default()), audit);
+        desk.restore_kill(load_kill(&store));
         Self {
             store,
-            desk: Arc::new(Mutex::new(PaperDesk::new(
-                RiskEngine::new(RiskLimits::default()),
-                audit,
-            ))),
+            desk: Arc::new(Mutex::new(desk)),
             running: Mutex::new(HashMap::new()),
         }
+    }
+
+    pub fn kill_state(&self) -> KillState {
+        lock(&self.desk).kill_state().clone()
+    }
+
+    /// Engages the kill switch now and saves it. Returns how many open
+    /// orders it cancelled (`None` if it was already engaged).
+    pub fn engage_kill(&self, detail: &str) -> Result<Option<usize>, IpcError> {
+        let mut desk = lock(&self.desk);
+        let cancelled = desk.engage_kill(KillReason::Manual, detail, now_ms());
+        save_kill(&self.store, desk.kill_state())?;
+        Ok(cancelled.map(|c| c.len()))
+    }
+
+    /// Resets the kill switch with the typed phrase (after the cool-down)
+    /// and saves it.
+    pub fn reset_kill(&self, typed: &str) -> Result<(), IpcError> {
+        let mut desk = lock(&self.desk);
+        desk.reset_kill(typed, now_ms())
+            .map_err(|e| IpcError::invalid_argument(e.to_string()))?;
+        save_kill(&self.store, desk.kill_state())
     }
 
     /// Starts (or restarts) a strategy on a stream. The saved state resumes
@@ -254,6 +277,34 @@ impl PaperManager {
     }
 }
 
+/// Where the kill switch's state lives.
+const KILL_SETTING: &str = "kill_switch";
+
+/// The saved kill switch. Unreadable state fails closed: engaged.
+fn load_kill(store: &Store) -> KillState {
+    match store.setting(KILL_SETTING) {
+        Ok(None) => KillState::default(),
+        Ok(Some(json)) => serde_json::from_str(&json).unwrap_or_else(|_| unreadable_kill()),
+        Err(_) => unreadable_kill(),
+    }
+}
+
+fn unreadable_kill() -> KillState {
+    KillState {
+        engaged: true,
+        reason: Some(KillReason::Manual),
+        detail: "the saved kill-switch state could not be read".into(),
+        engaged_at_ms: Some(now_ms()),
+    }
+}
+
+fn save_kill(store: &Store, state: &KillState) -> Result<(), IpcError> {
+    let json = serde_json::to_string(state)
+        .map_err(|e| IpcError::internal(format!("cannot encode the kill switch: {e}")))?;
+    store.set_setting(KILL_SETTING, &json)?;
+    Ok(())
+}
+
 /// The per-strategy loop: prices in, closed bars through the desk, state
 /// saved after every bar.
 #[allow(clippy::too_many_arguments)]
@@ -299,6 +350,12 @@ fn on_closed_bar(
     for refusal in &report.refused {
         tracing::info!(strategy_id, reason = %refusal, "paper order refused");
     }
+    if let Some(kill) = &report.kill {
+        tracing::warn!(strategy_id, reason = ?kill.reason, detail = %kill.detail, "kill switch engaged");
+        if let Err(err) = save_kill(store, kill) {
+            tracing::error!(error = ?err, "saving the kill switch failed");
+        }
+    }
     record.state = report.state;
     match record.encode() {
         Ok(json) => {
@@ -314,6 +371,42 @@ fn on_closed_bar(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_kill_switch_is_saved_and_survives_a_restart() {
+        let store = Arc::new(Store::open_in_memory().unwrap());
+        let manager = PaperManager::new(Arc::clone(&store));
+        assert!(!manager.kill_state().engaged);
+        assert_eq!(manager.engage_kill("test").unwrap(), Some(0));
+        assert_eq!(
+            manager.engage_kill("again").unwrap(),
+            None,
+            "already engaged"
+        );
+        // A restart: a new manager over the same store.
+        let restarted = PaperManager::new(Arc::clone(&store));
+        let state = restarted.kill_state();
+        assert!(state.engaged);
+        assert_eq!(state.reason, Some(KillReason::Manual));
+        assert!(
+            restarted.reset_kill(nivesh_exec::RESET_PHRASE).is_err(),
+            "cool-down"
+        );
+        let kinds: Vec<String> = store
+            .audit(&nivesh_store::AuditQuery::default())
+            .unwrap()
+            .into_iter()
+            .map(|r| r.kind)
+            .collect();
+        assert_eq!(kinds, ["kill.engaged"]);
+    }
+
+    #[test]
+    fn an_unreadable_kill_switch_fails_closed() {
+        let store = Store::open_in_memory().unwrap();
+        store.set_setting(KILL_SETTING, "not json").unwrap();
+        assert!(load_kill(&store).engaged);
+    }
 
     #[test]
     fn an_old_record_decodes_with_the_v1_stream() {
