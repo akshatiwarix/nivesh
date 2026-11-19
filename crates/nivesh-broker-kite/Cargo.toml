@@ -1,0 +1,28 @@
+[package]
+name = "nivesh-broker-kite"
+description = "Zerodha Kite Connect adapter for Nivesh: login, REST account data and the WebSocket ticker. Read-only in Part 4; order placement arrives in Part 6 behind the live-trading feature."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+async-trait.workspace = true
+chrono.workspace = true
+governor.workspace = true
+nivesh-broker = { path = "../nivesh-broker" }
+nivesh-core = { path = "../nivesh-core" }
+reqwest.workspace = true
+secrecy.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+url.workspace = true
+
+[dev-dependencies]
+wiremock.workspace = true
+
+[lints]
+workspace = true
