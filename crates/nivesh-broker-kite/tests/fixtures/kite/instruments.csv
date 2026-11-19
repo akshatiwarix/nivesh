@@ -1,0 +1,6 @@
+instrument_token,exchange_token,tradingsymbol,name,last_price,expiry,strike,tick_size,lot_size,instrument_type,segment,exchange
+738561,100000,RELIANCE,"Reliance Industries",1375.60,,,0.05,1,EQ,NSE,NSE
+2953217,100001,TCS,"Tata Consultancy Services Limited",3421.00,,,0.05,1,EQ,NSE,NSE
+1510401,100002,RELIANCE,"Reliance Industries",1375.00,,,0.05,1,EQ,BSE,BSE
+999999,100003,RELIANCE25NOVFUT,"Reliance Futures",1370.00,2026-11-26,,0.05,250,FUT,NFO,NFO
+12345,100004,NIFTY,"Nifty Index",25000.00,,,0.05,25,INDEX,NSE,NSE

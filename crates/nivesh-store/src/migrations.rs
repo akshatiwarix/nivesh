@@ -75,6 +75,24 @@ const MIGRATIONS: &[&str] = &[
 
     INSERT INTO watchlists (name, position) VALUES ('WATCHLIST', 0);
     ",
+    // v5: broker instrument tokens (Part 4). One row per instrument the
+    // broker streams, refreshed daily from the broker's instrument dump. The
+    // broker column keeps room for more adapters than Kite.
+    "
+    CREATE TABLE broker_tokens (
+        broker           TEXT NOT NULL,
+        instrument_token INTEGER NOT NULL,
+        exchange         TEXT NOT NULL,
+        symbol           TEXT NOT NULL,
+        kind             TEXT NOT NULL,
+        tick_size        REAL NOT NULL,
+        lot_size         INTEGER NOT NULL,
+        PRIMARY KEY (broker, instrument_token)
+    ) STRICT, WITHOUT ROWID;
+
+    CREATE INDEX broker_tokens_instrument
+        ON broker_tokens (broker, exchange, symbol);
+    ",
 ];
 
 /// The schema version a fully migrated database has.
@@ -132,6 +150,7 @@ mod tests {
         assert_eq!(
             tables(&conn),
             [
+                "broker_tokens",
                 "command_history",
                 "data_cache",
                 "instruments",

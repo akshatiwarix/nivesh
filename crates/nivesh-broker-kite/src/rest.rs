@@ -141,6 +141,37 @@ impl KiteRest {
         path: &str,
         query: &[(String, String)],
     ) -> Result<Value, BrokerError> {
+        let response = self.send(class, path, query).await?;
+        let status = response.status();
+        let headers = response.headers().clone();
+        decode(status, &headers, envelope_body(response).await?)
+    }
+
+    /// `GET path` as raw text: the instrument dump is a plain CSV, not a
+    /// JSON envelope.
+    pub async fn get_text(&self, class: RateClass, path: &str) -> Result<String, BrokerError> {
+        let response = self.send(class, path, &[]).await?;
+        if !response.status().is_success() {
+            return Err(match response.status().as_u16() {
+                403 => BrokerError::Unauthorized,
+                429 => BrokerError::RateLimited { retry_after: None },
+                s => BrokerError::Upstream(format!("instrument dump: HTTP {s}")),
+            });
+        }
+        response
+            .text()
+            .await
+            .map_err(|e| BrokerError::Upstream(format!("reading the dump: {e}")))
+    }
+
+    /// One rate-limited GET with the session headers; the caller owns the
+    /// response.
+    async fn send(
+        &self,
+        class: RateClass,
+        path: &str,
+        query: &[(String, String)],
+    ) -> Result<reqwest::Response, BrokerError> {
         let token = {
             let guard = self
                 .token
@@ -157,8 +188,7 @@ impl KiteRest {
             RateClass::General => self.limits.general.wait().await,
         }
         let url = self.url(path, query)?;
-        let response = self
-            .http
+        self.http
             .get(url)
             .header("X-Kite-Version", KITE_VERSION)
             .header(
@@ -173,10 +203,7 @@ impl KiteRest {
                 } else {
                     BrokerError::Upstream(e.to_string())
                 }
-            })?;
-        let status = response.status();
-        let headers = response.headers().clone();
-        decode(status, &headers, envelope_body(response).await?)
+            })
     }
 
     /// `POST path` with form fields, as the login token exchange needs. No

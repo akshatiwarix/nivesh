@@ -9,10 +9,12 @@ publish.workspace = true
 [dependencies]
 async-trait.workspace = true
 chrono = { workspace = true, features = ["clock"] }
+csv.workspace = true
 governor.workspace = true
 nivesh-broker = { path = "../nivesh-broker" }
 nivesh-core = { path = "../nivesh-core" }
 nivesh-secrets = { path = "../nivesh-secrets" }
+nivesh-store = { path = "../nivesh-store" }
 reqwest.workspace = true
 secrecy.workspace = true
 serde.workspace = true

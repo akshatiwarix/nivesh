@@ -11,6 +11,7 @@
 //!
 //! Secrets never go in this database (they live in the OS keychain).
 
+mod broker_tokens;
 mod cache;
 mod error;
 mod instruments;
@@ -18,6 +19,7 @@ mod migrations;
 mod store;
 mod watchlists;
 
+pub use broker_tokens::BrokerTokenRow;
 pub use cache::CacheRow;
 pub use error::StoreError;
 pub use instruments::InstrumentRow;
