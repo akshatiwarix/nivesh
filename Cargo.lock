@@ -2857,6 +2857,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "nivesh-broker"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "nivesh-core",
+ "secrecy",
+ "serde",
+ "thiserror 2.0.21",
+ "tokio",
+ "url",
+]
+
+[[package]]
 name = "nivesh-core"
 version = "0.1.0"
 dependencies = [

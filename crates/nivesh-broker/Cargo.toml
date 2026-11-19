@@ -1,0 +1,20 @@
+[package]
+name = "nivesh-broker"
+description = "Broker adapter traits and account domain types for Nivesh. Part 4 is read-only: order placement arrives later behind BrokerExecution."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+async-trait.workspace = true
+chrono.workspace = true
+nivesh-core = { path = "../nivesh-core" }
+secrecy.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+url.workspace = true
+
+[lints]
+workspace = true
