@@ -37,6 +37,14 @@ pub enum BrokerError {
 }
 
 impl BrokerError {
+    /// Whether a failed **order placement** may still have reached the
+    /// broker: a timeout or an upstream failure after the request left.
+    /// Such an order's fate is unknown. It must be looked up by its client
+    /// tag (reconciled), never placed again blindly.
+    pub fn placement_ambiguous(&self) -> bool {
+        matches!(self, Self::Timeout | Self::Upstream(_))
+    }
+
     /// Whether waiting and trying the same read again can plausibly succeed.
     /// `Unauthorized` never is: the user has to log in again.
     pub fn retryable(&self) -> bool {

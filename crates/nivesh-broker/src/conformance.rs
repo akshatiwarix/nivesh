@@ -96,3 +96,61 @@ pub fn assert_status_mapping(cases: &[(crate::OrderStatus, crate::OrderStatus, b
         }
     }
 }
+
+/// What a scripted broker answers the execution suite with.
+#[derive(Debug, Clone)]
+pub struct ExecutionExpectations {
+    /// The id the scripted broker gives the placed order.
+    pub placed_id: crate::BrokerOrderId,
+    /// The tag the order is placed under; the scripted order book holds an
+    /// order with it.
+    pub tag: crate::OrderTag,
+    /// A tag the scripted order book does not hold.
+    pub unknown_tag: crate::OrderTag,
+}
+
+/// Runs the execution suite against `broker`: placing an approved order
+/// returns the broker's id, the order is found again by its tag (the
+/// reconciliation path), an unknown tag finds nothing, a cancel is
+/// acknowledged, and an expired approval is refused before anything is sent.
+pub async fn execution_suite(
+    broker: &dyn crate::BrokerExecution,
+    fresh: nivesh_risk::ApprovedOrder,
+    expired: nivesh_risk::ApprovedOrder,
+    expected: &ExecutionExpectations,
+) -> Result<(), BrokerError> {
+    let ack = broker.place(fresh, &expected.tag).await?;
+    assert_eq!(
+        ack.id, expected.placed_id,
+        "place() must return the broker's order id"
+    );
+
+    let found = broker.find_by_tag(&expected.tag).await?;
+    assert_eq!(
+        found.as_ref().map(|o| &o.id),
+        Some(&expected.placed_id),
+        "find_by_tag() must find the placed order by its tag"
+    );
+    assert_eq!(
+        found.and_then(|o| o.tag),
+        Some(expected.tag.as_str().to_owned()),
+        "orders must carry their client tag back"
+    );
+    assert!(
+        broker.find_by_tag(&expected.unknown_tag).await?.is_none(),
+        "an unknown tag must find nothing"
+    );
+
+    let cancelled = broker.cancel(&expected.placed_id).await?;
+    assert_eq!(
+        cancelled.id, expected.placed_id,
+        "cancel() must acknowledge the order"
+    );
+
+    let refused = broker.place(expired, &expected.unknown_tag).await;
+    assert!(
+        matches!(refused, Err(BrokerError::InvalidRequest(_))),
+        "an expired approval must be refused, got {refused:?}"
+    );
+    Ok(())
+}
