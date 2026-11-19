@@ -15,6 +15,7 @@
 pub mod audit;
 pub mod desk;
 pub mod kill;
+pub mod reconcile;
 
 use nivesh_broker::BrokerError;
 use nivesh_core::{Candle, Side};
@@ -31,6 +32,9 @@ pub use desk::{PaperDesk, StepReport};
 pub use kill::{
     KillError, KillMonitor, KillReason, KillState, KillSwitch, KillTriggers, Observation,
     RESET_COOLDOWN_MS, RESET_PHRASE,
+};
+pub use reconcile::{
+    LiveBook, Mismatch, Reconciliation, TrackedOrder, broker_shares, reconcile, reconcile_with,
 };
 
 /// What a strategy asks the gateway for.
@@ -85,6 +89,10 @@ pub enum GatewayError {
     /// The kill switch is engaged: no new orders.
     #[error("the kill switch is engaged")]
     KillSwitchEngaged,
+    /// The strategy is paused until its books are reconciled or the user
+    /// resumes it.
+    #[error("the strategy is paused: {0}")]
+    StrategyPaused(String),
     /// A kill-switch reset was refused.
     #[error(transparent)]
     Kill(#[from] KillError),
@@ -153,6 +161,8 @@ pub struct OrderGateway {
     paper: Arc<dyn PaperBroker>,
     audit: Arc<dyn AuditSink>,
     kill: KillSwitch,
+    /// Paused strategies and why.
+    paused: std::collections::BTreeMap<i64, String>,
     /// The last closed bar per (strategy, symbol) stream.
     last_closed: HashMap<(i64, String), Candle>,
     /// Approved orders waiting to fill, in approval order.
@@ -187,6 +197,7 @@ impl OrderGateway {
             paper,
             audit,
             kill: KillSwitch::default(),
+            paused: std::collections::BTreeMap::new(),
             last_closed: HashMap::new(),
             queued: Vec::new(),
             approvals: Vec::new(),
@@ -334,6 +345,43 @@ impl OrderGateway {
         Ok(())
     }
 
+    /// Pauses a strategy: its intents are refused (audited) until it is
+    /// resumed. Its queued orders are cancelled. Returns `false` if it was
+    /// already paused.
+    pub fn pause(&mut self, strategy_id: i64, reason: &str, now_ms: i64) -> bool {
+        if self.paused.contains_key(&strategy_id) {
+            return false;
+        }
+        // Like the kill switch, pausing never waits on the audit log.
+        let _ = self.audit.record(
+            now_ms,
+            &AuditEvent::StrategyPaused {
+                strategy_id,
+                reason: reason.to_owned(),
+            },
+        );
+        self.paused.insert(strategy_id, reason.to_owned());
+        self.queued.retain(|q| q.strategy_id != strategy_id);
+        true
+    }
+
+    /// Resumes a paused strategy; audited first.
+    pub fn resume(&mut self, strategy_id: i64, now_ms: i64) -> Result<(), GatewayError> {
+        if !self.paused.contains_key(&strategy_id) {
+            return Ok(());
+        }
+        self.audit
+            .record(now_ms, &AuditEvent::StrategyResumed { strategy_id })
+            .map_err(GatewayError::AuditFailed)?;
+        self.paused.remove(&strategy_id);
+        Ok(())
+    }
+
+    /// Why a strategy is paused, if it is.
+    pub fn paused(&self, strategy_id: i64) -> Option<&str> {
+        self.paused.get(&strategy_id).map(String::as_str)
+    }
+
     /// Submits an intent. A late intent is refused before the risk check;
     /// an approved one is queued to fill on the stream's next bar. Returns
     /// the risk decision id.
@@ -361,6 +409,13 @@ impl OrderGateway {
                 strategy_id: intent.strategy_id,
             })?;
             return Err(GatewayError::KillSwitchEngaged);
+        }
+        if let Some(reason) = self.paused.get(&intent.strategy_id) {
+            let reason = reason.clone();
+            audit(AuditEvent::PausedBlocked {
+                strategy_id: intent.strategy_id,
+            })?;
+            return Err(GatewayError::StrategyPaused(reason));
         }
         let fresh = self
             .last_closed
