@@ -2994,6 +2994,8 @@ dependencies = [
  "nivesh-broker",
  "nivesh-core",
  "nivesh-risk",
+ "nivesh-strategy",
+ "proptest",
  "serde",
  "thiserror 2.0.21",
 ]
