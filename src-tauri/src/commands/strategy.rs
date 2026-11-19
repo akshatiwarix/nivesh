@@ -4,16 +4,17 @@
 
 use std::sync::Arc;
 
-use nivesh_store::Store;
+use nivesh_store::{FinishedBacktest, Store};
 use nivesh_strategy::{
-    BacktestOptions, RuleSet, Template, TemplateParams, WalkForward, WalkForwardOptions, backtest,
-    walk_forward,
+    BacktestOptions, CurvePoint, RuleSet, Template, TemplateParams, WalkForward,
+    WalkForwardOptions, backtest, walk_forward,
 };
 use tauri::State;
 
 use crate::ipc::IpcError;
 use crate::ipc::strategy::{
-    BacktestResultDto, BacktestTradeDto, PaperFillDto, PaperStateDto, StrategyDto, WalkForwardDto,
+    BacktestResultDto, BacktestTradeDto, CurvePointDto, PaperFillDto, PaperStateDto, StrategyDto,
+    WalkForwardDto,
 };
 use crate::paper::{PaperManager, PaperRecord};
 
@@ -181,13 +182,19 @@ pub async fn backtest_strategy(
         .map(serde_json::to_string)
         .transpose()
         .map_err(|e| IpcError::internal(format!("cannot encode the walk-forward: {e}")))?;
+    let curve = result.curve(&candles);
+    let curve_json = serde_json::to_string(&curve)
+        .map_err(|e| IpcError::internal(format!("cannot encode the curve: {e}")))?;
     store.finish_backtest(
         run_id,
-        now_ms(),
-        result.total_pnl,
-        result.max_drawdown,
-        &trades_json,
-        walk_json.as_deref(),
+        &FinishedBacktest {
+            finished_at: now_ms(),
+            total_pnl: result.total_pnl,
+            max_drawdown: result.max_drawdown,
+            trades_json: &trades_json,
+            walk_forward_json: walk_json.as_deref(),
+            curve_json: Some(&curve_json),
+        },
     )?;
 
     Ok(BacktestResultDto {
@@ -201,6 +208,7 @@ pub async fn backtest_strategy(
         bars_in_market: result.bars_in_market,
         total_bars: result.total_bars,
         walk_forward: walk.as_ref().map(WalkForwardDto::from),
+        curve: curve.iter().map(CurvePointDto::from).collect(),
     })
 }
 
@@ -234,6 +242,14 @@ pub async fn backtest_result(
             .and_then(|json| serde_json::from_str::<WalkForward>(json).ok())
             .as_ref()
             .map(WalkForwardDto::from),
+        curve: run
+            .curve_json
+            .as_deref()
+            .and_then(|json| serde_json::from_str::<Vec<CurvePoint>>(json).ok())
+            .unwrap_or_default()
+            .iter()
+            .map(CurvePointDto::from)
+            .collect(),
     })
 }
 

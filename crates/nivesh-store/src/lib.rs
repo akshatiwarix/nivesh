@@ -26,5 +26,5 @@ pub use error::StoreError;
 pub use instruments::InstrumentRow;
 pub use migrations::LATEST_VERSION;
 pub use store::{Store, WindowState};
-pub use strategy::{BacktestRow, StrategyRow};
+pub use strategy::{BacktestRow, FinishedBacktest, StrategyRow};
 pub use watchlists::{MAX_ITEMS_PER_LIST, MAX_LISTS, MAX_NAME_LEN, WatchItem, Watchlist};

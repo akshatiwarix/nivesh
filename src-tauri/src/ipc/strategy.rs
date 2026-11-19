@@ -38,6 +38,28 @@ pub struct BacktestTradeDto {
     pub exit_t: i64,
 }
 
+/// One point of a backtest's equity curve.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct CurvePointDto {
+    /// UTC ms of the bar it is marked at.
+    pub t: i64,
+    /// Equity at the bar's close, rupees.
+    pub equity: f64,
+    /// Below the running peak, rupees (zero or positive).
+    pub drawdown: f64,
+}
+
+impl From<&nivesh_strategy::CurvePoint> for CurvePointDto {
+    fn from(p: &nivesh_strategy::CurvePoint) -> Self {
+        Self {
+            t: p.t,
+            equity: p.equity,
+            drawdown: p.drawdown,
+        }
+    }
+}
+
 /// One walk-forward window.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -113,6 +135,9 @@ pub struct BacktestResultDto {
     /// The out-of-sample / walk-forward check; `null` when the series was
     /// too short to split, or for runs saved before it existed.
     pub walk_forward: Option<WalkForwardDto>,
+    /// Equity and drawdown per bar, oldest first; empty for runs saved
+    /// before curves were kept.
+    pub curve: Vec<CurvePointDto>,
 }
 
 /// One paper fill.
