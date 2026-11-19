@@ -7,7 +7,7 @@ pub mod rules;
 pub mod templates;
 
 pub use evaluate::Evaluator;
-pub use templates::Template;
 pub use rules::{
     Comparison, CrossDirection, IntentSide, Operand, OrderIntent, Rule, RuleSet, Sizing,
 };
+pub use templates::Template;

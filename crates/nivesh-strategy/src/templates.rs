@@ -1,9 +1,7 @@
 //! The built-in templates: the three strategies the builder starts from.
 //! Each template fills a [`RuleSet`] with parameters the user edits.
 
-use crate::rules::{
-    Comparison, CrossDirection, Operand, Rule, RuleSet, Sizing,
-};
+use crate::rules::{Comparison, CrossDirection, Operand, Rule, RuleSet, Sizing};
 
 /// A template's editable parameters, in the order the builder shows them.
 #[derive(Debug, Clone, PartialEq)]
@@ -175,14 +173,8 @@ mod tests {
             target: None,
             trailing_stop: Some(0.02),
         });
-        assert_eq!(
-            set.entry.describe(),
-            "SMA(10) crossed above SMA(40)"
-        );
-        assert_eq!(
-            set.exit.describe(),
-            "SMA(10) crossed below SMA(40)"
-        );
+        assert_eq!(set.entry.describe(), "SMA(10) crossed above SMA(40)");
+        assert_eq!(set.exit.describe(), "SMA(10) crossed below SMA(40)");
         assert_eq!(set.sizing, Sizing::FixedQuantity(3));
         assert_eq!(set.stop_loss, Some(0.03));
         assert_eq!(set.target, None);
