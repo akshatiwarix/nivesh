@@ -5,12 +5,15 @@
 use std::sync::Arc;
 
 use nivesh_store::Store;
-use nivesh_strategy::{BacktestOptions, RuleSet, Template, TemplateParams, backtest};
+use nivesh_strategy::{
+    BacktestOptions, RuleSet, Template, TemplateParams, WalkForward, WalkForwardOptions, backtest,
+    walk_forward,
+};
 use tauri::State;
 
 use crate::ipc::IpcError;
 use crate::ipc::strategy::{
-    BacktestResultDto, BacktestTradeDto, PaperFillDto, PaperStateDto, StrategyDto,
+    BacktestResultDto, BacktestTradeDto, PaperFillDto, PaperStateDto, StrategyDto, WalkForwardDto,
 };
 use crate::paper::{PaperManager, PaperRecord};
 
@@ -168,15 +171,23 @@ pub async fn backtest_strategy(
 
     let run_id = store.open_backtest(row.id, &id.to_string(), &interval, &range, now_ms())?;
     let mut progress = |_, _| true;
-    let result = backtest(set, &candles, BacktestOptions::default(), &mut progress);
+    let options = BacktestOptions::default();
+    let walk = walk_forward(&set, &candles, options, WalkForwardOptions::default());
+    let result = backtest(set, &candles, options, &mut progress);
     let trades_json = serde_json::to_string(&result.trades)
         .map_err(|e| IpcError::internal(format!("cannot encode the trades: {e}")))?;
+    let walk_json = walk
+        .as_ref()
+        .map(serde_json::to_string)
+        .transpose()
+        .map_err(|e| IpcError::internal(format!("cannot encode the walk-forward: {e}")))?;
     store.finish_backtest(
         run_id,
         now_ms(),
         result.total_pnl,
         result.max_drawdown,
         &trades_json,
+        walk_json.as_deref(),
     )?;
 
     Ok(BacktestResultDto {
@@ -189,6 +200,7 @@ pub async fn backtest_strategy(
         trades: trade_dtos(&result.trades),
         bars_in_market: result.bars_in_market,
         total_bars: result.total_bars,
+        walk_forward: walk.as_ref().map(WalkForwardDto::from),
     })
 }
 
@@ -216,6 +228,12 @@ pub async fn backtest_result(
         trades: trade_dtos(&trades),
         bars_in_market: 0,
         total_bars: 0,
+        walk_forward: run
+            .walk_forward_json
+            .as_deref()
+            .and_then(|json| serde_json::from_str::<WalkForward>(json).ok())
+            .as_ref()
+            .map(WalkForwardDto::from),
     })
 }
 

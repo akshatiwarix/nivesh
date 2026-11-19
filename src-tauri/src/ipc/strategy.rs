@@ -38,6 +38,61 @@ pub struct BacktestTradeDto {
     pub exit_t: i64,
 }
 
+/// One walk-forward window.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct WindowDto {
+    /// UTC ms of the window's first and last bar.
+    pub start_t: i64,
+    pub end_t: i64,
+    pub trades: usize,
+    /// Winning trades over all trades; `null` without trades.
+    pub win_rate: Option<f64>,
+    /// Net of charges, rupees.
+    pub net_pnl: f64,
+    pub charges: f64,
+    pub max_drawdown: f64,
+}
+
+impl From<&nivesh_strategy::WindowResult> for WindowDto {
+    fn from(w: &nivesh_strategy::WindowResult) -> Self {
+        Self {
+            start_t: w.start_t,
+            end_t: w.end_t,
+            trades: w.trades,
+            win_rate: w.win_rate(),
+            net_pnl: w.net_pnl,
+            charges: w.charges,
+            max_drawdown: w.max_drawdown,
+        }
+    }
+}
+
+/// The out-of-sample and walk-forward check of a backtest.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct WalkForwardDto {
+    /// The first 70% of the bars, and the last 30%.
+    pub in_sample: WindowDto,
+    pub out_of_sample: WindowDto,
+    /// Consecutive equal windows, oldest first.
+    pub windows: Vec<WindowDto>,
+    pub profitable_windows: usize,
+    pub worst_window_pnl: f64,
+}
+
+impl From<&nivesh_strategy::WalkForward> for WalkForwardDto {
+    fn from(w: &nivesh_strategy::WalkForward) -> Self {
+        Self {
+            in_sample: (&w.in_sample).into(),
+            out_of_sample: (&w.out_of_sample).into(),
+            windows: w.windows.iter().map(WindowDto::from).collect(),
+            profitable_windows: w.profitable_windows,
+            worst_window_pnl: w.worst_window_pnl,
+        }
+    }
+}
+
 /// A finished backtest.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -55,6 +110,9 @@ pub struct BacktestResultDto {
     pub trades: Vec<BacktestTradeDto>,
     pub bars_in_market: usize,
     pub total_bars: usize,
+    /// The out-of-sample / walk-forward check; `null` when the series was
+    /// too short to split, or for runs saved before it existed.
+    pub walk_forward: Option<WalkForwardDto>,
 }
 
 /// One paper fill.
