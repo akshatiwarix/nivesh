@@ -23,8 +23,8 @@ use crate::movers::compute_movers;
 use crate::news::TagIndex;
 use crate::singleflight::SingleFlight;
 use crate::{
-    Capabilities, DataError, DataProvider, HistoryRequest, Movers, MoversRequest, NewsItem,
-    NewsRequest,
+    Capabilities, DataError, DataProvider, HistoryRequest, MostActiveInfo, Movers, MoversRequest,
+    NewsItem, NewsRequest, most_active_from_activity,
 };
 
 /// Headlines kept in the cached list; requests filter and trim it.
@@ -65,6 +65,7 @@ pub(crate) struct Inner {
     status_tx: broadcast::Sender<ProviderStatus>,
     cache: Option<Arc<CacheLayer>>,
     constituents: Option<Arc<ConstituentsList>>,
+    activity: Option<Arc<crate::activity::ActivityList>>,
     tagger: Option<Arc<TagIndex>>,
     news_flight: SingleFlight<(), Sourced<Vec<NewsItem>>>,
     quotes_flight: SingleFlight<Vec<InstrumentId>, Vec<Sourced<Quote>>>,
@@ -86,6 +87,7 @@ pub struct MarketDataBuilder {
     clock: Arc<dyn Clock>,
     cache: Option<CacheConfig>,
     constituents: Option<Arc<ConstituentsList>>,
+    activity: Option<Arc<crate::activity::ActivityList>>,
     tagger: Option<Arc<TagIndex>>,
 }
 
@@ -129,6 +131,14 @@ impl MarketDataBuilder {
         self
     }
 
+    /// End-of-day per-stock activity (the daily bhavcopy), which ranks the
+    /// most-active list and sizes the heatmap's tiles when no provider
+    /// reports per-stock volume.
+    pub fn activity(mut self, list: Arc<crate::activity::ActivityList>) -> Self {
+        self.activity = Some(list);
+        self
+    }
+
     pub fn build(self) -> MarketData {
         let breakers = self
             .providers
@@ -149,6 +159,7 @@ impl MarketDataBuilder {
                 status_tx,
                 cache,
                 constituents: self.constituents,
+                activity: self.activity,
                 tagger: self.tagger,
                 news_flight: SingleFlight::new(),
                 quotes_flight: SingleFlight::new(),
@@ -186,6 +197,7 @@ impl MarketData {
             clock: Arc::new(SystemClock::new()),
             cache: None,
             constituents: None,
+            activity: None,
             tagger: None,
         }
     }
@@ -371,11 +383,12 @@ impl MarketData {
         }
     }
 
-    /// NSE's own gainers/losers where it has them for this index, with the
-    /// most-active list ranked from the same source's constituent volumes.
-    /// Otherwise everything is ranked from the index's constituent quotes
-    /// (whoever priced them, with their provenance), so the three lists never
-    /// mix providers.
+    /// NSE's own gainers/losers where it has them for this index. The
+    /// most-active list is ranked from the same source's constituent volumes
+    /// when it has them, and otherwise from the last full session's traded
+    /// value (the daily bhavcopy), with the rows priced by whoever priced the
+    /// index's constituents — always labelled with that provenance in
+    /// [`Movers::most_active_info`], never silently spliced in.
     pub(crate) async fn fetch_movers(
         &self,
         req: &MoversRequest,
@@ -400,6 +413,15 @@ impl MarketData {
                             movers.data.most_active =
                                 compute_movers(&snap.data.constituents, request.limit).most_active;
                         }
+                        if movers.data.most_active.is_empty()
+                            && let Ok(snap) = this.index_snapshot(request.index).await
+                        {
+                            this.fill_most_active_from_activity(
+                                &snap,
+                                &mut movers.data,
+                                request.limit,
+                            );
+                        }
                         Ok(movers)
                     }
                     Err(direct_error) => {
@@ -410,7 +432,8 @@ impl MarketData {
                         if snap.data.constituents.is_empty() {
                             return Err(DataError::NotFound);
                         }
-                        let movers = compute_movers(&snap.data.constituents, request.limit);
+                        let mut movers = compute_movers(&snap.data.constituents, request.limit);
+                        this.fill_most_active_from_activity(&snap, &mut movers, request.limit);
                         Ok(Sourced {
                             data: movers,
                             provenance: snap.provenance,
@@ -419,6 +442,34 @@ impl MarketData {
                 }
             })
             .await
+    }
+
+    /// Ranks the snapshot's constituents by EOD traded value when the list is
+    /// otherwise empty. The rows keep the snapshot's provenance and the list
+    /// is labelled with the bhavcopy's date, so the panel can show that the
+    /// ranking is a day old even when its prices are live-ish.
+    fn fill_most_active_from_activity(
+        &self,
+        snap: &Sourced<IndexSnapshot>,
+        movers: &mut Movers,
+        limit: usize,
+    ) {
+        if !movers.most_active.is_empty() {
+            return;
+        }
+        let Some(activity) = &self.inner.activity else {
+            return;
+        };
+        let table = activity.snapshot();
+        let active = most_active_from_activity(&table, &snap.data.constituents, limit);
+        if active.is_empty() {
+            return;
+        }
+        movers.most_active = active;
+        movers.most_active_info = Some(MostActiveInfo {
+            provenance: snap.provenance.clone(),
+            ranked_as_of: table.as_of.clone(),
+        });
     }
 
     /// Recent headlines, newest first, optionally only those about
@@ -656,6 +707,7 @@ mod tests {
     use nivesh_core::{Candle, FeedKind, Interval, Provenance};
 
     use super::*;
+    use crate::activity::{ActivityList, ActivityRow, ActivityTable};
     use crate::clock::ManualClock;
     use crate::health::HealthState;
     use crate::mock::MockProvider;
@@ -986,6 +1038,33 @@ mod tests {
             .build()
     }
 
+    /// An EOD activity table with the given turnover per symbol (rupees).
+    fn activity(rows: &[(&str, u64, f64)]) -> Arc<ActivityList> {
+        let mut table = ActivityTable {
+            as_of: "2026-11-18".into(),
+            source: crate::activity::SOURCE.into(),
+            ..ActivityTable::default()
+        };
+        for (symbol, volume, turnover) in rows {
+            table.rows.insert(
+                (*symbol).to_owned(),
+                ActivityRow {
+                    volume: *volume,
+                    turnover: *turnover,
+                },
+            );
+        }
+        Arc::new(ActivityList::from_table(table))
+    }
+
+    fn with_activity(r: &Rig, list: Arc<ActivityList>) -> MarketData {
+        MarketData::builder()
+            .provider(r.nse.clone())
+            .provider(r.yahoo.clone())
+            .activity(list)
+            .build()
+    }
+
     /// Yahoo prices every symbol it is asked about.
     fn yahoo_prices_everything(r: &Rig, symbols: &[&str]) {
         r.yahoo.repeat_quotes(Ok(symbols
@@ -1147,7 +1226,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn movers_never_splice_a_second_source_into_nses_lists() {
+    async fn without_an_activity_source_nses_lists_stay_pure() {
         let r = rig();
         r.nse.repeat_movers(Ok(nse_movers("TATASTEEL")));
         // NSE's index snapshot fails, so only Yahoo could price the constituents.
@@ -1159,6 +1238,66 @@ mod tests {
         let m = r.md.movers(&REQ).await.unwrap();
         assert_eq!(m.provenance.provider, ProviderId::Nse);
         assert!(m.data.most_active.is_empty());
+    }
+
+    #[tokio::test]
+    async fn most_active_is_ranked_from_eod_turnover_when_the_source_has_no_volumes() {
+        let r = rig();
+        let md = with_activity(&r, activity(&[("A", 10, 500.0), ("B", 10, 50.0)]));
+        r.nse.repeat_movers(Ok(nse_movers("TATASTEEL")));
+        // NSE's index snapshot fails, so only Yahoo could price the constituents.
+        r.nse.repeat_index(Err(DataError::Blocked));
+        r.yahoo.repeat_index(Ok(snapshot_with(
+            ProviderId::Yahoo,
+            &[("A", 101.0, None), ("B", 102.0, None)],
+        )));
+        let m = md.movers(&REQ).await.unwrap();
+        assert_eq!(
+            m.provenance.provider,
+            ProviderId::Nse,
+            "gainers and losers stay NSE"
+        );
+        let info = m.data.most_active_info.unwrap();
+        assert_eq!(info.provenance.provider, ProviderId::Yahoo);
+        assert_eq!(info.ranked_as_of, "2026-11-18");
+        assert_eq!(
+            m.data.most_active[0].quote.id.symbol(),
+            "A",
+            "A traded more value than B"
+        );
+    }
+
+    #[tokio::test]
+    async fn fallback_movers_rank_most_active_from_eod_turnover_too() {
+        let r = rig();
+        let md = with_activity(&r, activity(&[("UP", 10, 50.0), ("DOWN", 10, 500.0)]));
+        r.nse.repeat_movers(Err(DataError::Blocked));
+        r.nse.repeat_index(Err(DataError::Blocked));
+        r.yahoo.repeat_index(Ok(snapshot_with(
+            ProviderId::Yahoo,
+            &[("UP", 105.0, None), ("DOWN", 95.0, None)],
+        )));
+        let m = md.movers(&REQ).await.unwrap();
+        assert_eq!(m.provenance.provider, ProviderId::Yahoo);
+        assert_eq!(m.data.most_active[0].quote.id.symbol(), "DOWN");
+        assert_eq!(m.data.most_active_info.unwrap().ranked_as_of, "2026-11-18");
+    }
+
+    #[tokio::test]
+    async fn live_volumes_win_and_get_no_eod_label() {
+        let r = rig();
+        let md = with_activity(&r, activity(&[("A", 10, 500.0), ("B", 10, 50.0)]));
+        r.nse.repeat_movers(Ok(nse_movers("TATASTEEL")));
+        r.nse.repeat_index(Ok(snapshot_with(
+            ProviderId::Nse,
+            &[("A", 101.0, Some(10)), ("B", 102.0, Some(99))],
+        )));
+        let m = md.movers(&REQ).await.unwrap();
+        assert_eq!(m.data.most_active[0].quote.id.symbol(), "B");
+        assert!(
+            m.data.most_active_info.is_none(),
+            "the source's own volumes need no EOD label"
+        );
     }
 
     #[tokio::test]

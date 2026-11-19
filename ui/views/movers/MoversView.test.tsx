@@ -23,6 +23,8 @@ function movers(over: Partial<MoversDto> = {}): MoversDto {
     gainers: [quote("TATASTEEL", 171.4, 163.2), quote("ADANIENT", 2345.6, 2260)],
     losers: [quote("BAJFINANCE", 712.3, 745)],
     mostActive: [quote("SBIN", 812, 790)],
+    mostActiveProvenance: null,
+    mostActiveRankedAsOf: null,
     provenance: prov("nse"),
     ...over,
   };
@@ -125,8 +127,29 @@ describe("MoversView", () => {
     await tick();
     sendViewOp(0, "tabPrev"); // wraps to MOST ACTIVE
     await tick();
-    expect(text()).toContain("No volume from this source");
+    expect(text()).toContain("No volume data");
     expect(text()).toContain("STALE");
+  });
+
+  it("labels an EOD-ranked most-active list with its own provenance and date", async () => {
+    getMoversMock.mockResolvedValue(
+      movers({
+        mostActive: [quote("SBIN", 812, 790)],
+        mostActiveProvenance: prov("yahoo"),
+        mostActiveRankedAsOf: "2026-11-18",
+      }),
+    );
+    mount();
+    await tick();
+    sendViewOp(0, "tabPrev"); // MOST ACTIVE
+    await tick();
+    expect(text()).toContain("EOD 2026-11-18");
+    // The badge switches to the rows' provider while the list is on.
+    expect(text()).toContain("YAHOO");
+    // And back to the panel's source on another tab.
+    sendViewOp(0, "tabNext"); // GAINERS
+    await tick();
+    expect(text()).toContain("NSE");
   });
 
   it("shows an inline error, and keeps the last data when a refresh fails", async () => {

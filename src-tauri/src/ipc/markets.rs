@@ -7,7 +7,9 @@ use ts_rs::TS;
 
 use crate::ipc::dto::{ProvenanceDto, QuoteDto};
 
-/// Top movers of one index universe, from one source.
+/// Top movers of one index universe. Gainers and losers share the panel's
+/// source; the most-active list may be an EOD ranking with its own
+/// provenance (see `most_active_provenance`).
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct MoversDto {
@@ -15,8 +17,15 @@ pub struct MoversDto {
     pub index: String,
     pub gainers: Vec<QuoteDto>,
     pub losers: Vec<QuoteDto>,
-    /// By volume. Empty when the source reports no volume per stock.
+    /// By volume, or — when the source reports no per-stock volume — by the
+    /// last full session's traded value (the daily bhavcopy).
     pub most_active: Vec<QuoteDto>,
+    /// The most-active rows' own provenance when they are ranked from EOD
+    /// turnover instead of the panel's source; `null` when all three lists
+    /// share the panel's provenance.
+    pub most_active_provenance: Option<ProvenanceDto>,
+    /// `YYYY-MM-DD` of the session the EOD ranking came from.
+    pub most_active_ranked_as_of: Option<String>,
     pub provenance: ProvenanceDto,
 }
 
@@ -29,6 +38,16 @@ impl MoversDto {
             gainers: rows(&movers.data.gainers),
             losers: rows(&movers.data.losers),
             most_active: rows(&movers.data.most_active),
+            most_active_provenance: movers
+                .data
+                .most_active_info
+                .as_ref()
+                .map(|i| (&i.provenance).into()),
+            most_active_ranked_as_of: movers
+                .data
+                .most_active_info
+                .as_ref()
+                .map(|i| i.ranked_as_of.clone()),
             provenance: (&movers.provenance).into(),
         }
     }
