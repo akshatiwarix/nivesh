@@ -33,6 +33,20 @@ pub struct BacktestRow {
     pub trades_json: Option<String>,
     /// The serialised walk-forward check, when the run had one.
     pub walk_forward_json: Option<String>,
+    /// The serialised equity and drawdown curve.
+    pub curve_json: Option<String>,
+}
+
+/// What a finished run saves.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct FinishedBacktest<'a> {
+    pub finished_at: i64,
+    pub total_pnl: f64,
+    pub max_drawdown: f64,
+    /// The serialised trade log.
+    pub trades_json: &'a str,
+    pub walk_forward_json: Option<&'a str>,
+    pub curve_json: Option<&'a str>,
 }
 
 impl Store {
@@ -112,7 +126,7 @@ impl Store {
         Ok(conn
             .query_row(
                 "SELECT id, strategy_id, symbol, interval, range, started_at, finished_at,
-                        total_pnl, max_drawdown, trades_json, walk_forward_json
+                        total_pnl, max_drawdown, trades_json, walk_forward_json, curve_json
                  FROM backtests
                  WHERE strategy_id = ?1 AND finished_at IS NOT NULL
                  ORDER BY id DESC LIMIT 1",
@@ -130,6 +144,7 @@ impl Store {
                         max_drawdown: r.get(8)?,
                         trades_json: r.get(9)?,
                         walk_forward_json: r.get(10)?,
+                        curve_json: r.get(11)?,
                     })
                 },
             )
@@ -140,25 +155,22 @@ impl Store {
     pub fn finish_backtest(
         &self,
         run_id: i64,
-        finished_at: i64,
-        total_pnl: f64,
-        max_drawdown: f64,
-        trades_json: &str,
-        walk_forward_json: Option<&str>,
+        run: &FinishedBacktest<'_>,
     ) -> Result<(), StoreError> {
         let conn = self.lock()?;
         conn.execute(
             "UPDATE backtests
              SET finished_at = ?2, total_pnl = ?3, max_drawdown = ?4, trades_json = ?5,
-                 walk_forward_json = ?6
+                 walk_forward_json = ?6, curve_json = ?7
              WHERE id = ?1",
             (
                 run_id,
-                finished_at,
-                total_pnl,
-                max_drawdown,
-                trades_json,
-                walk_forward_json,
+                run.finished_at,
+                run.total_pnl,
+                run.max_drawdown,
+                run.trades_json,
+                run.walk_forward_json,
+                run.curve_json,
             ),
         )?;
         Ok(())
@@ -244,7 +256,17 @@ mod tests {
             "an unfinished run is not a result"
         );
         store
-            .finish_backtest(run, 3_000, 1_234.5, 567.8, r#"[{"pnl":1}]"#, Some("{}"))
+            .finish_backtest(
+                run,
+                &FinishedBacktest {
+                    finished_at: 3_000,
+                    total_pnl: 1_234.5,
+                    max_drawdown: 567.8,
+                    trades_json: r#"[{"pnl":1}]"#,
+                    walk_forward_json: Some("{}"),
+                    curve_json: Some("[]"),
+                },
+            )
             .unwrap();
         let latest = store.latest_backtest(sid).unwrap().unwrap();
         assert_eq!(latest.id, run);
@@ -258,6 +280,7 @@ mod tests {
         );
         assert_eq!(latest.total_pnl, Some(1_234.5));
         assert_eq!(latest.walk_forward_json.as_deref(), Some("{}"));
+        assert_eq!(latest.curve_json.as_deref(), Some("[]"));
         let conn = store.lock().unwrap();
         let (finished, pnl, dd, trades): (i64, f64, f64, String) = conn
             .query_row(

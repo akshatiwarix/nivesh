@@ -52,6 +52,38 @@ pub struct BacktestResult {
     pub cancelled: bool,
 }
 
+/// One point of a run's equity curve.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct CurvePoint {
+    /// UTC ms of the bar the point is marked at (its close).
+    pub t: i64,
+    /// Equity marked at the bar's close, rupees.
+    pub equity: f64,
+    /// How far equity is below its running peak, rupees (zero or positive).
+    pub drawdown: f64,
+}
+
+impl BacktestResult {
+    /// The equity and drawdown curve, one point per traded bar. `bars` are
+    /// the bars the run traded: all of them for [`backtest`], those from
+    /// `trade_from` on for [`backtest_range`].
+    pub fn curve(&self, bars: &[Candle]) -> Vec<CurvePoint> {
+        // `equity[0]` is the starting equity; `equity[i + 1]` is after bar i.
+        let mut peak = f64::NEG_INFINITY;
+        bars.iter()
+            .zip(self.equity.iter().skip(1))
+            .map(|(bar, &equity)| {
+                peak = peak.max(equity);
+                CurvePoint {
+                    t: bar.t,
+                    equity,
+                    drawdown: peak - equity,
+                }
+            })
+            .collect()
+    }
+}
+
 /// Options for a run.
 #[derive(Debug, Clone, Copy)]
 pub struct BacktestOptions {
@@ -324,6 +356,29 @@ mod tests {
         assert_eq!(trade.exit_price, 98.0);
         assert_eq!(trade.pnl, -4.0);
         assert_eq!(result.total_pnl, -4.0);
+    }
+
+    #[test]
+    fn the_curve_marks_each_bar_and_measures_drawdown_from_the_peak() {
+        let candles = vec![
+            candle(1, 99.0, 99.0),
+            candle(2, 100.0, 100.0),
+            candle(3, 101.0, 101.0), // entry signal
+            candle(4, 102.0, 104.0), // filled at 102, marked at 104
+            candle(5, 99.0, 99.0),   // exit signal; marked at 99
+            candle(6, 98.0, 98.0),   // sold at 98
+        ];
+        let mut progress = |_, _| true;
+        let result = backtest(crossing_set(), &candles, free(), &mut progress);
+        let curve = result.curve(&candles);
+        assert_eq!(curve.len(), candles.len());
+        let t: Vec<i64> = curve.iter().map(|p| p.t).collect();
+        assert_eq!(t, vec![1, 2, 3, 4, 5, 6]);
+        let equity: Vec<f64> = curve.iter().map(|p| p.equity - 100_000.0).collect();
+        assert_eq!(equity, vec![0.0, 0.0, 0.0, 2.0, -3.0, -4.0]);
+        let drawdown: Vec<f64> = curve.iter().map(|p| p.drawdown).collect();
+        assert_eq!(drawdown, vec![0.0, 0.0, 0.0, 0.0, 5.0, 6.0]);
+        assert_eq!(result.max_drawdown, 6.0);
     }
 
     fn free() -> BacktestOptions {

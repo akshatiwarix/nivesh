@@ -10,7 +10,9 @@ pub mod rules;
 pub mod templates;
 pub mod walk_forward;
 
-pub use backtest::{BacktestOptions, BacktestResult, BacktestTrade, backtest, backtest_range};
+pub use backtest::{
+    BacktestOptions, BacktestResult, BacktestTrade, CurvePoint, backtest, backtest_range,
+};
 pub use costs::{ChargeSchedule, Charges, CostModel};
 pub use evaluate::{Evaluator, validate};
 pub use paper::{PaperFill, PaperPosition, PaperRunner, PaperState};

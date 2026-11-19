@@ -25,3 +25,10 @@
 .strat__list li {
   padding: 2px 0;
 }
+
+/* The backtest chart: candles + markers, equity, drawdown. Fixed height so
+   the trade list below doesn't jump while the chart library loads. */
+.bt__chart {
+  height: 360px;
+  width: 100%;
+}

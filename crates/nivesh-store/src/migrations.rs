@@ -130,6 +130,10 @@ const MIGRATIONS: &[&str] = &[
     "
     ALTER TABLE backtests ADD COLUMN walk_forward_json TEXT;
     ",
+    // v9: the equity and drawdown curve saved with each run.
+    "
+    ALTER TABLE backtests ADD COLUMN curve_json TEXT;
+    ",
 ];
 
 /// The schema version a fully migrated database has.

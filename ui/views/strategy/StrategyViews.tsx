@@ -22,6 +22,7 @@ import type {
 import { backtestResult, inTauri, paperStates, paperStop, strategies } from "../../ipc";
 import { changeTone, formatPrice } from "../../lib/format";
 import { formatIstDate, formatIstHm } from "../../lib/time";
+import { BacktestChart } from "./BacktestChart";
 import "./strategy.css";
 
 const REFRESH_MS = 30_000;
@@ -212,6 +213,7 @@ export const BacktestView: Component<{ name?: string }> = (props) => {
             {emptyText()}
           </p>
         </Show>
+        <Show when={result()}>{(r) => <BacktestChart result={r()} />}</Show>
         <DataTable
           label="Backtest trades"
           columns={TRADE_COLUMNS}
