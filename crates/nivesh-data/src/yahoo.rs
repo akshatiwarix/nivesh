@@ -1130,4 +1130,49 @@ mod tests {
             tokio::time::sleep(Duration::from_millis(1200)).await;
         }
     }
+
+    /// Maintainer tool: a year of daily history for every catalogued index,
+    /// which is what the sectors view needs.
+    /// `cargo test -p nivesh-data -- --ignored --nocapture index_history_live`.
+    #[tokio::test]
+    #[ignore = "hits the real Yahoo Finance"]
+    async fn index_history_live() {
+        let limits = Arc::new(HostLimits::defaults());
+        let yahoo = YahooProvider::new(HttpClient::new(HttpConfig::default(), limits).unwrap());
+        for index in IndexId::all() {
+            match yahoo.index_history(index, HistoryRange::Y1).await {
+                Ok(s) => println!("  ok   {:<12} {} candles", index.code(), s.data.len()),
+                Err(e) => println!("  FAIL {:<12} {e}", index.code()),
+            }
+            tokio::time::sleep(Duration::from_millis(1200)).await;
+        }
+    }
+
+    /// Maintainer tool: dumps the raw chart body for one index ticker.
+    #[tokio::test]
+    #[ignore = "hits the real Yahoo Finance"]
+    async fn dump_ticker() {
+        let limits = Arc::new(HostLimits::defaults());
+        let http = HttpClient::new(HttpConfig::default(), limits).unwrap();
+        for attempt in [
+            "https://query1.finance.yahoo.com/v8/finance/chart/%5ECNXMEDIA?range=1y&interval=1d",
+            "https://query2.finance.yahoo.com/v8/finance/chart/%5ECNXMEDIA?range=1y&interval=1d",
+            "https://query1.finance.yahoo.com/v8/finance/chart/%5ECNXMEDIA?range=2y&interval=1d",
+            "https://query1.finance.yahoo.com/v8/finance/chart/%5ECNXMEDIA?period1=1734000000&period2=1795082468&interval=1d",
+        ] {
+            match http.get(attempt, &[("Accept", "application/json")]).await {
+                Ok(r) => {
+                    let body = r.text();
+                    println!(
+                        "== {} -> len={} tail={:?}",
+                        attempt,
+                        body.len(),
+                        &body[body.len().saturating_sub(120)..]
+                    );
+                }
+                Err(e) => println!("== {attempt} -> {e}"),
+            }
+            tokio::time::sleep(Duration::from_millis(1200)).await;
+        }
+    }
 }

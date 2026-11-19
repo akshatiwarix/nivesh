@@ -133,29 +133,69 @@ impl MarketData {
         let mut provenance: Option<Provenance> = None;
         let mut first_error: Option<DataError> = None;
         for (index, result) in results {
-            match result {
-                Ok(series) => {
+            // A row needs at least two candles: one for the level, one for the
+            // day before it. Yahoo serves NIFTY MEDIA's daily series one bar
+            // at a time, so short or missing history falls back to the index's
+            // own constituents: their 1-day change, priced by whoever answers
+            // the snapshot (the same provider as the rest of the table, when
+            // it can), while the longer windows stay unmeasured.
+            let (from_history, history_err) = match result {
+                Ok(series) if series.data.len() >= 2 => (Some(series), None),
+                Ok(_) => (None, None),
+                Err(e) => (None, Some(e)),
+            };
+            let row = match from_history {
+                Some(series) => {
                     // One provider per table: a row from another would mix sources.
-                    match &mut provenance {
-                        None => provenance = Some(series.provenance.clone()),
-                        Some(p) if p.provider != series.provenance.provider => continue,
-                        Some(p) => {
+                    let first = provenance.is_none();
+                    let usable = match &mut provenance {
+                        None => true,
+                        Some(p) if p.provider == series.provenance.provider => {
                             p.as_of = p.as_of.max(series.provenance.as_of);
                             p.stale |= series.provenance.stale;
+                            true
                         }
-                    }
-                    let Some(last) = series.data.last().map(|c| c.c) else {
-                        continue;
+                        Some(_) => false,
                     };
-                    rows.push(SectorRow {
-                        index,
-                        last,
-                        returns: period_returns(&series.data),
-                    });
+                    if first {
+                        provenance = Some(series.provenance.clone());
+                    }
+                    usable.then(|| {
+                        series.data.last().map(|c| c.c).map(|last| SectorRow {
+                            index,
+                            last,
+                            returns: period_returns(&series.data),
+                        })
+                    })
                 }
-                // The first failure is the cause; later ones may only say the
-                // circuit is open.
-                Err(e) => first_error = first_error.or(Some(e)),
+                None => match self.constituent_row(index).await {
+                    Some((row, row_provenance)) => {
+                        let first = provenance.is_none();
+                        let usable = match &mut provenance {
+                            None => true,
+                            Some(p) if p.provider == row_provenance.provider => {
+                                p.as_of = p.as_of.max(row_provenance.as_of);
+                                p.stale |= row_provenance.stale;
+                                true
+                            }
+                            Some(_) => false,
+                        };
+                        if first {
+                            provenance = Some(row_provenance.clone());
+                        }
+                        usable.then_some(Some(row))
+                    }
+                    None => None,
+                },
+            };
+            match row {
+                Some(Some(row)) => rows.push(row),
+                // A row another provider priced is skipped; a missing one
+                // records its cause only when nothing else has.
+                Some(None) => {}
+                None => {
+                    first_error = first_error.or(history_err.or(Some(DataError::NotFound)));
+                }
             }
         }
         match provenance {
@@ -165,6 +205,43 @@ impl MarketData {
             }),
             _ => Err(first_error.unwrap_or(DataError::NotFound)),
         }
+    }
+
+    /// A sector row derived from the index's constituents: the equal-weight
+    /// mean of their 1-day changes, plus the index's last level. `None` when
+    /// the snapshot can't be priced, or too few constituents report a price.
+    async fn constituent_row(&self, index: IndexId) -> Option<(SectorRow, Provenance)> {
+        let snap = self.index_snapshot(index).await.ok()?;
+        let usable: Vec<&nivesh_core::Quote> = snap
+            .data
+            .constituents
+            .iter()
+            .filter(|q| q.ltp.is_finite() && q.prev_close.is_finite() && q.prev_close > 0.0)
+            .collect();
+        if usable.is_empty() || usable.len() * 2 < snap.data.constituents.len() {
+            return None;
+        }
+        let d1 = usable
+            .iter()
+            .map(|q| (q.ltp - q.prev_close) / q.prev_close * 100.0)
+            .sum::<f64>()
+            / usable.len() as f64;
+        if !d1.is_finite() {
+            return None;
+        }
+        Some((
+            SectorRow {
+                index,
+                last: snap.data.quote.last,
+                returns: Returns {
+                    d1: Some(d1),
+                    w1: None,
+                    m1: None,
+                    ytd: None,
+                },
+            },
+            snap.provenance,
+        ))
     }
 
     /// The share of NIFTY 50 or NIFTY 100 above their 20/50/200-day averages.
@@ -364,6 +441,60 @@ mod tests {
             market(&p).sector_performance().await.unwrap_err(),
             DataError::Blocked
         );
+    }
+
+    #[tokio::test]
+    async fn sector_rows_without_usable_history_derive_1d_from_constituents() {
+        use nivesh_core::{Exchange, IndexQuote, IndexSnapshot, Quote};
+        let p = mock();
+        // Yahoo answers every index's history with today's bar only (as it
+        // does for NIFTY MEDIA): not enough to measure anything.
+        p.repeat_index_history(Ok(sourced(candles((0..1).map(|i| 100.0 + f64::from(i))))));
+        // But it can price every index's constituents: one up 10%, one flat.
+        let q = |sym: &str, ltp: f64| Quote {
+            id: nivesh_core::InstrumentId::new(Exchange::Nse, sym).unwrap(),
+            name: None,
+            ltp,
+            prev_close: 100.0,
+            open: None,
+            high: None,
+            low: None,
+            volume: None,
+            week52_high: None,
+            week52_low: None,
+            upper_band: None,
+            lower_band: None,
+        };
+        let now = Utc::now();
+        let snapshot = IndexSnapshot {
+            quote: IndexQuote {
+                index: IndexId::Nifty50,
+                last: 25_000.0,
+                prev_close: 24_900.0,
+                open: None,
+                high: None,
+                low: None,
+                week52_high: None,
+                week52_low: None,
+                advances: None,
+                declines: None,
+            },
+            constituents: vec![q("UP", 110.0), q("FLAT", 100.0)],
+            constituents_info: None,
+            activity: None,
+        };
+        p.repeat_index(Ok(Sourced::new(
+            snapshot,
+            Provenance::new(ProviderId::Yahoo, FeedKind::Delayed, now, now),
+        )));
+        let sp = market(&p).sector_performance().await.unwrap();
+        assert_eq!(sp.data.rows.len(), IndexId::all().count());
+        for row in &sp.data.rows {
+            // The equal-weight mean of +10% and 0%.
+            assert!((row.returns.d1.unwrap() - 5.0).abs() < 1e-9, "{row:?}");
+            assert!(row.returns.w1.is_none(), "no longer windows from one quote");
+            assert_eq!(row.last, 25_000.0);
+        }
     }
 
     #[tokio::test]
