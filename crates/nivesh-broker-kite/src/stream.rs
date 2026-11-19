@@ -248,17 +248,17 @@ mod tests {
     fn a_quote_packet_carries_the_day_fields() {
         // 44 bytes = 11 int32 fields.
         let frame = encode_message(&[&[
-            738561,   // token
-            137_560,  // ltp
-            5,        // ltq
-            137_100,  // avg price
-            123_456,  // volume
-            10,       // buy qty
-            20,       // sell qty
-            136_000,  // open
-            138_000,  // high
-            135_500,  // low
-            135_000,  // close
+            738561,  // token
+            137_560, // ltp
+            5,       // ltq
+            137_100, // avg price
+            123_456, // volume
+            10,      // buy qty
+            20,      // sell qty
+            136_000, // open
+            138_000, // high
+            135_500, // low
+            135_000, // close
         ]]);
         let ticks = parser::parse_message(&frame).unwrap();
         assert_eq!(ticks.len(), 1);
