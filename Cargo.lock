@@ -2999,6 +2999,7 @@ dependencies = [
  "nivesh-strategy",
  "proptest",
  "serde",
+ "serde_json",
  "thiserror 2.0.21",
 ]
 
@@ -3036,6 +3037,9 @@ name = "nivesh-store"
 version = "0.1.0"
 dependencies = [
  "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
  "tempfile",
  "thiserror 2.0.21",
 ]
