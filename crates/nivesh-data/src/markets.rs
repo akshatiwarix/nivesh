@@ -401,6 +401,7 @@ mod tests {
                 },
                 constituents: vec![q("A", 101.0), q("B", 99.0), q("C", 100.0), q("D", 102.0)],
                 constituents_info: None,
+                activity: None,
             },
             Provenance::new(ProviderId::Yahoo, FeedKind::Delayed, now, now),
         )));

@@ -541,6 +541,7 @@ pub fn parse_stock_indices(
             quote,
             constituents,
             constituents_info: None,
+            activity: None,
         },
         provenance(as_of),
     ))

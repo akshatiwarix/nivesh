@@ -3,6 +3,7 @@ import type { ConstituentsInfoDto } from "./ConstituentsInfoDto";
 import type { IndexQuoteDto } from "./IndexQuoteDto";
 import type { ProvenanceDto } from "./ProvenanceDto";
 import type { QuoteDto } from "./QuoteDto";
+import type { SnapshotActivityDto } from "./SnapshotActivityDto";
 
 /**
  * An index level with its constituents (empty when the source has only the
@@ -13,4 +14,9 @@ export type IndexSnapshotDto = { quote: IndexQuoteDto, constituents: Array<Quote
  * Set when the membership came from a dated list (not the source's own),
  * so the view can say "constituents as of <date>".
  */
-constituentsInfo: ConstituentsInfoDto | null, provenance: ProvenanceDto, };
+constituentsInfo: ConstituentsInfoDto | null, 
+/**
+ * The constituents' last-full-session traded values, when the app has
+ * them; sizes the heatmap's tiles.
+ */
+activity: SnapshotActivityDto | null, provenance: ProvenanceDto, };

@@ -438,6 +438,7 @@ mod tests {
                 },
                 constituents: vec![],
                 constituents_info: None,
+                activity: None,
             },
             prov,
         )));

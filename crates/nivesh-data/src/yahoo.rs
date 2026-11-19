@@ -574,6 +574,7 @@ impl DataProvider for YahooProvider {
             quote,
             constituents: Vec::new(),
             constituents_info: None,
+            activity: None,
         }))
     }
 
