@@ -1,0 +1,27 @@
+/* Strategy views: the builder, backtest and paper dashboard. */
+
+.strat__hint {
+  margin: 0;
+  padding: var(--pad-y) var(--pad-x);
+  color: var(--c-fg-faint);
+  font-size: var(--fs-sm);
+}
+
+.strat__funds {
+  margin: 0;
+  padding: var(--pad-y) var(--pad-x);
+  color: var(--c-amber);
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.strat__list {
+  margin: 0;
+  padding: var(--pad-y) var(--pad-x);
+  list-style: none;
+  font-size: var(--fs-sm);
+}
+
+.strat__list li {
+  padding: 2px 0;
+}

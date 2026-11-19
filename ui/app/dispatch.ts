@@ -6,7 +6,16 @@ import {
   type WatchlistStore,
   watchlistStore,
 } from "../data/watchlists";
-import { brokerDemo, brokerLogin, brokerLogout, inTauri } from "../ipc";
+import {
+  backtestStrategy,
+  brokerDemo,
+  brokerLogin,
+  brokerLogout,
+  inTauri,
+  paperStart,
+  paperStop,
+  strategySave,
+} from "../ipc";
 import { DEFAULT_UNIVERSE, findUniverse } from "../lib/universe";
 import { parseChartArgs } from "../views/chart/model";
 import { sendViewCommand } from "../views/context";
@@ -126,6 +135,78 @@ export function runCommand(
     case "funds":
       if (ws.currentView(ws.state.focused).kind !== "funds") ws.open({ kind: "funds" });
       return undefined;
+    case "strat": {
+      // STRAT [TEMPLATE fast slow qty] builds from a template and saves it;
+      // bare STRAT lists what is saved.
+      if (args.length === 0) {
+        if (ws.currentView(ws.state.focused).kind !== "strat") ws.open({ kind: "strat" });
+        return undefined;
+      }
+      const template = args[0]?.toUpperCase();
+      if (template === undefined || !["MA", "RSI", "BREAKOUT"].includes(template)) {
+        return "Which template? STRAT MA 20 50 1, STRAT RSI 14, STRAT BREAKOUT 20.";
+      }
+      if (!inTauri()) return "Strategies run in the Nivesh app.";
+      const name =
+        template === "MA"
+          ? `MA ${args[1] ?? 20}/${args[2] ?? 50}`
+          : template === "RSI"
+            ? `RSI ${args[1] ?? 14}`
+            : `Breakout ${args[1] ?? 20}`;
+      const fast = Number(args[1] ?? (template === "RSI" ? 14 : 20));
+      const slow = Number(args[2] ?? 50);
+      const qty = Number(args[3] ?? 1);
+      return (async () => {
+        try {
+          await strategySave({ name, template, fast, slow, quantity: qty });
+          if (ws.currentView(ws.state.focused).kind !== "strat") ws.open({ kind: "strat" });
+          return undefined;
+        } catch (err) {
+          return describeError(err);
+        }
+      })();
+    }
+    case "bt": {
+      const name = args[0];
+      if (name === undefined) return "Which strategy? BT <NAME>.";
+      const interval = args[1]?.toUpperCase() ?? "1D";
+      const range = args[2]?.toUpperCase() ?? "1Y";
+      ws.open({ kind: "bt", name });
+      if (!inTauri()) return undefined;
+      return (async () => {
+        try {
+          await backtestStrategy(name, interval, range);
+          return undefined;
+        } catch (err) {
+          return describeError(err);
+        }
+      })();
+    }
+    case "paper": {
+      const sub = args[0]?.toUpperCase();
+      if (sub === undefined) {
+        if (ws.currentView(ws.state.focused).kind !== "paper") ws.open({ kind: "paper" });
+        return undefined;
+      }
+      if (sub !== "START" && sub !== "STOP") {
+        return "PAPER START <NAME> or PAPER STOP <NAME>, or bare PAPER for the dashboard.";
+      }
+      const name = args[1];
+      if (name === undefined) {
+        return `PAPER ${sub} needs the strategy's name.`;
+      }
+      if (!inTauri()) return "Paper trading runs in the Nivesh app.";
+      return (async () => {
+        try {
+          if (sub === "START") await paperStart(name);
+          else await paperStop(name);
+          if (ws.currentView(ws.state.focused).kind !== "paper") ws.open({ kind: "paper" });
+          return undefined;
+        } catch (err) {
+          return describeError(err);
+        }
+      })();
+    }
     case "login": {
       // LOGIN DEMO starts the demo broker; LOGIN starts the Kite login whose
       // URL the backend already opened in the system browser.

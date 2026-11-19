@@ -10,5 +10,6 @@ pub mod chart;
 pub mod data;
 pub mod market;
 pub mod markets;
+pub mod strategy;
 pub mod ui_state;
 pub mod watchlists;

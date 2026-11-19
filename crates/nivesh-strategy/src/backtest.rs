@@ -6,12 +6,13 @@
 //! Progress and cancellation are surfaced to the IPC layer via a callback.
 
 use nivesh_core::Candle;
+use serde::{Deserialize, Serialize};
 
 use crate::evaluate::Evaluator;
 use crate::rules::{IntentSide, OrderIntent, RuleSet};
 
 /// One completed trade in the log.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BacktestTrade {
     /// Bar index of the entry fill (the bar whose open filled it).
     pub entry_index: usize,
@@ -29,7 +30,7 @@ pub struct BacktestTrade {
 }
 
 /// The finished backtest.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BacktestResult {
     pub trades: Vec<BacktestTrade>,
     /// The equity curve, one point per closed bar (rupees, start = equity).
