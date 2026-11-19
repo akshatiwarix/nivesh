@@ -81,6 +81,21 @@ pub fn backtest(
     options: BacktestOptions,
     progress: &mut dyn FnMut(usize, usize) -> bool,
 ) -> BacktestResult {
+    backtest_range(set, candles, 0, options, progress)
+}
+
+/// Like [`backtest`], but trades only from `trade_from` on: the bars before
+/// it warm the indicators and are never traded. A position still open at
+/// the last bar is closed at its close, so a window's result stands alone.
+/// Trade indices stay indices into `candles`.
+pub fn backtest_range(
+    set: RuleSet,
+    candles: &[Candle],
+    trade_from: usize,
+    options: BacktestOptions,
+    progress: &mut dyn FnMut(usize, usize) -> bool,
+) -> BacktestResult {
+    let trade_from = trade_from.min(candles.len());
     let mut evaluator = match Evaluator::new(set, options.equity) {
         Ok(e) => e.with_symbol(options.symbol),
         Err(_) => {
@@ -91,7 +106,7 @@ pub fn backtest(
                 total_charges: 0.0,
                 max_drawdown: 0.0,
                 bars_in_market: 0,
-                total_bars: candles.len(),
+                total_bars: candles.len() - trade_from,
                 cancelled: false,
             };
         }
@@ -108,7 +123,13 @@ pub fn backtest(
     let costs = options.costs;
     let mut bars_in_market = 0usize;
 
-    let mut i = 0usize;
+    // Warm-up: the indicators see these bars; nothing is traded on them.
+    for bar in &candles[..trade_from] {
+        let _ = evaluator.feed(bar);
+        evaluator.sync_position(None);
+    }
+
+    let mut i = trade_from;
     while i < candles.len() {
         if i.is_multiple_of(500) && !progress(i, candles.len()) {
             let drawdown = max_drawdown(&equity_curve);
@@ -119,7 +140,7 @@ pub fn backtest(
                 total_charges,
                 max_drawdown: drawdown,
                 bars_in_market,
-                total_bars: candles.len(),
+                total_bars: candles.len() - trade_from,
                 cancelled: true,
             };
         }
@@ -210,7 +231,7 @@ pub fn backtest(
         total_charges,
         equity: equity_curve,
         bars_in_market,
-        total_bars: candles.len(),
+        total_bars: candles.len() - trade_from,
         cancelled: false,
     }
 }
