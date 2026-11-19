@@ -9,6 +9,7 @@
     "allow-backtest-result",
     "allow-backtest-strategy",
     "allow-paper-start",
+    "allow-paper-states",
     "allow-paper-stop",
     "allow-strategies",
     "allow-strategy-delete",

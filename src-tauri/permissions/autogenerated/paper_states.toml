@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-paper-states"
+description = "Enables the paper_states command without any pre-configured scope."
+commands.allow = ["paper_states"]
+
+[[permission]]
+identifier = "deny-paper-states"
+description = "Denies the paper_states command without any pre-configured scope."
+commands.deny = ["paper_states"]
