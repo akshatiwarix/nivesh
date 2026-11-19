@@ -140,7 +140,12 @@ export const BacktestView: Component<{ name?: string }> = (props) => {
 
   return (
     <div class="view bt" data-view="bt">
-      <DataPanel provenance={null} title={`BACKTEST · ${props.name ?? "—"}`}>
+      <DataPanel
+        provenance={null}
+        title={`BACKTEST · ${props.name ?? "—"}${
+          result() ? ` · ${result()?.symbol} ${result()?.interval} ${result()?.range}` : ""
+        }`}
+      >
         <PaperBadge />
         <Show when={result()}>
           {(r) => (

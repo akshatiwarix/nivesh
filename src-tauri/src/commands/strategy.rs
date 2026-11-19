@@ -103,38 +103,68 @@ pub async fn strategy_delete(name: String, store: State<'_, Arc<Store>>) -> Resu
     Ok(())
 }
 
-/// Runs a backtest for a strategy over `interval`/`range` and returns the
-/// result, saved into the store.
+/// The instrument a backtest runs on: `NSE:TCS`, `BSE:TCS`, or a bare
+/// symbol on NSE.
+fn backtest_instrument(symbol: &str) -> Result<nivesh_core::InstrumentId, IpcError> {
+    let symbol = symbol.trim().to_ascii_uppercase();
+    match symbol.split_once(':') {
+        Some((exchange, symbol)) => crate::commands::data::instrument_id(exchange, symbol),
+        None => crate::commands::data::instrument_id("NSE", &symbol),
+    }
+}
+
+/// The trade rows of a run, for the wire.
+fn trade_dtos(trades: &[nivesh_strategy::BacktestTrade]) -> Vec<BacktestTradeDto> {
+    trades
+        .iter()
+        .map(|t| BacktestTradeDto {
+            entry_price: t.entry_price,
+            exit_price: t.exit_price,
+            quantity: t.quantity,
+            charges: t.charges,
+            pnl: t.pnl,
+            entry_t: t.entry_t,
+            exit_t: t.exit_t,
+        })
+        .collect()
+}
+
+/// Runs a backtest for a strategy on `symbol` over `interval`/`range` and
+/// returns the result, saved into the store. Without a symbol it runs on the
+/// strategy's last backtested instrument (RELIANCE for a first run).
 #[tauri::command]
 pub async fn backtest_strategy(
     name: String,
+    symbol: Option<String>,
     interval: String,
     range: String,
     services: State<'_, Arc<crate::services::Services>>,
     store: State<'_, Arc<Store>>,
 ) -> Result<BacktestResultDto, IpcError> {
-    let rows = store.strategies()?;
-    let row = rows
-        .iter()
-        .find(|r| r.name.eq_ignore_ascii_case(&name))
-        .ok_or_else(|| IpcError::invalid_argument(format!("no strategy named {name:?}")))?;
+    let row = strategy_named(&store, &name)?;
     let set: RuleSet = serde_json::from_str(&row.json)
         .map_err(|e| IpcError::internal(format!("stored strategy is unreadable: {e}")))?;
+    let symbol = match symbol {
+        Some(symbol) => symbol,
+        None => store
+            .latest_backtest(row.id)?
+            .map_or_else(|| "NSE:RELIANCE".to_owned(), |run| run.symbol),
+    };
+    let id = backtest_instrument(&symbol)?;
 
     // The candles come from the same cached history the chart uses.
-    // v1: backtests run on one liquid symbol.
     let series = services
         .market
         .history(&crate::commands::chart::parse_request(
-            "NSE",
-            "RELIANCE",
+            &id.exchange().to_string(),
+            id.symbol(),
             &interval,
             Some(&range),
         )?)
         .await?;
     let candles: Vec<nivesh_core::Candle> = series.data.candles.clone();
 
-    let run_id = store.open_backtest(row.id, &interval, &range, now_ms())?;
+    let run_id = store.open_backtest(row.id, &id.to_string(), &interval, &range, now_ms())?;
     let mut progress = |_, _| true;
     let result = backtest(set, &candles, BacktestOptions::default(), &mut progress);
     let trades_json = serde_json::to_string(&result.trades)
@@ -148,22 +178,13 @@ pub async fn backtest_strategy(
     )?;
 
     Ok(BacktestResultDto {
+        symbol: id.to_string(),
+        interval: interval.to_ascii_uppercase(),
+        range: range.to_ascii_uppercase(),
         total_pnl: result.total_pnl,
         total_charges: result.total_charges,
         max_drawdown: result.max_drawdown,
-        trades: result
-            .trades
-            .iter()
-            .map(|t| BacktestTradeDto {
-                entry_price: t.entry_price,
-                exit_price: t.exit_price,
-                quantity: t.quantity,
-                charges: t.charges,
-                pnl: t.pnl,
-                entry_t: t.entry_t,
-                exit_t: t.exit_t,
-            })
-            .collect(),
+        trades: trade_dtos(&result.trades),
         bars_in_market: result.bars_in_market,
         total_bars: result.total_bars,
     })
@@ -175,41 +196,22 @@ pub async fn backtest_result(
     name: String,
     store: State<'_, Arc<Store>>,
 ) -> Result<BacktestResultDto, IpcError> {
-    let rows = store.strategies()?;
-    let row = rows
-        .iter()
-        .find(|r| r.name.eq_ignore_ascii_case(&name))
-        .ok_or_else(|| IpcError::invalid_argument(format!("no strategy named {name:?}")))?;
-    // The newest finished run of this strategy.
-    let conn = store.connection()?;
-    let (total_pnl, max_drawdown, trades_json): (f64, f64, String) = conn
-        .query_row(
-            "SELECT total_pnl, max_drawdown, trades_json FROM backtests
-             WHERE strategy_id = ?1 AND finished_at IS NOT NULL
-             ORDER BY id DESC LIMIT 1",
-            (row.id,),
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
-        )
-        .map_err(|_| IpcError::invalid_argument(format!("no backtest yet for {name:?}")))?;
-    let trades: Vec<nivesh_strategy::BacktestTrade> = serde_json::from_str(&trades_json)
-        .map_err(|e| IpcError::internal(format!("stored trades are unreadable: {e}")))?;
+    let row = strategy_named(&store, &name)?;
+    let run = store
+        .latest_backtest(row.id)?
+        .ok_or_else(|| IpcError::invalid_argument(format!("no backtest yet for {name:?}")))?;
+    let trades: Vec<nivesh_strategy::BacktestTrade> =
+        serde_json::from_str(run.trades_json.as_deref().unwrap_or("[]"))
+            .map_err(|e| IpcError::internal(format!("stored trades are unreadable: {e}")))?;
     Ok(BacktestResultDto {
-        total_pnl,
+        symbol: run.symbol,
+        interval: run.interval.to_ascii_uppercase(),
+        range: run.range.to_ascii_uppercase(),
+        total_pnl: run.total_pnl.unwrap_or(0.0),
         // Runs saved before the cost model have no charges recorded.
         total_charges: trades.iter().map(|t| t.charges).sum(),
-        max_drawdown,
-        trades: trades
-            .iter()
-            .map(|t| BacktestTradeDto {
-                entry_price: t.entry_price,
-                exit_price: t.exit_price,
-                quantity: t.quantity,
-                charges: t.charges,
-                pnl: t.pnl,
-                entry_t: t.entry_t,
-                exit_t: t.exit_t,
-            })
-            .collect(),
+        max_drawdown: run.max_drawdown.unwrap_or(0.0),
+        trades: trade_dtos(&trades),
         bars_in_market: 0,
         total_bars: 0,
     })
@@ -320,4 +322,19 @@ pub async fn paper_states(
         out.push(paper_dto(&row.name, running || saved_running, &record));
     }
     Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_backtest_instrument_defaults_to_nse() {
+        assert_eq!(backtest_instrument("tcs").unwrap().to_string(), "NSE:TCS");
+        assert_eq!(
+            backtest_instrument("BSE:TCS").unwrap().to_string(),
+            "BSE:TCS"
+        );
+        assert!(backtest_instrument("XX:TCS").is_err());
+    }
 }

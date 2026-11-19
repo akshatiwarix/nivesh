@@ -6,6 +6,14 @@ import type { BacktestTradeDto } from "./BacktestTradeDto";
  */
 export type BacktestResultDto = { 
 /**
+ * The instrument it ran on, `NSE:RELIANCE` shaped.
+ */
+symbol: string, 
+/**
+ * The bar interval and history range, e.g. `1D` and `1Y`.
+ */
+interval: string, range: string, 
+/**
  * Net of charges and slippage, rupees.
  */
 totalPnl: number, 

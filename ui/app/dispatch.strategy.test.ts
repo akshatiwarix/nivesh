@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const ipc = vi.hoisted(() => ({
   paperStart: vi.fn(async () => ({})),
   paperStop: vi.fn(async () => undefined),
+  backtestStrategy: vi.fn(async () => ({})),
 }));
 
 vi.mock("../ipc", async (importOriginal) => ({
@@ -10,6 +11,7 @@ vi.mock("../ipc", async (importOriginal) => ({
   inTauri: () => true,
   paperStart: ipc.paperStart,
   paperStop: ipc.paperStop,
+  backtestStrategy: ipc.backtestStrategy,
 }));
 
 import { parse } from "../commands";
@@ -37,5 +39,24 @@ describe("PAPER", () => {
     await dispatch(parse("paper stop trend"), ws);
     expect(ipc.paperStop).toHaveBeenCalledWith("TREND");
     expect(ipc.paperStart).not.toHaveBeenCalled();
+  });
+});
+
+describe("BT", () => {
+  beforeEach(() => ipc.backtestStrategy.mockClear());
+
+  it("BT <NAME> <SYMBOL> [INTERVAL] [RANGE] backtests on that symbol", async () => {
+    const ws = createWorkspace();
+    await dispatch(parse("bt trend tcs 1d 5y"), ws);
+    expect(ipc.backtestStrategy).toHaveBeenCalledWith("TREND", "1D", "5Y", "TCS");
+    expect(ws.currentView(0)).toEqual({ kind: "bt", name: "TREND" });
+  });
+
+  it("the older BT <NAME> [INTERVAL] [RANGE] form still works", async () => {
+    const ws = createWorkspace();
+    await dispatch(parse("bt trend 1w 2y"), ws);
+    expect(ipc.backtestStrategy).toHaveBeenCalledWith("TREND", "1W", "2Y", undefined);
+    await dispatch(parse("bt trend"), ws);
+    expect(ipc.backtestStrategy).toHaveBeenLastCalledWith("TREND", "1D", "1Y", undefined);
   });
 });

@@ -25,12 +25,14 @@ export function strategyDelete(name: string): Promise<void> {
   return call<void>("strategy_delete", { name });
 }
 
+/** Backtests a strategy; without a symbol it reuses the last one it ran on. */
 export function backtestStrategy(
   name: string,
   interval: string,
   range: string,
+  symbol?: string,
 ): Promise<BacktestResultDto> {
-  return call<BacktestResultDto>("backtest_strategy", { name, interval, range });
+  return call<BacktestResultDto>("backtest_strategy", { name, symbol, interval, range });
 }
 
 export function backtestResult(name: string): Promise<BacktestResultDto> {

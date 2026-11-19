@@ -21,6 +21,8 @@ pub struct StrategyRow {
 pub struct BacktestRow {
     pub id: i64,
     pub strategy_id: i64,
+    /// The instrument, `NSE:RELIANCE` shaped.
+    pub symbol: String,
     pub interval: String,
     pub range: String,
     pub started_at: i64,
@@ -84,21 +86,51 @@ impl Store {
         Ok(())
     }
 
-    /// Opens the newest unfinished run for the strategy, or starts one.
+    /// Starts a run of the strategy on `symbol` (`NSE:RELIANCE` shaped).
     pub fn open_backtest(
         &self,
         strategy_id: i64,
+        symbol: &str,
         interval: &str,
         range: &str,
         now_ms: i64,
     ) -> Result<i64, StoreError> {
         let conn = self.lock()?;
         conn.execute(
-            "INSERT INTO backtests (strategy_id, interval, range, started_at)
-             VALUES (?1, ?2, ?3, ?4)",
-            (strategy_id, interval, range, now_ms),
+            "INSERT INTO backtests (strategy_id, symbol, interval, range, started_at)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            (strategy_id, symbol, interval, range, now_ms),
         )?;
         Ok(conn.last_insert_rowid())
+    }
+
+    /// The strategy's newest finished run, if any.
+    pub fn latest_backtest(&self, strategy_id: i64) -> Result<Option<BacktestRow>, StoreError> {
+        let conn = self.lock()?;
+        Ok(conn
+            .query_row(
+                "SELECT id, strategy_id, symbol, interval, range, started_at, finished_at,
+                        total_pnl, max_drawdown, trades_json
+                 FROM backtests
+                 WHERE strategy_id = ?1 AND finished_at IS NOT NULL
+                 ORDER BY id DESC LIMIT 1",
+                (strategy_id,),
+                |r| {
+                    Ok(BacktestRow {
+                        id: r.get(0)?,
+                        strategy_id: r.get(1)?,
+                        symbol: r.get(2)?,
+                        interval: r.get(3)?,
+                        range: r.get(4)?,
+                        started_at: r.get(5)?,
+                        finished_at: r.get(6)?,
+                        total_pnl: r.get(7)?,
+                        max_drawdown: r.get(8)?,
+                        trades_json: r.get(9)?,
+                    })
+                },
+            )
+            .optional()?)
     }
 
     /// Finishes a run with its results.
@@ -191,10 +223,28 @@ mod tests {
         let sid = store
             .save_strategy(None, "S", "MA Crossover", "{}", 1_000)
             .unwrap();
-        let run = store.open_backtest(sid, "1d", "1y", 2_000).unwrap();
+        assert!(store.latest_backtest(sid).unwrap().is_none());
+        let run = store
+            .open_backtest(sid, "NSE:TCS", "1d", "1y", 2_000)
+            .unwrap();
+        assert!(
+            store.latest_backtest(sid).unwrap().is_none(),
+            "an unfinished run is not a result"
+        );
         store
             .finish_backtest(run, 3_000, 1_234.5, 567.8, r#"[{"pnl":1}]"#)
             .unwrap();
+        let latest = store.latest_backtest(sid).unwrap().unwrap();
+        assert_eq!(latest.id, run);
+        assert_eq!(
+            (
+                latest.symbol.as_str(),
+                latest.interval.as_str(),
+                latest.range.as_str()
+            ),
+            ("NSE:TCS", "1d", "1y")
+        );
+        assert_eq!(latest.total_pnl, Some(1_234.5));
         let conn = store.lock().unwrap();
         let (finished, pnl, dd, trades): (i64, f64, f64, String) = conn
             .query_row(

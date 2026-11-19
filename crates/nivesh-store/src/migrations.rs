@@ -121,6 +121,11 @@ const MIGRATIONS: &[&str] = &[
         state_json  TEXT NOT NULL
     ) STRICT;
     ",
+    // v7: backtests record the instrument they ran on. Runs before this
+    // were always RELIANCE.
+    "
+    ALTER TABLE backtests ADD COLUMN symbol TEXT NOT NULL DEFAULT 'NSE:RELIANCE';
+    ",
 ];
 
 /// The schema version a fully migrated database has.
