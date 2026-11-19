@@ -1,0 +1,15 @@
+[package]
+name = "nivesh-secrets"
+description = "Secret storage for Nivesh: the OS keychain with an in-memory backend for tests. Secrets are wrapped so they cannot be printed."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+keyring.workspace = true
+secrecy.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true
