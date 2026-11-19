@@ -1,0 +1,19 @@
+[package]
+name = "nivesh-strategy"
+description = "Rule-based strategies for Nivesh: the rule model, its validator and bar-by-bar evaluator, built-in templates, and (in later commits) the backtester and paper runner. Emits OrderIntents; never places orders."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+nivesh-core = { path = "../nivesh-core" }
+nivesh-indicators = { path = "../nivesh-indicators" }
+serde.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
+
+[lints]
+workspace = true
