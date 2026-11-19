@@ -123,8 +123,26 @@ jobs:
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Keep Spotlight off the bundle volumes
+        # The DMG script mounts an interstitial image and ejects it again;
+        # when Spotlight indexes the mount mid-script, the eject fails with
+        # "Resource busy" and the whole job fails. It is runner-level flake,
+        # not a build problem.
+        run: |
+          sudo mdutil -i off / || true
+          sudo mdutil -i off /System/Volumes/Data || true
+
       - name: Build .dmg
-        run: pnpm tauri build --target aarch64-apple-darwin --bundles dmg
+        # Same reason: a retry only re-bundles (the Rust build is cached in
+        # the job's target directory), so three attempts are cheap.
+        run: |
+          for attempt in 1 2 3; do
+            if pnpm tauri build --target aarch64-apple-darwin --bundles dmg; then
+              exit 0
+            fi
+            echo "bundle attempt $attempt failed; retrying"
+          done
+          exit 1
 
       - name: Bundle sizes
         run: ls -lh target/aarch64-apple-darwin/release/bundle/dmg/
