@@ -3015,6 +3015,7 @@ dependencies = [
 name = "nivesh-strategy"
 version = "0.1.0"
 dependencies = [
+ "chrono",
  "nivesh-core",
  "nivesh-indicators",
  "serde",
