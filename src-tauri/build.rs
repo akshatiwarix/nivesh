@@ -18,6 +18,7 @@ const COMMANDS: &[&str] = &[
     "backtest_strategy",
     "chart_indicators",
     "paper_start",
+    "paper_states",
     "paper_stop",
     "strategies",
     "strategy_delete",

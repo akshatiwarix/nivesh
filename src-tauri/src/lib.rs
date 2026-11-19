@@ -8,6 +8,7 @@ mod broker;
 mod commands;
 pub mod ipc;
 mod logging;
+mod paper;
 pub mod services;
 mod window_state;
 
@@ -59,6 +60,16 @@ pub fn run() -> anyhow::Result<()> {
                 .context("starting market data")?;
             services.spawn_background_tasks();
             services.spawn_event_bridges(app.handle());
+
+            // Paper strategies saved as running resume from their saved
+            // state. Paper only: the desk has no route to a real broker.
+            let paper = Arc::new(paper::PaperManager::new(Arc::clone(&store)));
+            {
+                let paper = Arc::clone(&paper);
+                let services = Arc::clone(&services);
+                tauri::async_runtime::spawn(async move { paper.resume_all(&services).await });
+            }
+            app.manage(paper);
             app.manage(services);
 
             // Broker wiring: restore a stored session so LIVE data works
@@ -90,6 +101,7 @@ pub fn run() -> anyhow::Result<()> {
             commands::strategy::backtest_result,
             commands::strategy::backtest_strategy,
             commands::strategy::paper_start,
+            commands::strategy::paper_states,
             commands::strategy::paper_stop,
             commands::strategy::strategies,
             commands::strategy::strategy_delete,

@@ -62,6 +62,18 @@ impl FormingBar {
         })
     }
 
+    /// Like [`Self::apply`], but reports the bar that just **closed**: the
+    /// previous bar, once a price from a later interval opens the next one.
+    /// A strategy decides on closed bars only, so this is its feed. A bar
+    /// closes when the next interval's first price arrives, not on the wall
+    /// clock, so the day's last bar closes with the next session's first
+    /// price.
+    pub fn apply_closing(&mut self, price: f64, as_of_ms: i64) -> Option<Candle> {
+        let before = self.bar;
+        let after = self.apply(price, as_of_ms)?;
+        before.filter(|b| bucket_start(self.interval, after.t) > bucket_start(self.interval, b.t))
+    }
+
     fn opened(t: i64, price: f64) -> Candle {
         Candle {
             t,
@@ -156,6 +168,21 @@ mod tests {
             f.apply(121.0, at(7 * 24 + 10, 0)).unwrap().t,
             at(7 * 24 + 9, 15)
         );
+    }
+
+    #[test]
+    fn the_previous_bar_closes_when_the_next_interval_opens() {
+        let mut f = FormingBar::new(Interval::M5, Some(bar(at(10, 0))));
+        assert_eq!(f.apply_closing(106.0, at(10, 3)), None, "still forming");
+        let closed = f.apply_closing(104.0, at(10, 5)).expect("closed");
+        assert_eq!((closed.t, closed.h, closed.c), (at(10, 0), 106.0, 106.0));
+        assert_eq!(f.apply_closing(105.0, at(10, 6)), None);
+        // A late price from the closed interval reopens nothing.
+        assert_eq!(f.apply_closing(90.0, at(10, 4)), None);
+        // An empty start has nothing to close.
+        let mut empty = FormingBar::new(Interval::M5, None);
+        assert_eq!(empty.apply_closing(50.0, at(10, 0)), None);
+        assert!(empty.apply_closing(51.0, at(10, 5)).is_some());
     }
 
     #[test]

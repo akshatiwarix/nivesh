@@ -28,6 +28,7 @@ export type { MoversDto } from "./bindings/MoversDto";
 export type { NewsDto } from "./bindings/NewsDto";
 export type { NewsItemDto } from "./bindings/NewsItemDto";
 export type { OrderDto } from "./bindings/OrderDto";
+export type { PaperFillDto } from "./bindings/PaperFillDto";
 export type { PaperStateDto } from "./bindings/PaperStateDto";
 export type { PositionsDto } from "./bindings/PositionsDto";
 export type { ProgressDto } from "./bindings/ProgressDto";
@@ -90,6 +91,7 @@ export {
   backtestResult,
   backtestStrategy,
   paperStart,
+  paperStates,
   paperStop,
   strategies,
   strategyDelete,

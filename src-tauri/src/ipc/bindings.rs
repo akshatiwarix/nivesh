@@ -22,7 +22,7 @@ use crate::ipc::dto::{
     SourcedQuoteDto, TopicDto,
 };
 use crate::ipc::markets::{BreadthDto, DmaBreadthDto, MoversDto, NewsDto, ProgressDto, SectorsDto};
-use crate::ipc::strategy::{BacktestResultDto, PaperStateDto, StrategyDto};
+use crate::ipc::strategy::{BacktestResultDto, PaperFillDto, PaperStateDto, StrategyDto};
 
 /// The committed bindings directory.
 pub fn committed_dir() -> PathBuf {
@@ -68,5 +68,6 @@ pub fn export(dir: &Path) -> Result<(), ExportError> {
     StrategyDto::export_all(&cfg)?;
     BacktestResultDto::export_all(&cfg)?;
     PaperStateDto::export_all(&cfg)?;
+    PaperFillDto::export_all(&cfg)?;
     Ok(())
 }

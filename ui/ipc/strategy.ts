@@ -1,6 +1,7 @@
 // Typed wrappers for the strategy commands.
 
 import type { BacktestResultDto } from "./bindings/BacktestResultDto";
+import type { PaperStateDto } from "./bindings/PaperStateDto";
 import type { StrategyDto } from "./bindings/StrategyDto";
 import { call } from "./core";
 
@@ -36,8 +37,17 @@ export function backtestResult(name: string): Promise<BacktestResultDto> {
   return call<BacktestResultDto>("backtest_result", { name });
 }
 
-export function paperStart(name: string): Promise<unknown> {
-  return call<unknown>("paper_start", { name });
+/** Starts a paper strategy; symbol and interval default to its last stream. */
+export function paperStart(
+  name: string,
+  symbol?: string,
+  interval?: string,
+): Promise<PaperStateDto> {
+  return call<PaperStateDto>("paper_start", { name, symbol, interval });
+}
+
+export function paperStates(): Promise<PaperStateDto[]> {
+  return call<PaperStateDto[]>("paper_states", {});
 }
 
 export function paperStop(name: string): Promise<void> {

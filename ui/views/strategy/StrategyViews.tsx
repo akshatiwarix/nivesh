@@ -5,18 +5,21 @@
 // as such by the shared badge. No view places a real order — Part 6, and
 // only behind the risk engine.
 
-import { type Component, createMemo, createResource, createSignal, For, Show } from "solid-js";
+import { type Component, createMemo, createResource, createSignal, Show } from "solid-js";
 import { Badge } from "../../components/Badge";
 import { DataPanel } from "../../components/DataPanel";
 import { type Column, DataTable } from "../../components/DataTable";
 import { describeError } from "../../data/errors";
 import { createPoll } from "../../data/poll";
-import type { BacktestResultDto, StrategyDto } from "../../ipc";
-import { backtestResult, inTauri, paperStop, strategies } from "../../ipc";
-import { formatPrice } from "../../lib/format";
+import type { BacktestResultDto, PaperFillDto, PaperStateDto, StrategyDto } from "../../ipc";
+import { backtestResult, inTauri, paperStates, paperStop, strategies } from "../../ipc";
+import { changeTone, formatPrice } from "../../lib/format";
+import { formatIstDate, formatIstHm } from "../../lib/time";
 import "./strategy.css";
 
 const REFRESH_MS = 30_000;
+/** The paper desk moves on every closed bar; poll it a little faster. */
+const PAPER_REFRESH_MS = 5_000;
 
 /** The PAPER badge every strategy surface carries. */
 const PaperBadge: Component = () => <Badge tone="paper">PAPER</Badge>;
@@ -158,19 +161,113 @@ export const BacktestView: Component<{ name?: string }> = (props) => {
   );
 };
 
-/** `PAPER`: the running paper strategy's state. */
+type PaperRow = PaperStateDto;
+type FillRow = PaperFillDto & { name: string };
+
+const PAPER_COLUMNS: readonly Column<PaperRow>[] = [
+  { id: "name", header: "Name", width: "18ch", value: (p) => p.name, tone: () => "accent" },
+  {
+    id: "stream",
+    header: "Stream",
+    width: "18ch",
+    value: (p) => `${p.symbol} · ${p.interval}`,
+  },
+  {
+    id: "status",
+    header: "Status",
+    width: "9ch",
+    value: (p) => (p.running ? "RUNNING" : "STOPPED"),
+    tone: (p) => (p.running ? "up" : "dim"),
+  },
+  {
+    id: "feed",
+    header: "Bars",
+    width: "16ch",
+    // DELAYED bars make the paper fills approximate: say so on the row.
+    value: (p) => (p.approximate ? `${p.feed} · approx` : p.feed),
+    tone: (p) => (p.approximate ? "dim" : undefined),
+  },
+  {
+    id: "pos",
+    header: "Position",
+    width: "16ch",
+    align: "right",
+    value: (p) => (p.quantity === null ? "flat" : `${p.quantity} @ ${formatPrice(p.entryPrice)}`),
+  },
+  {
+    id: "day",
+    header: "Day P&L ₹",
+    width: "12ch",
+    align: "right",
+    value: (p) => formatPrice(p.dayPnl),
+    tone: (p) => changeTone(p.dayPnl),
+  },
+  {
+    id: "total",
+    header: "Total P&L ₹",
+    width: "12ch",
+    align: "right",
+    value: (p) => formatPrice(p.realisedPnl),
+    tone: (p) => changeTone(p.realisedPnl),
+  },
+];
+
+const FILL_COLUMNS: readonly Column<FillRow>[] = [
+  {
+    id: "t",
+    header: "Bar (IST)",
+    width: "18ch",
+    value: (f) => `${formatIstDate(f.t)} ${formatIstHm(f.t)}`,
+  },
+  { id: "name", header: "Strategy", width: "18ch", value: (f) => f.name, tone: () => "accent" },
+  {
+    id: "side",
+    header: "Side",
+    width: "6ch",
+    value: (f) => f.side,
+    tone: (f) => (f.side === "BUY" ? "up" : "down"),
+  },
+  { id: "qty", header: "Qty", width: "8ch", align: "right", value: (f) => String(f.quantity) },
+  {
+    id: "price",
+    header: "Price ₹",
+    width: "12ch",
+    align: "right",
+    value: (f) => formatPrice(f.price),
+  },
+  {
+    id: "pnl",
+    header: "P&L ₹",
+    width: "12ch",
+    align: "right",
+    value: (f) => (f.pnl === null ? "" : formatPrice(f.pnl)),
+    tone: (f) => changeTone(f.pnl),
+  },
+];
+
+/** Most recent fills shown across strategies. */
+const MAX_FILL_ROWS = 50;
+
+/** `PAPER`: every paper strategy with its position, P&L and recent fills. */
 export const PaperDashboardView: Component = () => {
   const list = createPoll(
     () => inTauri(),
-    () => strategies(),
-    { everyMs: () => REFRESH_MS },
+    () => paperStates(),
+    { everyMs: () => PAPER_REFRESH_MS },
   );
-  const running = createMemo(() => (list.data() ?? []).filter((s) => s.running));
+  const rows = createMemo(() => list.data() ?? []);
+  const fills = createMemo(() =>
+    rows()
+      .flatMap((p) => p.fills.map((f) => ({ ...f, name: p.name })))
+      .sort((a, b) => b.t - a.t)
+      .slice(0, MAX_FILL_ROWS),
+  );
 
   const emptyText = () => {
     if (!inTauri()) return "Paper trading is available in the Nivesh app.";
     if (list.error() && !list.data()) return `${list.error()}. Retrying.`;
-    if (running().length === 0) return "No paper strategy is running. PAPER START <NAME>.";
+    if (rows().length === 0)
+      return "No paper strategy yet. PAPER START <NAME> [SYMBOL] [INTERVAL].";
     return undefined;
   };
 
@@ -183,21 +280,19 @@ export const PaperDashboardView: Component = () => {
             Refresh failed: {list.error()}. Showing the last data.
           </p>
         </Show>
-        <Show when={running().length > 0} fallback={<p class="strat__hint">{emptyText()}</p>}>
-          <ul class="strat__list">
-            <For each={running()}>
-              {(s) => (
-                <li>
-                  <b>{s.name}</b> — {s.entry}
-                  <Show when={s.paperPnl !== null}> · P&L {formatPrice(s.paperPnl ?? 0)}</Show>
-                </li>
-              )}
-            </For>
-          </ul>
+        <DataTable
+          label="Paper strategies"
+          columns={PAPER_COLUMNS}
+          rows={rows()}
+          emptyText={emptyText()}
+        />
+        <Show when={fills().length > 0}>
+          <DataTable label="Paper fills" columns={FILL_COLUMNS} rows={fills()} />
         </Show>
         <p class="strat__hint">
-          PAPER START &lt;NAME&gt; · PAPER STOP &lt;NAME&gt; · every fill here is simulated; nothing
-          reaches a real broker.
+          PAPER START &lt;NAME&gt; [SYMBOL] [INTERVAL] · PAPER STOP &lt;NAME&gt; · decisions on
+          closed bars, fills at the next bar's open · every fill here is simulated; nothing reaches
+          a real broker. On DELAYED bars the fills are approximate.
         </p>
       </DataPanel>
     </div>

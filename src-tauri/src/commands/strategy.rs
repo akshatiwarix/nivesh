@@ -9,7 +9,10 @@ use nivesh_strategy::{BacktestOptions, RuleSet, Template, TemplateParams, backte
 use tauri::State;
 
 use crate::ipc::IpcError;
-use crate::ipc::strategy::{BacktestResultDto, BacktestTradeDto, PaperStateDto, StrategyDto};
+use crate::ipc::strategy::{
+    BacktestResultDto, BacktestTradeDto, PaperFillDto, PaperStateDto, StrategyDto,
+};
+use crate::paper::{PaperManager, PaperRecord};
 
 fn now_ms() -> i64 {
     std::time::SystemTime::now()
@@ -207,42 +210,107 @@ pub async fn backtest_result(
     })
 }
 
-/// Starts the paper runner for a strategy. Paper only: nothing here can
+/// The paper record of a strategy, as the dashboard shows it. A running
+/// strategy shows the desk's live state; a stopped one its saved state.
+fn paper_dto(name: &str, running: bool, record: &PaperRecord) -> PaperStateDto {
+    let state = &record.state;
+    PaperStateDto {
+        name: name.to_owned(),
+        running,
+        exchange: record.exchange.clone(),
+        symbol: record.symbol.clone(),
+        interval: record.interval.clone(),
+        feed: if record.live_feed { "LIVE" } else { "DELAYED" }.to_owned(),
+        approximate: !record.live_feed,
+        quantity: state.position.as_ref().map(|p| p.quantity),
+        entry_price: state.position.as_ref().map(|p| p.entry_price),
+        day_pnl: state.day_pnl,
+        realised_pnl: state.realised_pnl,
+        fills: state
+            .fills
+            .iter()
+            .rev()
+            .take(DASHBOARD_FILLS)
+            .map(|f| PaperFillDto {
+                t: f.t,
+                side: f.side.into(),
+                quantity: f.quantity,
+                price: f.price,
+                pnl: f.pnl,
+            })
+            .collect(),
+    }
+}
+
+/// Fills per strategy on the dashboard.
+const DASHBOARD_FILLS: usize = 20;
+
+fn strategy_named(store: &Store, name: &str) -> Result<nivesh_store::StrategyRow, IpcError> {
+    store
+        .strategies()?
+        .into_iter()
+        .find(|r| r.name.eq_ignore_ascii_case(name))
+        .ok_or_else(|| IpcError::invalid_argument(format!("no strategy named {name:?}")))
+}
+
+/// Starts the paper runner for a strategy on a stream:
+/// `PAPER START <NAME> [SYMBOL] [INTERVAL]`, by default the stream it last
+/// ran on (RELIANCE daily for a new one). Paper only: nothing here can
 /// reach a real broker.
 #[tauri::command]
 pub async fn paper_start(
     name: String,
+    symbol: Option<String>,
+    interval: Option<String>,
+    services: State<'_, Arc<crate::services::Services>>,
     store: State<'_, Arc<Store>>,
+    paper: State<'_, Arc<PaperManager>>,
 ) -> Result<PaperStateDto, IpcError> {
-    let rows = store.strategies()?;
-    let row = rows
-        .iter()
-        .find(|r| r.name.eq_ignore_ascii_case(&name))
-        .ok_or_else(|| IpcError::invalid_argument(format!("no strategy named {name:?}")))?;
-    // The runner state starts flat; bars drive it once market data flows.
-    let state = PaperStateDto {
-        running: true,
-        symbol: None,
-        quantity: None,
-        entry_price: None,
-        day_pnl: 0.0,
-    };
-    store.save_paper_state(row.id, true, r#"{"day_pnl":0.0}"#)?;
-    Ok(state)
+    let row = strategy_named(&store, &name)?;
+    let set: RuleSet = serde_json::from_str(&row.json)
+        .map_err(|e| IpcError::internal(format!("stored strategy is unreadable: {e}")))?;
+    let last = store
+        .paper_state(row.id)?
+        .map(|(_, json)| PaperRecord::decode(&json))
+        .unwrap_or_default();
+    let symbol = symbol.unwrap_or(last.symbol);
+    let interval = interval.unwrap_or(last.interval);
+    let record = paper
+        .start(&services, row.id, set, &last.exchange, &symbol, &interval)
+        .await?;
+    Ok(paper_dto(&row.name, true, &record))
 }
 
 /// Stops (but keeps resumable state for) a paper strategy.
 #[tauri::command]
-pub async fn paper_stop(name: String, store: State<'_, Arc<Store>>) -> Result<(), IpcError> {
-    let rows = store.strategies()?;
-    let row = rows
-        .iter()
-        .find(|r| r.name.eq_ignore_ascii_case(&name))
-        .ok_or_else(|| IpcError::invalid_argument(format!("no strategy named {name:?}")))?;
-    let (running, json) = store
-        .paper_state(row.id)?
-        .unwrap_or((false, r#"{"day_pnl":0.0}"#.to_owned()));
-    let _ = running;
-    store.save_paper_state(row.id, false, &json)?;
-    Ok(())
+pub async fn paper_stop(
+    name: String,
+    services: State<'_, Arc<crate::services::Services>>,
+    store: State<'_, Arc<Store>>,
+    paper: State<'_, Arc<PaperManager>>,
+) -> Result<(), IpcError> {
+    let row = strategy_named(&store, &name)?;
+    paper.stop(&services, row.id)
+}
+
+/// Every strategy that has paper state, for the `PAPER` dashboard.
+#[tauri::command]
+pub async fn paper_states(
+    store: State<'_, Arc<Store>>,
+    paper: State<'_, Arc<PaperManager>>,
+) -> Result<Vec<PaperStateDto>, IpcError> {
+    let mut out = Vec::new();
+    for row in store.strategies()? {
+        let Some((saved_running, json)) = store.paper_state(row.id)? else {
+            continue;
+        };
+        let mut record = PaperRecord::decode(&json);
+        let running = paper.is_running(row.id);
+        if let Some(live) = paper.state(row.id) {
+            record.state = live;
+        }
+        // Saved as running but not on the desk: resuming failed (logged).
+        out.push(paper_dto(&row.name, running || saved_running, &record));
+    }
+    Ok(out)
 }
