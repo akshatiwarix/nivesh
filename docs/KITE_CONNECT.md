@@ -58,9 +58,19 @@ clearly-labelled demo data instead.
   10 req/s.
 - WebSocket: up to **3000 instruments** per connection, 3 connections
   per API key.
-- Order placement caps (400/min, 25 modifications per order, 5000/day)
-  exist but Nivesh cannot place orders until Part 6, behind the risk
-  engine.
+- Order placement: **10 req/s**, 400 orders/min, 5000/day per API key,
+  25 modifications per order. Nivesh's default risk limits (10 orders a
+  minute, 200 a day) sit far below these.
+
+## Before any live order: register a static IP
+
+SEBI's retail algo framework (in force for Kite Connect since 1 April
+2025) requires API orders to come from a **static IP registered with
+Zerodha**. Register one primary (and optionally one secondary) IP in the
+Kite Connect developer console before arming anything live. Without it,
+Zerodha rejects the orders. Reading data (quotes, holdings) is not
+affected. Staying at or under 10 orders per second keeps a self-built algo
+outside exchange registration; Nivesh's limits are far below that.
 
 ## Security
 
@@ -68,7 +78,8 @@ clearly-labelled demo data instead.
   **macOS Keychain** (service `nivesh`). They never reach SQLite, log
   files or the webview; an automated test in CI proves the token never
   appears in any log line.
-- Order placement does not exist in this build: no code path can place,
-  modify or cancel an order. That arrives in Part 6 behind the risk
-  engine, the kill switch and the audit log, and needs your explicit,
-  typed confirmation per strategy.
+- Order placement is compiled only with the `live-trading` Cargo
+  feature, which release builds leave off. Even with it, only the order
+  gateway can send an order, and only one the risk engine approved, the
+  audit log recorded, and the kill switch allows. Going live needs your
+  explicit, typed confirmation per strategy each session.

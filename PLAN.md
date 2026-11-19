@@ -1408,11 +1408,25 @@ without notice.
   The adapter's rate limits must be set from the current docs at implementation
   time, not from memory.
 - **Regulation.** SEBI's 2025 framework for retail algorithmic trading changed
-  how API and algo orders work through brokers. It covers things like static-IP
-  registration for API order placement, orders-per-second thresholds above which
-  an algo must be exchange-registered, and order tagging. **Before Part 6 enables
-  live orders, verify Zerodha's current requirements.** Nivesh's default order
-  rate stays far below any unregistered-algo threshold.
+  how API and algo orders work through brokers. Checked against Zerodha's
+  Kite Connect FAQ, its Z-Connect posts and the Kite developer forum on
+  Nov 20, 2026:
+  - **Static IP.** Since 1 April 2025, orders through the Kite API must come
+    from a static IP registered with Zerodha: one primary (mandatory) and one
+    secondary (optional). This applies whatever the order rate. It is the
+    operator's setup (see `docs/KITE_CONNECT.md`); Nivesh cannot do it.
+  - **Order rate.** A self-built algo needs no exchange registration while it
+    stays at or under **10 orders per second** per client account, which is
+    also Kite's default cap. Kite's order limits are 10 req/s, 400 orders per
+    minute, 5,000 per day per API key, and 25 modifications per order. Nivesh's
+    own limits (10 orders a minute, 200 a day by default) stay far below them.
+  - **Tagging.** The exchange tags orders from unregistered algos (≤10 OPS)
+    with a generic algo ID; registered algos get a unique one. Separately,
+    Nivesh tags every order it places with its own client tag (`NV<strategy>S<seq>`,
+    alphanumeric, ≤20 characters per Kite's `tag` field) for idempotency and
+    reconciliation.
+  - Order types: limit by default. Market orders need `market_protection`
+    (Kite accepts `-1` for automatic, or a percentage up to 100).
 
 ### Design consequences
 
