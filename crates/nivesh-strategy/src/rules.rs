@@ -52,6 +52,15 @@ pub enum Sizing {
     FixedAmount(f64),
     /// A fraction of the (paper) account equity, `0.25` = 25%.
     FractionOfEquity(f64),
+    /// Volatility sizing: risk `risk` of equity (`0.01` = 1%) per trade,
+    /// with the stop `atr_multiple` ATRs below the entry. The quantity is
+    /// `floor(equity * risk / (atr_multiple * ATR(atr_period)))`, and that
+    /// ATR stop is placed (the tighter of it and any `stop_loss` wins).
+    AtrRisk {
+        risk: f64,
+        atr_period: usize,
+        atr_multiple: f64,
+    },
 }
 
 impl Default for Sizing {

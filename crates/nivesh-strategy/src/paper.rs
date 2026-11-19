@@ -138,7 +138,7 @@ impl PaperRunner {
         }
         self.state.last_bar_t = Some(bar.t);
         self.roll_day(bar.t);
-        let intent = self.evaluator.feed(bar)?;
+        let mut intent = self.evaluator.feed(bar)?;
         // The backtester's relevance rule: no pyramiding, no exits while
         // flat.
         let relevant = match intent.side {
@@ -148,6 +148,12 @@ impl PaperRunner {
         if !relevant {
             self.sync_evaluator();
             return None;
+        }
+        // An exit closes the whole position. The evaluator sizes every
+        // intent with the sizing model as of this bar, which for ATR or
+        // amount sizing is not what was bought.
+        if let (IntentSide::Sell, Some(pos)) = (intent.side, &self.state.position) {
+            intent.quantity = pos.quantity;
         }
         Some(intent)
     }
@@ -296,6 +302,23 @@ mod tests {
         assert_eq!(runner.state().charges, 4.0);
         assert_eq!(runner.state().fills[0].charges, 1.5);
         assert_eq!(runner.state().fills[1].pnl, Some(6.0));
+    }
+
+    #[test]
+    fn an_exit_sells_the_whole_position_whatever_the_sizing_says_now() {
+        // ₹1,000 of budget: 10 shares at ₹100, but only 5 at ₹200.
+        let set = RuleSet {
+            sizing: Sizing::FixedAmount(1_000.0),
+            ..crossing_set()
+        };
+        let mut runner = PaperRunner::new(set, "RELIANCE", 100_000.0).unwrap();
+        runner.on_bar(&candle(1, 99.0, 99.0));
+        runner.on_bar(&candle(2, 100.0, 100.0));
+        assert_eq!(runner.on_bar(&candle(3, 100.0, 100.5)).unwrap().quantity, 9);
+        runner.on_fill(IntentSide::Buy, 9, 100.5, 0.0, 4);
+        // The exit fires on a bar where ₹1,000 buys a different amount.
+        let exit = runner.on_bar(&candle(4, 101.0, 99.0)).expect("exit");
+        assert_eq!((exit.side, exit.quantity), (IntentSide::Sell, 9));
     }
 
     #[test]

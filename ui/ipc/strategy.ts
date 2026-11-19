@@ -17,6 +17,8 @@ export function strategySave(args: {
   quantity: number;
   stopLoss?: number;
   target?: number;
+  /** ATR sizing: the fraction of equity to risk per trade. */
+  risk?: number;
 }): Promise<number> {
   return call<number>("strategy_save", args);
 }

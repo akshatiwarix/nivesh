@@ -124,8 +124,9 @@ export const COMMANDS: readonly CommandDef[] = [
   {
     id: "strat",
     names: ["STRAT"],
-    summary: "Strategies. STRAT MA 20 50 1 builds from a template (QTY 3rd)",
-    usage: "STRAT [MA 20 50 1 | RSI 14 | BREAKOUT 20]",
+    summary:
+      "Strategies. STRAT MA 20 50 1 builds from a template (QTY 3rd); SL 2 · T 5 · RISK 1 set stop, target and ATR sizing (percent)",
+    usage: "STRAT [MA 20 50 1 | RSI 14 | BREAKOUT 20] [SL %] [T %] [RISK %]",
     fkey: 10,
   },
   {

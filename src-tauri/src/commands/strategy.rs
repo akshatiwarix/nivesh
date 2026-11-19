@@ -62,6 +62,7 @@ pub async fn strategy_save(
     quantity: i64,
     stop_loss: Option<f64>,
     target: Option<f64>,
+    risk: Option<f64>,
     store: State<'_, Arc<Store>>,
 ) -> Result<i64, IpcError> {
     let template_kind = match template.to_ascii_uppercase().as_str() {
@@ -81,6 +82,7 @@ pub async fn strategy_save(
         stop_loss,
         target,
         trailing_stop: None,
+        atr_risk: risk,
     };
     let set = template_kind.build(&params);
     nivesh_strategy::validate(&set).map_err(|e| IpcError::invalid_argument(e.to_string()))?;

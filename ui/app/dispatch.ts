@@ -19,6 +19,7 @@ import {
 import { DEFAULT_UNIVERSE, findUniverse } from "../lib/universe";
 import { parseChartArgs, parseInterval } from "../views/chart/model";
 import { sendViewCommand } from "../views/context";
+import { parseStratArgs } from "./strat";
 import type { Workspace } from "./workspace";
 
 /** What a command returns: an error message for the command bar, or nothing. */
@@ -142,23 +143,12 @@ export function runCommand(
         if (ws.currentView(ws.state.focused).kind !== "strat") ws.open({ kind: "strat" });
         return undefined;
       }
-      const template = args[0]?.toUpperCase();
-      if (template === undefined || !["MA", "RSI", "BREAKOUT"].includes(template)) {
-        return "Which template? STRAT MA 20 50 1, STRAT RSI 14, STRAT BREAKOUT 20.";
-      }
+      const strat = parseStratArgs(args);
+      if (typeof strat === "string") return strat;
       if (!inTauri()) return "Strategies run in the Nivesh app.";
-      const name =
-        template === "MA"
-          ? `MA ${args[1] ?? 20}/${args[2] ?? 50}`
-          : template === "RSI"
-            ? `RSI ${args[1] ?? 14}`
-            : `Breakout ${args[1] ?? 20}`;
-      const fast = Number(args[1] ?? (template === "RSI" ? 14 : 20));
-      const slow = Number(args[2] ?? 50);
-      const qty = Number(args[3] ?? 1);
       return (async () => {
         try {
-          await strategySave({ name, template, fast, slow, quantity: qty });
+          await strategySave(strat);
           if (ws.currentView(ws.state.focused).kind !== "strat") ws.open({ kind: "strat" });
           return undefined;
         } catch (err) {

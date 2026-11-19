@@ -18,6 +18,26 @@ pub struct TemplateParams {
     pub target: Option<f64>,
     /// Trailing-stop fraction, e.g. `0.015`.
     pub trailing_stop: Option<f64>,
+    /// ATR sizing: risk this fraction of equity per trade (`0.01` = 1%)
+    /// with a 2×ATR(14) stop, instead of the fixed `quantity`.
+    pub atr_risk: Option<f64>,
+}
+
+/// The ATR window and stop multiple the templates' ATR sizing uses.
+pub const TEMPLATE_ATR_PERIOD: usize = 14;
+pub const TEMPLATE_ATR_MULTIPLE: f64 = 2.0;
+
+impl TemplateParams {
+    fn sizing(&self) -> Sizing {
+        match self.atr_risk {
+            Some(risk) => Sizing::AtrRisk {
+                risk,
+                atr_period: TEMPLATE_ATR_PERIOD,
+                atr_multiple: TEMPLATE_ATR_MULTIPLE,
+            },
+            None => Sizing::FixedQuantity(self.quantity),
+        }
+    }
 }
 
 impl Default for TemplateParams {
@@ -29,6 +49,7 @@ impl Default for TemplateParams {
             stop_loss: Some(0.02),
             target: Some(0.05),
             trailing_stop: None,
+            atr_risk: None,
         }
     }
 }
@@ -89,7 +110,7 @@ impl Template {
                     direction: CrossDirection::Below,
                     right: fast(vec![p.slow as f64]),
                 },
-                sizing: Sizing::FixedQuantity(p.quantity),
+                sizing: p.sizing(),
                 stop_loss: p.stop_loss,
                 target: p.target,
                 trailing_stop: p.trailing_stop,
@@ -106,7 +127,7 @@ impl Template {
                     cmp: Comparison::Greater,
                     right: Operand::Constant(70.0),
                 },
-                sizing: Sizing::FixedQuantity(p.quantity),
+                sizing: p.sizing(),
                 stop_loss: p.stop_loss,
                 target: p.target,
                 trailing_stop: p.trailing_stop,
@@ -130,7 +151,7 @@ impl Template {
                         direction: CrossDirection::Below,
                         right: fast(vec![p.slow as f64]),
                     },
-                    sizing: Sizing::FixedQuantity(p.quantity),
+                    sizing: p.sizing(),
                     stop_loss: p.stop_loss,
                     target: p.target,
                     trailing_stop: p.trailing_stop,
@@ -172,6 +193,7 @@ mod tests {
             stop_loss: Some(0.03),
             target: None,
             trailing_stop: Some(0.02),
+            atr_risk: None,
         });
         assert_eq!(set.entry.describe(), "SMA(10) crossed above SMA(40)");
         assert_eq!(set.exit.describe(), "SMA(10) crossed below SMA(40)");
@@ -179,6 +201,26 @@ mod tests {
         assert_eq!(set.stop_loss, Some(0.03));
         assert_eq!(set.target, None);
         assert_eq!(set.trailing_stop, Some(0.02));
+    }
+
+    #[test]
+    fn atr_risk_switches_every_template_to_atr_sizing() {
+        let params = TemplateParams {
+            atr_risk: Some(0.01),
+            ..TemplateParams::default()
+        };
+        for template in Template::all() {
+            let set = template.build(&params);
+            assert_eq!(
+                set.sizing,
+                Sizing::AtrRisk {
+                    risk: 0.01,
+                    atr_period: TEMPLATE_ATR_PERIOD,
+                    atr_multiple: TEMPLATE_ATR_MULTIPLE,
+                }
+            );
+            crate::validate(&set).unwrap();
+        }
     }
 
     #[test]
