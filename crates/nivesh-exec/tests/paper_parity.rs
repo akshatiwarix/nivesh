@@ -134,12 +134,15 @@ mod parity {
             steps in proptest::collection::vec(-25..=25i32, 80..=200),
             stop in proptest::option::of(1..8u8),
             target in proptest::option::of(1..12u8),
+            atr_risk in proptest::option::of(1..=5u8),
         ) {
             let bars = series_from(&steps);
             for template in Template::all() {
                 let params = TemplateParams {
                     stop_loss: stop.map(|s| f64::from(s) / 100.0),
                     target: target.map(|t| f64::from(t) / 100.0),
+                    // 0.1% to 0.5% of equity: sizes the risk limits allow.
+                    atr_risk: atr_risk.map(|r| f64::from(r) / 1_000.0),
                     ..TemplateParams::default()
                 };
                 let (paper, holding) = paper_trips(template, &params, &bars);

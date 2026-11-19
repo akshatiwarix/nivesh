@@ -111,6 +111,27 @@ fn validate_sizing(sizing: &Sizing) -> Result<(), RuleError> {
                 ));
             }
         }
+        Sizing::AtrRisk {
+            risk,
+            atr_period,
+            atr_multiple,
+        } => {
+            if !risk.is_finite() || *risk <= 0.0 || *risk > 0.1 {
+                return Err(RuleError::BadSizing(
+                    "risk per trade must be between 0 and 0.1 (10% of equity)".into(),
+                ));
+            }
+            if !(1..=500).contains(atr_period) {
+                return Err(RuleError::BadSizing(
+                    "the ATR period must be between 1 and 500 bars".into(),
+                ));
+            }
+            if !atr_multiple.is_finite() || *atr_multiple <= 0.0 || *atr_multiple > 20.0 {
+                return Err(RuleError::BadSizing(
+                    "the ATR multiple must be between 0 and 20".into(),
+                ));
+            }
+        }
     }
     Ok(())
 }
@@ -186,6 +207,8 @@ pub struct Evaluator {
     /// The effective stop, moved by the trailing rule.
     stop: Option<f64>,
     equity: f64,
+    /// ATR sizing's own volatility series and its latest value.
+    atr: Option<(nivesh_indicators::Atr, Option<f64>)>,
 }
 
 impl Evaluator {
@@ -193,6 +216,7 @@ impl Evaluator {
     /// first. `equity` is the account's (paper) equity, for sizing.
     pub fn new(set: RuleSet, equity: f64) -> Result<Self, RuleError> {
         validate(&set)?;
+        let set_sizing = set.sizing.clone();
         let specs = set
             .entry
             .indicators()
@@ -237,6 +261,12 @@ impl Evaluator {
             high_watermark: None,
             stop: None,
             equity,
+            atr: match set_sizing {
+                Sizing::AtrRisk { atr_period, .. } => {
+                    Some((nivesh_indicators::Atr::new(atr_period), None))
+                }
+                _ => None,
+            },
         })
     }
 
@@ -250,6 +280,9 @@ impl Evaluator {
     /// wins), then entries.
     pub fn feed(&mut self, bar: &Candle) -> Option<OrderIntent> {
         let this_prev_close = self.prev_close.replace(bar.c);
+        if let Some((atr, value)) = &mut self.atr {
+            *value = atr.update(bar.h, bar.l, bar.c);
+        }
         // 1. Advance every indicator series with this closed bar.
         //    The value before this bar becomes `prev`, for crosses.
         for ((state, last), prev) in self
@@ -280,6 +313,11 @@ impl Evaluator {
         let entry_rule = self.set.entry.clone();
         if self.decide(&entry_rule, bar, this_prev_close) {
             let quantity = self.quantity_for(bar);
+            // Nothing to buy (ATR still warming up, or the price is above
+            // the sizing's budget): stay flat rather than pretend to be long.
+            if quantity <= 0 {
+                return None;
+            }
             let intent = OrderIntent {
                 symbol: self.symbol.clone(),
                 side: crate::rules::IntentSide::Buy,
@@ -293,7 +331,7 @@ impl Evaluator {
             self.in_position = true;
             self.entry_price = Some(bar.c);
             self.high_watermark = Some(bar.c);
-            self.stop = self.set.stop_loss.map(|f| bar.c * (1.0 - f));
+            self.stop = self.initial_stop(bar.c);
             return Some(intent);
         }
         None
@@ -315,10 +353,23 @@ impl Evaluator {
         self.in_position = entry.is_some();
         self.entry_price = entry;
         self.high_watermark = entry;
-        self.stop = match (entry, self.set.stop_loss) {
-            (Some(e), Some(f)) => Some(e * (1.0 - f)),
+        self.stop = entry.and_then(|e| self.initial_stop(e));
+    }
+
+    /// The stop for a position entered at `entry`: the `stop_loss`
+    /// fraction, the ATR stop of ATR sizing, or the tighter (higher) of both.
+    fn initial_stop(&self, entry: f64) -> Option<f64> {
+        let fraction = self.set.stop_loss.map(|f| entry * (1.0 - f));
+        let atr = match (&self.set.sizing, &self.atr) {
+            (Sizing::AtrRisk { atr_multiple, .. }, Some((_, Some(atr)))) => {
+                Some(entry - atr_multiple * atr)
+            }
             _ => None,
         };
+        match (fraction, atr) {
+            (Some(f), Some(a)) => Some(f.max(a)),
+            (f, a) => f.or(a),
+        }
     }
 
     fn check_exit(&mut self, bar: &Candle, prev_close: Option<f64>) -> Option<OrderIntent> {
@@ -463,6 +514,14 @@ impl Evaluator {
             Sizing::FractionOfEquity(f) if bar.c > 0.0 => {
                 ((self.equity * f) / bar.c).floor() as i64
             }
+            Sizing::AtrRisk {
+                risk, atr_multiple, ..
+            } => match self.atr.as_ref().and_then(|(_, v)| *v) {
+                Some(atr) if atr > 0.0 => {
+                    ((self.equity * risk) / (atr_multiple * atr)).floor() as i64
+                }
+                _ => 0,
+            },
             _ => 0,
         }
         .max(0)
@@ -586,6 +645,102 @@ mod tests {
             .with_symbol("RELIANCE");
         let intent = ev.feed(&candle(1, 100.0)).unwrap();
         assert_eq!(intent.quantity, 500);
+    }
+
+    /// A bar with a fixed 4-rupee range around `c`, for ATR fixtures.
+    fn ranged(t: i64, c: f64) -> Candle {
+        Candle {
+            t,
+            o: c,
+            h: c + 2.0,
+            l: c - 2.0,
+            c,
+            v: 100.0,
+        }
+    }
+
+    fn atr_set(entry: Rule) -> RuleSet {
+        RuleSet {
+            entry,
+            sizing: Sizing::AtrRisk {
+                risk: 0.01,
+                atr_period: 3,
+                atr_multiple: 2.0,
+            },
+            ..RuleSet::default()
+        }
+    }
+
+    #[test]
+    fn atr_sizing_risks_the_fraction_over_the_atr_stop() {
+        let mut ev = Evaluator::new(atr_set(Rule::True), 100_000.0)
+            .unwrap()
+            .with_symbol("X");
+        // ATR(3) needs three bars: no entry while it warms up.
+        assert!(ev.feed(&ranged(1, 100.0)).is_none());
+        assert!(ev.feed(&ranged(2, 100.0)).is_none());
+        // Flat closes and a 4-rupee range: ATR = 4, stop distance 2 * 4 = 8,
+        // and 1% of ₹1,00,000 = ₹1,000 at risk: floor(1000 / 8) = 125 shares.
+        let entry = ev.feed(&ranged(3, 100.0)).expect("warmed up");
+        assert_eq!(entry.quantity, 125);
+        // The ATR stop sits at 100 - 8 = 92: a bar touching 92 exits there.
+        let mut dip = ranged(4, 95.0);
+        dip.l = 92.0;
+        let exit = ev.feed(&dip).expect("stopped");
+        assert_eq!(exit.side, crate::rules::IntentSide::Sell);
+        assert_eq!(exit.signal_price, 92.0);
+    }
+
+    #[test]
+    fn the_tighter_of_the_atr_and_fraction_stops_wins() {
+        let set = RuleSet {
+            stop_loss: Some(0.05), // 95, tighter than the ATR stop at 92
+            ..atr_set(Rule::True)
+        };
+        let mut ev = Evaluator::new(set, 100_000.0).unwrap().with_symbol("X");
+        for t in 1..=3 {
+            ev.feed(&ranged(t, 100.0));
+        }
+        let mut dip = ranged(4, 97.0);
+        dip.l = 95.0;
+        assert_eq!(ev.feed(&dip).map(|x| x.signal_price), Some(95.0));
+    }
+
+    #[test]
+    fn a_zero_quantity_entry_stays_flat() {
+        // ₹50 of budget cannot buy a ₹100 share: no intent, and the
+        // evaluator does not believe it is long.
+        let set = RuleSet {
+            entry: Rule::True,
+            exit: Rule::True,
+            sizing: Sizing::FixedAmount(50.0),
+            ..RuleSet::default()
+        };
+        let mut ev = Evaluator::new(set, 100_000.0).unwrap().with_symbol("X");
+        assert!(ev.feed(&candle(1, 100.0)).is_none());
+        assert!(ev.feed(&candle(2, 100.0)).is_none(), "no phantom exit");
+        // At ₹40 it can.
+        assert_eq!(ev.feed(&candle(3, 40.0)).map(|x| x.quantity), Some(1));
+    }
+
+    #[test]
+    fn atr_sizing_is_validated() {
+        let bad = |risk, atr_period, atr_multiple| {
+            validate(&RuleSet {
+                sizing: Sizing::AtrRisk {
+                    risk,
+                    atr_period,
+                    atr_multiple,
+                },
+                ..RuleSet::default()
+            })
+            .is_err()
+        };
+        assert!(bad(0.0, 14, 2.0));
+        assert!(bad(0.5, 14, 2.0), "over 10% of equity per trade");
+        assert!(bad(0.01, 0, 2.0));
+        assert!(bad(0.01, 14, 0.0));
+        assert!(!bad(0.01, 14, 2.0));
     }
 
     #[test]
