@@ -1,5 +1,5 @@
 import { type Component, createEffect, onCleanup, onMount } from "solid-js";
-import { gridFor, heatColor, type Tile, tileAt, tileRect, tileText } from "./heatmapLayout";
+import { heatColor, layoutFor, type Rect, type Tile, tileText } from "./heatmapLayout";
 import "./Heatmap.css";
 
 export interface HeatmapProps {
@@ -22,6 +22,8 @@ export const Heatmap: Component<HeatmapProps> = (props) => {
   let canvas: HTMLCanvasElement | undefined;
   let box: HTMLDivElement | undefined;
   let size = { w: 0, h: 0 };
+  // The rects the last draw used, so clicks hit-test the same layout.
+  let rects: readonly Rect[] = [];
 
   const draw = () => {
     const ctx = canvas?.getContext?.("2d");
@@ -31,15 +33,15 @@ export const Heatmap: Component<HeatmapProps> = (props) => {
     canvas.height = Math.round(size.h * dpr);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, size.w, size.h);
-    const tiles = props.tiles;
-    const grid = gridFor(tiles.length, size.w, size.h);
+    rects = layoutFor(props.tiles, size.w, size.h);
     const font = css("--font-mono", "monospace");
     const fg = css("--c-fg", "#d6d6d6");
     const frame = css("--c-amber", "#ffb000");
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    tiles.forEach((tile, i) => {
-      const r = tileRect(i, grid, size.w, size.h);
+    props.tiles.forEach((tile, i) => {
+      const r = rects[i];
+      if (!r) return;
       ctx.fillStyle = heatColor(tile.pct);
       ctx.fillRect(r.x, r.y, r.w, r.h);
       ctx.fillStyle = fg;
@@ -78,7 +80,10 @@ export const Heatmap: Component<HeatmapProps> = (props) => {
 
   // Redraw on any change to the tiles or the cursor.
   createEffect(() => {
-    for (const t of props.tiles) void t.pct;
+    for (const t of props.tiles) {
+      void t.pct;
+      void t.weight;
+    }
     void props.selected;
     draw();
   });
@@ -86,14 +91,13 @@ export const Heatmap: Component<HeatmapProps> = (props) => {
   const hit = (e: MouseEvent) => {
     const rect = canvas?.getBoundingClientRect();
     if (!rect) return -1;
-    return tileAt(
-      e.clientX - rect.left,
-      e.clientY - rect.top,
-      props.tiles.length,
-      gridFor(props.tiles.length, size.w, size.h),
-      size.w,
-      size.h,
-    );
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    for (let i = 0; i < rects.length; i++) {
+      const r = rects[i];
+      if (r && x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h) return i;
+    }
+    return -1;
   };
 
   return (

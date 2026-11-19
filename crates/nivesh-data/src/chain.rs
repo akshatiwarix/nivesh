@@ -5,13 +5,14 @@
 //! identical in-flight requests. A candle series always comes whole from one
 //! provider: a fallback re-fetches the series rather than splicing two sources.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::future::Future;
 use std::sync::{Arc, Mutex};
 
 use nivesh_core::bars::{normalize, resample};
 use nivesh_core::{
-    CandleSeries, IndexId, IndexQuote, IndexSnapshot, InstrumentId, ProviderId, Quote, Sourced,
+    CandleSeries, IndexId, IndexQuote, IndexSnapshot, InstrumentId, ProviderId, Quote,
+    SnapshotActivity, Sourced,
 };
 use tokio::sync::broadcast;
 
@@ -569,7 +570,7 @@ impl MarketData {
                         p.index_snapshot(index).await
                     })
                     .await?;
-                Ok(this.with_fallback_constituents(index, snapshot).await)
+                Ok(this.with_activity(this.with_fallback_constituents(index, snapshot).await))
             })
             .await
     }
@@ -614,6 +615,33 @@ impl MarketData {
             Err(error) => {
                 tracing::debug!(index = index.code(), %error, "could not price the fallback constituents");
             }
+        }
+        snapshot
+    }
+
+    /// Attaches the constituents' last-full-session traded values, when the
+    /// app has them, so the heatmap can size tiles by turnover instead of
+    /// equally. Old cache entries are left alone.
+    fn with_activity(&self, mut snapshot: Sourced<IndexSnapshot>) -> Sourced<IndexSnapshot> {
+        let Some(activity) = &self.inner.activity else {
+            return snapshot;
+        };
+        if snapshot.data.constituents.is_empty() {
+            return snapshot;
+        }
+        let table = activity.snapshot();
+        let mut turnover = BTreeMap::new();
+        for q in &snapshot.data.constituents {
+            if let Some(row) = table.rows.get(q.id.symbol()) {
+                turnover.insert(q.id.symbol().to_owned(), row.turnover);
+            }
+        }
+        if !turnover.is_empty() {
+            snapshot.data.activity = Some(SnapshotActivity {
+                as_of: table.as_of.clone(),
+                source: table.source.clone(),
+                turnover,
+            });
         }
         snapshot
     }
@@ -1027,6 +1055,7 @@ mod tests {
             quote,
             constituents: vec![],
             constituents_info: None,
+            activity: None,
         })
     }
 
@@ -1107,6 +1136,31 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn the_snapshot_carries_eod_turnover_for_the_heatmap() {
+        let r = rig();
+        let md = with_activity(
+            &r,
+            activity(&[("A", 10, 500.0), ("B", 10, 50.0), ("GHOST", 10, 5.0)]),
+        );
+        r.nse.repeat_index(Ok(snapshot_with(
+            ProviderId::Nse,
+            &[("A", 101.0, Some(10)), ("B", 102.0, Some(99))],
+        )));
+        let snap = md.index_snapshot(IndexId::Nifty50).await.unwrap();
+        let a = snap.data.activity.unwrap();
+        assert_eq!(a.as_of, "2026-11-18");
+        assert_eq!(a.source, "NSE bhavcopy");
+        assert_eq!(a.turnover.get("A"), Some(&500.0));
+        assert!(!a.turnover.contains_key("GHOST"), "only the constituents");
+
+        let r2 = rig();
+        r2.nse
+            .repeat_index(Ok(snapshot_with(ProviderId::Nse, &[("A", 101.0, None)])));
+        let snap2 = r2.md.index_snapshot(IndexId::Nifty50).await.unwrap();
+        assert!(snap2.data.activity.is_none(), "no table, no turnover");
+    }
+
+    #[tokio::test]
     async fn live_constituents_are_left_alone() {
         let r = rig();
         let md = with_list(&r);
@@ -1115,6 +1169,7 @@ mod tests {
                 quote: index_quote(ProviderId::Nse, IndexId::Nifty50).data,
                 constituents: vec![quote(ProviderId::Nse, "TCS").data],
                 constituents_info: None,
+                activity: None,
             },
             prov(ProviderId::Nse),
         );
@@ -1558,6 +1613,7 @@ mod tests {
                 quote: index_quote(ProviderId::Yahoo, IndexId::Sensex).data,
                 constituents: vec![],
                 constituents_info: None,
+                activity: None,
             },
             prov(ProviderId::Yahoo),
         )));

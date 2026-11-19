@@ -2,6 +2,8 @@
 //! the UI wants (camelCase, f64 rupees, epoch milliseconds, string codes), with
 //! `From` conversions. No logic beyond field mapping.
 
+use std::collections::BTreeMap;
+
 use nivesh_core::{
     Exchange, Freshness, IndexId, IndexQuote, IndexSnapshot, Instrument, InstrumentId, Provenance,
     Quote, Sourced,
@@ -181,6 +183,9 @@ pub struct IndexSnapshotDto {
     /// Set when the membership came from a dated list (not the source's own),
     /// so the view can say "constituents as of <date>".
     pub constituents_info: Option<ConstituentsInfoDto>,
+    /// The constituents' last-full-session traded values, when the app has
+    /// them; sizes the heatmap's tiles.
+    pub activity: Option<SnapshotActivityDto>,
     pub provenance: ProvenanceDto,
 }
 
@@ -191,6 +196,17 @@ pub struct ConstituentsInfoDto {
     /// `YYYY-MM-DD`.
     pub as_of: String,
     pub source: String,
+}
+
+/// Per-symbol traded value of the last full session (the daily bhavcopy).
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct SnapshotActivityDto {
+    /// `YYYY-MM-DD` of the session.
+    pub as_of: String,
+    pub source: String,
+    /// Traded value in rupees by NSE symbol.
+    pub turnover: BTreeMap<String, f64>,
 }
 
 impl From<&Sourced<IndexSnapshot>> for IndexSnapshotDto {
@@ -206,6 +222,11 @@ impl From<&Sourced<IndexSnapshot>> for IndexSnapshotDto {
                     as_of: i.as_of.clone(),
                     source: i.source.clone(),
                 }),
+            activity: s.data.activity.as_ref().map(|a| SnapshotActivityDto {
+                as_of: a.as_of.clone(),
+                source: a.source.clone(),
+                turnover: a.turnover.clone(),
+            }),
             provenance: (&s.provenance).into(),
         }
     }
@@ -487,6 +508,7 @@ mod tests {
                 quote: level,
                 constituents: vec![],
                 constituents_info: None,
+                activity: None,
             },
             prov(false),
         );
@@ -520,6 +542,7 @@ mod tests {
                     as_of: "2026-11-18".into(),
                     source: "NSE Indices".into(),
                 }),
+                activity: None,
             },
             prov(false),
         );

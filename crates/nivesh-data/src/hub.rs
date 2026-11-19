@@ -623,6 +623,7 @@ mod tests {
                 quote: level.clone(),
                 constituents: vec![quote("TCS").data],
                 constituents_info: None,
+                activity: None,
             },
             prov.clone(),
         )));

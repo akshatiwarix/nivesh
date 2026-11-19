@@ -77,6 +77,7 @@ export function indexUpdate(
       quote: indexQuote(code, title, last),
       constituents: symbols.map((s, i) => quote(s, 1000 + i)),
       constituentsInfo,
+      activity: null,
       provenance: prov(provider),
     },
   };

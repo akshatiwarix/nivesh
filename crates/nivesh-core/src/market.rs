@@ -4,6 +4,7 @@
 //! paise. Display-only market data (quotes, candles, index levels) uses `f64`
 //! rupees, which is what providers return and what charts want.
 
+use std::collections::BTreeMap;
 use std::fmt;
 use std::str::FromStr;
 
@@ -241,6 +242,23 @@ pub struct IndexSnapshot {
     /// provider that supplied the prices. Old cache entries lack it.
     #[serde(default)]
     pub constituents_info: Option<ConstituentsInfo>,
+    /// Traded value of the constituents' last full session, when the app has
+    /// it (the daily bhavcopy). Display-only: it sizes the heatmap's tiles
+    /// and says nothing about the quotes themselves. Old cache entries lack it.
+    #[serde(default)]
+    pub activity: Option<SnapshotActivity>,
+}
+
+/// Per-stock traded value of the last full session, when the app has it
+/// (from the daily bhavcopy).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SnapshotActivity {
+    /// `YYYY-MM-DD` of the session.
+    pub as_of: String,
+    /// Who published it, e.g. `NSE bhavcopy`.
+    pub source: String,
+    /// Traded value in rupees, by NSE symbol.
+    pub turnover: BTreeMap<String, f64>,
 }
 
 /// One OHLCV bar. `t` is the bar's start, UTC epoch milliseconds.
