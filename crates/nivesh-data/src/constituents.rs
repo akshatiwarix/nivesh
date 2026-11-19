@@ -62,6 +62,30 @@ pub const REFRESH_AFTER_MS: i64 = 7 * 24 * 60 * 60 * 1000;
 const SET_KEY: &str = "constituents.set";
 const REFRESHED_KEY: &str = "constituents.refreshed_at";
 
+/// Membership for the indices no publisher serves as a downloadable file.
+/// SENSEX is BSE's index, and BSE's own endpoints refuse ordinary clients,
+/// so the 30 names are curated from public sources and bundled with the date
+/// they were checked. Rebalance days mean the list drifts; the label says so.
+const CURATED: &str = include_str!("../data/sensex_constituents.json");
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct CuratedList {
+    /// `YYYY-MM-DD` the list was checked.
+    as_of: String,
+    source: String,
+    symbols: Vec<String>,
+}
+
+/// The curated members of `index`, with the list's date and source.
+fn curated(index: IndexId) -> Option<CuratedList> {
+    if index != IndexId::Sensex {
+        return None;
+    }
+    serde_json::from_str::<CuratedList>(CURATED)
+        .map_err(|e| tracing::warn!(%e, "unreadable bundled SENSEX list"))
+        .ok()
+}
+
 /// Every list, taken on one date.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ConstituentSet {
@@ -221,24 +245,24 @@ impl ConstituentsList {
         }
     }
 
-    /// The members of `index`, with the list's date and source. `None` when
-    /// there is no list for it (SENSEX).
+    /// The members of `index`, with the list's date and source. Indices no
+    /// publisher serves as a file (SENSEX is BSE's) fall back to a curated
+    /// bundled list with its own date and source.
     pub fn members(&self, index: IndexId) -> Option<(Vec<InstrumentId>, ConstituentsInfo)> {
         let set = self.snapshot();
-        let symbols = set.lists.get(index.code())?;
+        let (symbols, as_of, source): (Vec<String>, String, String) =
+            match set.lists.get(index.code()) {
+                Some(symbols) => (symbols.clone(), set.as_of.clone(), set.source.clone()),
+                None => {
+                    let curated = curated(index)?;
+                    (curated.symbols, curated.as_of, curated.source)
+                }
+            };
         let ids: Vec<InstrumentId> = symbols
             .iter()
             .filter_map(|s| InstrumentId::new(Exchange::Nse, s).ok())
             .collect();
-        (!ids.is_empty()).then(|| {
-            (
-                ids,
-                ConstituentsInfo {
-                    as_of: set.as_of.clone(),
-                    source: set.source.clone(),
-                },
-            )
-        })
+        (!ids.is_empty()).then_some((ids, ConstituentsInfo { as_of, source }))
     }
 
     /// Search-ranking tiers (see [`ConstituentSet::popularity`]).
@@ -370,13 +394,27 @@ mod tests {
     }
 
     #[test]
-    fn every_nse_catalogue_index_has_a_bundled_list() {
-        let set = ConstituentSet::bundled().unwrap();
+    fn every_catalogue_index_has_members() {
+        let list = ConstituentsList::bundled().unwrap();
         for index in IndexId::all() {
-            let has_list = set.lists.contains_key(index.code());
-            // SENSEX is a BSE index: NSE Indices publishes no file for it.
-            assert_eq!(has_list, index.nse_name().is_some(), "{}", index.code());
+            assert!(list.members(index).is_some(), "{}", index.code());
         }
+    }
+
+    #[test]
+    fn the_curated_sensex_list_is_complete_and_dated() {
+        let sensex = curated(IndexId::Sensex).unwrap();
+        assert_eq!(sensex.symbols.len(), 30);
+        let mut unique = sensex.symbols.clone();
+        unique.sort();
+        unique.dedup();
+        assert_eq!(unique.len(), 30, "no duplicates");
+        assert!(sensex.symbols.contains(&"RELIANCE".to_owned()));
+        assert_eq!(sensex.as_of.len(), 10);
+        assert!(
+            curated(IndexId::Nifty50).is_none(),
+            "only SENSEX is curated"
+        );
     }
 
     #[test]
@@ -402,7 +440,12 @@ mod tests {
         assert!(ids.iter().all(|i| i.exchange() == Exchange::Nse));
         assert_eq!(info.as_of, ConstituentSet::bundled().unwrap().as_of);
         assert_eq!(info.source, SOURCE);
-        assert!(list.members(IndexId::Sensex).is_none());
+        // SENSEX falls back to its curated list, with its own date and source.
+        let (ids, sensex_info) = list.members(IndexId::Sensex).unwrap();
+        assert_eq!(ids.len(), 30);
+        assert!(ids.iter().all(|i| i.exchange() == Exchange::Nse));
+        assert_ne!(sensex_info.source, SOURCE);
+        assert_eq!(sensex_info.source, "Curated (BSE SENSEX)");
     }
 
     #[test]

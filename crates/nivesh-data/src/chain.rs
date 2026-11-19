@@ -1212,15 +1212,19 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn sensex_and_unconfigured_chains_have_no_fallback() {
+    async fn sensex_gets_its_curated_list_priced_by_the_level_provider() {
         let r = rig();
         let md = with_list(&r);
         r.nse.repeat_index(Err(DataError::Unsupported));
         r.yahoo
             .repeat_index(Ok(level_only(ProviderId::Yahoo, IndexId::Sensex)));
+        r.yahoo
+            .repeat_quotes(Ok(vec![quote(ProviderId::Yahoo, "RELIANCE")]));
         let snap = md.index_snapshot(IndexId::Sensex).await.unwrap();
-        assert!(snap.data.constituents.is_empty());
-        assert_eq!(MockProvider::calls(&r.yahoo.quote_calls), 0);
+        let info = snap.data.constituents_info.unwrap();
+        assert_eq!(info.source, "Curated (BSE SENSEX)");
+        // Yahoo was asked to price the 30 curated members.
+        assert!(MockProvider::calls(&r.yahoo.quote_calls) >= 1);
 
         // Without a list the chain behaves as before.
         let r = rig();
