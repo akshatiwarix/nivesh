@@ -306,6 +306,21 @@ impl Evaluator {
         self
     }
 
+    /// Aligns the evaluator's position view with the account's: `entry` is
+    /// the open position's entry price, `None` when flat. The harness calls
+    /// this after a restart (the indicators were re-warmed from history, but
+    /// the position is the ledger's) and after the gateway refused an
+    /// intent (the evaluator assumed it would fill).
+    pub fn sync_position(&mut self, entry: Option<f64>) {
+        self.in_position = entry.is_some();
+        self.entry_price = entry;
+        self.high_watermark = entry;
+        self.stop = match (entry, self.set.stop_loss) {
+            (Some(e), Some(f)) => Some(e * (1.0 - f)),
+            _ => None,
+        };
+    }
+
     fn check_exit(&mut self, bar: &Candle, prev_close: Option<f64>) -> Option<OrderIntent> {
         // Stops and targets are checked first, on the bar's range: a stop
         // fires if the bar touched the level, at the level (not the close).
