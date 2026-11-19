@@ -289,6 +289,10 @@ fn parse_session(data: &serde_json::Value) -> Result<SessionInfo, BrokerError> {
 
 /// The next 06:00 IST (00:30 UTC) strictly after `now`, when Kite flushes
 /// tokens. When the clock or calendar misbehaves, a day from now.
+pub fn next_token_flush_value() -> chrono::DateTime<chrono::Utc> {
+    next_token_flush()
+}
+
 fn next_token_flush() -> chrono::DateTime<chrono::Utc> {
     use chrono::{Duration, NaiveTime, Utc};
     let now = Utc::now();

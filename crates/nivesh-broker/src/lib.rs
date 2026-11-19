@@ -19,6 +19,6 @@ pub use status::OrderStatus;
 pub use ticks::{Tick, TickBatch, TickMode, TickSubscription};
 pub use traits::{BrokerAccount, BrokerAuth, MarketStream};
 pub use types::{
-    BrokerId, BrokerOrderId, Funds, Holding, LoginCallback, LoginState, Order, OrderKind,
+    BrokerId, BrokerOrderId, Funds, Holding, LoginCallback, LoginState, Order, OrderKind, Position,
     Positions, Product, SessionInfo, SessionState, SessionStatus, Side, Trade,
 };

@@ -1,0 +1,21 @@
+[
+  {
+    "order_id": "2511190001",
+    "tradingsymbol": "SBIN",
+    "exchange": "NSE",
+    "transaction_type": "BUY",
+    "quantity": 10,
+    "price": 812.3,
+    "fill_timestamp": "2026-11-19 09:45:15",
+    "exchange_timestamp": "2026-11-19 09:45:15"
+  },
+  {
+    "order_id": "2511190001",
+    "tradingsymbol": "SBIN",
+    "exchange": "NSE",
+    "transaction_type": "BUY",
+    "quantity": 0,
+    "price": 0.0,
+    "fill_timestamp": "2026-11-19 09:45:15"
+  }
+]
