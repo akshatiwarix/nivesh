@@ -12,6 +12,7 @@
 //! the gateway has seen on that strategy's stream, so a stale strategy
 //! cannot fire into the past.
 
+pub mod audit;
 pub mod desk;
 
 use nivesh_broker::BrokerError;
@@ -24,6 +25,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 
+pub use audit::{AuditEvent, AuditSink, MemoryAudit};
 pub use desk::{PaperDesk, StepReport};
 
 /// What a strategy asks the gateway for.
@@ -72,6 +74,9 @@ pub enum GatewayError {
     NoRoute,
     #[error("the broker refused: {0}")]
     Broker(String),
+    /// The audit record could not be written, so the step did not happen.
+    #[error("the audit log could not be written: {0}")]
+    AuditFailed(String),
 }
 
 impl From<BrokerError> for GatewayError {
@@ -135,6 +140,7 @@ struct Queued {
 pub struct OrderGateway {
     engine: RiskEngine,
     paper: Arc<dyn PaperBroker>,
+    audit: Arc<dyn AuditSink>,
     /// The last closed bar per (strategy, symbol) stream.
     last_closed: HashMap<(i64, String), Candle>,
     /// Approved orders waiting to fill, in approval order.
@@ -161,10 +167,13 @@ pub struct AccountView {
 }
 
 impl OrderGateway {
-    pub fn new(engine: RiskEngine, paper: Arc<dyn PaperBroker>) -> Self {
+    /// The audit sink is required: every intent, decision, routed order and
+    /// fill is written to it before it takes effect.
+    pub fn new(engine: RiskEngine, paper: Arc<dyn PaperBroker>, audit: Arc<dyn AuditSink>) -> Self {
         Self {
             engine,
             paper,
+            audit,
             last_closed: HashMap::new(),
             queued: Vec::new(),
             approvals: Vec::new(),
@@ -176,12 +185,14 @@ impl OrderGateway {
     /// last closed bar. A bar no newer than the last one changes nothing.
     ///
     /// Each queued order settles exactly once: filled, or refused by the
-    /// paper broker (`Err`) and dropped. Nothing is retried.
+    /// paper broker (`Err`) and dropped. Nothing is retried. A fill is
+    /// audited before it is reported; one that cannot be audited is dropped.
     pub fn on_closed_bar(
         &mut self,
         strategy_id: i64,
         symbol: &str,
         bar: Candle,
+        now_ms: i64,
     ) -> Vec<Result<Fill, GatewayError>> {
         let key = (strategy_id, symbol.to_owned());
         if self
@@ -198,8 +209,23 @@ impl OrderGateway {
         let fills = due
             .into_iter()
             .map(|q| {
-                let terms = self.paper.fill(&q.order, &bar)?;
-                Ok(Fill {
+                let decision_id = q.order.decision_id();
+                let terms = match self.paper.fill(&q.order, &bar) {
+                    Ok(terms) => terms,
+                    Err(err) => {
+                        // Best effort: the order is dropped either way.
+                        let _ = self.audit.record(
+                            now_ms,
+                            &AuditEvent::FillRefused {
+                                strategy_id,
+                                decision_id,
+                                reason: err.to_string(),
+                            },
+                        );
+                        return Err(GatewayError::from(err));
+                    }
+                };
+                let fill = Fill {
                     strategy_id,
                     symbol: symbol.to_owned(),
                     side: q.order.side(),
@@ -207,9 +233,26 @@ impl OrderGateway {
                     price: terms.price,
                     charges: terms.charges,
                     bar_t: bar.t,
-                    decision_id: q.order.decision_id(),
+                    decision_id,
                     paper: true,
-                })
+                };
+                self.audit
+                    .record(
+                        now_ms,
+                        &AuditEvent::Fill {
+                            strategy_id,
+                            decision_id,
+                            symbol: fill.symbol.clone(),
+                            side: fill.side,
+                            quantity: fill.quantity,
+                            price: fill.price,
+                            charges: fill.charges,
+                            bar_t: fill.bar_t,
+                            paper: true,
+                        },
+                    )
+                    .map_err(GatewayError::AuditFailed)?;
+                Ok(fill)
             })
             .collect();
         self.last_closed.insert(key, bar);
@@ -225,11 +268,28 @@ impl OrderGateway {
         account: &AccountView,
         now_ms: i64,
     ) -> Result<u64, GatewayError> {
-        let last = self
+        let audit = |event: AuditEvent| {
+            self.audit
+                .record(now_ms, &event)
+                .map_err(GatewayError::AuditFailed)
+        };
+        audit(AuditEvent::Intent {
+            strategy_id: intent.strategy_id,
+            symbol: intent.symbol.clone(),
+            side: intent.side,
+            quantity: intent.quantity,
+            signal_price: intent.signal_price,
+            signal_bar_t: intent.signal_bar_t,
+        })?;
+        let fresh = self
             .last_closed
             .get(&(intent.strategy_id, intent.symbol.clone()))
-            .ok_or(GatewayError::StaleIntent)?;
-        if last.t != intent.signal_bar_t {
+            .is_some_and(|last| last.t == intent.signal_bar_t);
+        if !fresh {
+            audit(AuditEvent::Stale {
+                strategy_id: intent.strategy_id,
+                signal_bar_t: intent.signal_bar_t,
+            })?;
             return Err(GatewayError::StaleIntent);
         }
         let ctx = RiskContext {
@@ -249,13 +309,30 @@ impl OrderGateway {
             price: None,
             product: Product::Delivery,
         };
-        let approved = self
-            .engine
-            .check(&request, &ctx)
-            .map_err(GatewayError::RiskRejected)?;
+        let approved = match self.engine.check(&request, &ctx) {
+            Ok(approved) => approved,
+            Err(rejection) => {
+                audit(AuditEvent::rejected(
+                    intent.strategy_id,
+                    &intent.symbol,
+                    &rejection,
+                ))?;
+                return Err(GatewayError::RiskRejected(rejection));
+            }
+        };
         if !approved.is_valid_at(now_ms) {
             return Err(GatewayError::ApprovalExpired);
         }
+        // The routed order is on the record before it exists anywhere else.
+        audit(AuditEvent::OrderRouted {
+            strategy_id: intent.strategy_id,
+            decision_id: approved.decision_id(),
+            symbol: approved.symbol().to_owned(),
+            side: approved.side(),
+            quantity: approved.quantity(),
+            price: approved.price(),
+            route: "paper",
+        })?;
         self.approvals.insert(0, now_ms);
         self.approvals.truncate(500);
         let decision_id = approved.decision_id();
@@ -302,6 +379,7 @@ mod tests {
         OrderGateway::new(
             RiskEngine::new(nivesh_risk::RiskLimits::default()),
             Arc::new(NextOpen::FREE),
+            Arc::new(MemoryAudit::default()),
         )
     }
 
@@ -323,14 +401,14 @@ mod tests {
     fn an_approved_intent_fills_at_the_next_bars_open() {
         let mut gw = gateway();
         assert!(
-            gw.on_closed_bar(1, "NSE:RELIANCE", bar(NOW, 1_000.0))
+            gw.on_closed_bar(1, "NSE:RELIANCE", bar(NOW, 1_000.0), NOW)
                 .is_empty()
         );
         let decision = gw
             .submit(&intent(NOW, 1), &AccountView::default(), NOW)
             .unwrap();
         assert_eq!(gw.queued(), 1, "queued, not filled");
-        let fills = gw.on_closed_bar(1, "NSE:RELIANCE", bar(NOW + MIN, 1_002.0));
+        let fills = gw.on_closed_bar(1, "NSE:RELIANCE", bar(NOW + MIN, 1_002.0), NOW);
         assert_eq!(fills.len(), 1);
         let fill = fills[0].as_ref().unwrap();
         assert!(fill.paper);
@@ -346,7 +424,7 @@ mod tests {
     #[test]
     fn a_stale_intent_is_refused_before_the_risk_check() {
         let mut gw = gateway();
-        gw.on_closed_bar(1, "NSE:RELIANCE", bar(NOW, 1_000.0));
+        gw.on_closed_bar(1, "NSE:RELIANCE", bar(NOW, 1_000.0), NOW);
         let err = gw
             .submit(&intent(NOW - MIN, 1), &AccountView::default(), NOW)
             .unwrap_err();
@@ -366,7 +444,7 @@ mod tests {
     #[test]
     fn a_risk_rejection_queues_nothing() {
         let mut gw = gateway();
-        gw.on_closed_bar(1, "NSE:RELIANCE", bar(NOW, 1_000.0));
+        gw.on_closed_bar(1, "NSE:RELIANCE", bar(NOW, 1_000.0), NOW);
         // 600 shares at ₹1000 = ₹600k, over the ₹500k cap.
         let err = gw
             .submit(&intent(NOW, 600), &AccountView::default(), NOW)
@@ -376,7 +454,7 @@ mod tests {
         );
         assert_eq!(gw.queued(), 0);
         assert!(
-            gw.on_closed_bar(1, "NSE:RELIANCE", bar(NOW + MIN, 1_000.0))
+            gw.on_closed_bar(1, "NSE:RELIANCE", bar(NOW + MIN, 1_000.0), NOW)
                 .is_empty()
         );
     }
@@ -384,17 +462,17 @@ mod tests {
     #[test]
     fn fills_go_only_to_the_strategy_that_asked() {
         let mut gw = gateway();
-        gw.on_closed_bar(1, "NSE:RELIANCE", bar(NOW, 1_000.0));
-        gw.on_closed_bar(2, "NSE:RELIANCE", bar(NOW, 1_000.0));
+        gw.on_closed_bar(1, "NSE:RELIANCE", bar(NOW, 1_000.0), NOW);
+        gw.on_closed_bar(2, "NSE:RELIANCE", bar(NOW, 1_000.0), NOW);
         gw.submit(&intent(NOW, 1), &AccountView::default(), NOW)
             .unwrap();
         // Strategy 2's next bar fills nothing of strategy 1's.
         assert!(
-            gw.on_closed_bar(2, "NSE:RELIANCE", bar(NOW + MIN, 1_000.0))
+            gw.on_closed_bar(2, "NSE:RELIANCE", bar(NOW + MIN, 1_000.0), NOW)
                 .is_empty()
         );
         assert_eq!(
-            gw.on_closed_bar(1, "NSE:RELIANCE", bar(NOW + MIN, 1_000.0))
+            gw.on_closed_bar(1, "NSE:RELIANCE", bar(NOW + MIN, 1_000.0), NOW)
                 .len(),
             1
         );
@@ -403,29 +481,86 @@ mod tests {
     #[test]
     fn a_replayed_bar_fills_nothing_and_forget_drops_the_queue() {
         let mut gw = gateway();
-        gw.on_closed_bar(1, "NSE:RELIANCE", bar(NOW, 1_000.0));
+        gw.on_closed_bar(1, "NSE:RELIANCE", bar(NOW, 1_000.0), NOW);
         gw.submit(&intent(NOW, 1), &AccountView::default(), NOW)
             .unwrap();
         assert!(
-            gw.on_closed_bar(1, "NSE:RELIANCE", bar(NOW, 1_000.0))
+            gw.on_closed_bar(1, "NSE:RELIANCE", bar(NOW, 1_000.0), NOW)
                 .is_empty()
         );
         assert_eq!(gw.queued(), 1, "still waiting for a NEWER bar");
         gw.forget(1);
         assert_eq!(gw.queued(), 0);
         assert!(
-            gw.on_closed_bar(1, "NSE:RELIANCE", bar(NOW + MIN, 1_000.0))
+            gw.on_closed_bar(1, "NSE:RELIANCE", bar(NOW + MIN, 1_000.0), NOW)
                 .is_empty()
         );
+    }
+
+    fn audited(audit: Arc<MemoryAudit>) -> OrderGateway {
+        OrderGateway::new(
+            RiskEngine::new(nivesh_risk::RiskLimits::default()),
+            Arc::new(NextOpen::FREE),
+            audit,
+        )
+    }
+
+    #[test]
+    fn every_step_is_audited_in_order() {
+        let log = Arc::new(MemoryAudit::default());
+        let mut gw = audited(Arc::clone(&log));
+        gw.on_closed_bar(1, "NSE:RELIANCE", bar(NOW, 1_000.0), NOW);
+        let decision = gw
+            .submit(&intent(NOW, 1), &AccountView::default(), NOW)
+            .unwrap();
+        gw.on_closed_bar(1, "NSE:RELIANCE", bar(NOW + MIN, 1_001.0), NOW + MIN);
+        assert_eq!(log.kinds(), vec!["intent", "order.routed", "fill"]);
+        let events = log.events();
+        assert!(matches!(
+            &events[1].1,
+            AuditEvent::OrderRouted { decision_id, route: "paper", .. } if *decision_id == decision
+        ));
+        assert!(matches!(&events[2].1, AuditEvent::Fill { price, .. } if *price == 1_001.0));
+        assert!(events[2].1.payload().contains(r#""event":"fill""#));
+    }
+
+    #[test]
+    fn refusals_are_audited_with_their_reason() {
+        let log = Arc::new(MemoryAudit::default());
+        let mut gw = audited(Arc::clone(&log));
+        gw.on_closed_bar(1, "NSE:RELIANCE", bar(NOW, 1_000.0), NOW);
+        let _ = gw.submit(&intent(NOW, 600), &AccountView::default(), NOW);
+        let _ = gw.submit(&intent(NOW - MIN, 1), &AccountView::default(), NOW);
+        assert_eq!(
+            log.kinds(),
+            vec!["intent", "risk.rejected", "intent", "intent.stale"]
+        );
+        assert!(matches!(
+            &log.events()[1].1,
+            AuditEvent::RiskRejected { check: nivesh_risk::RiskCheck::OrderValue, reason, .. }
+                if reason.contains("per-order cap")
+        ));
+    }
+
+    #[test]
+    fn without_an_audit_record_nothing_is_routed() {
+        let mut gw = audited(Arc::new(MemoryAudit::failing()));
+        gw.on_closed_bar(1, "NSE:RELIANCE", bar(NOW, 1_000.0), NOW);
+        let err = gw
+            .submit(&intent(NOW, 1), &AccountView::default(), NOW)
+            .unwrap_err();
+        assert!(matches!(err, GatewayError::AuditFailed(_)));
+        assert_eq!(gw.queued(), 0, "fail closed");
+        assert_eq!(gw.approvals(), 0);
     }
 
     #[test]
     fn a_bar_without_an_open_fills_nothing() {
         let mut gw = gateway();
-        gw.on_closed_bar(1, "NSE:RELIANCE", bar(NOW, 1_000.0));
+        gw.on_closed_bar(1, "NSE:RELIANCE", bar(NOW, 1_000.0), NOW);
         gw.submit(&intent(NOW, 1), &AccountView::default(), NOW)
             .unwrap();
-        let settled = gw.on_closed_bar(1, "NSE:RELIANCE", bar(NOW + MIN, 0.0));
+        let settled = gw.on_closed_bar(1, "NSE:RELIANCE", bar(NOW + MIN, 0.0), NOW);
         assert!(matches!(&settled[..], [Err(GatewayError::Broker(_))]));
         assert_eq!(gw.queued(), 0, "dropped, never retried blindly");
     }

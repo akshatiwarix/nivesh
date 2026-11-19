@@ -45,10 +45,13 @@ mod parity {
         bars: &[Candle],
     ) -> (Vec<Trip>, bool) {
         // The synthetic bars sit outside market hours: no trading window.
-        let mut desk = PaperDesk::new(RiskEngine::new(RiskLimits {
-            trading_window: None,
-            ..RiskLimits::default()
-        }));
+        let mut desk = PaperDesk::new(
+            RiskEngine::new(RiskLimits {
+                trading_window: None,
+                ..RiskLimits::default()
+            }),
+            std::sync::Arc::new(nivesh_exec::MemoryAudit::default()),
+        );
         let runner = PaperRunner::new(template.build(params), "NSE:RELIANCE", 100_000.0).unwrap();
         desk.start(1, runner);
         let mut trips = Vec::new();

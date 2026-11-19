@@ -95,11 +95,13 @@ fn now_ms() -> i64 {
 
 impl PaperManager {
     pub fn new(store: Arc<Store>) -> Self {
+        let audit = Arc::new(crate::audit::StoreAudit(Arc::clone(&store)));
         Self {
             store,
-            desk: Arc::new(Mutex::new(PaperDesk::new(RiskEngine::new(
-                RiskLimits::default(),
-            )))),
+            desk: Arc::new(Mutex::new(PaperDesk::new(
+                RiskEngine::new(RiskLimits::default()),
+                audit,
+            ))),
             running: Mutex::new(HashMap::new()),
         }
     }
@@ -349,7 +351,7 @@ mod tests {
 
     #[test]
     fn closed_bars_drive_the_desk_and_the_state_is_saved() {
-        let store = Store::open_in_memory().unwrap();
+        let store = Arc::new(Store::open_in_memory().unwrap());
         let id = store
             .save_strategy(None, "always", "test", "{}", 0)
             .unwrap();
@@ -359,10 +361,13 @@ mod tests {
             ..RuleSet::default()
         };
         // The test bars are stamped with the wall clock: no trading window.
-        let desk = Mutex::new(PaperDesk::new(RiskEngine::new(RiskLimits {
-            trading_window: None,
-            ..RiskLimits::default()
-        })));
+        let desk = Mutex::new(PaperDesk::new(
+            RiskEngine::new(RiskLimits {
+                trading_window: None,
+                ..RiskLimits::default()
+            }),
+            Arc::new(crate::audit::StoreAudit(Arc::clone(&store))),
+        ));
         lock(&desk).start(id, PaperRunner::new(set, "NSE:TCS", PAPER_EQUITY).unwrap());
         let mut record = PaperRecord::default();
         let t0 = now_ms();
@@ -406,6 +411,17 @@ mod tests {
                 .charges(nivesh_core::Side::Buy, 1, price)
                 .total_rupees()
         );
+
+        // Every step went through the audit chain first.
+        let kinds: Vec<String> = store
+            .audit(&nivesh_store::AuditQuery::default())
+            .unwrap()
+            .into_iter()
+            .rev()
+            .map(|r| r.kind)
+            .collect();
+        assert_eq!(kinds, ["intent", "order.routed", "fill"]);
+        assert!(store.verify_audit().unwrap().is_intact());
 
         lock(&desk).stop(id);
         assert!(!on_closed_bar(

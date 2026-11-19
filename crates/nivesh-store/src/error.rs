@@ -17,4 +17,7 @@ pub enum StoreError {
     Invalid(String),
     #[error("not found")]
     NotFound,
+    /// Stored or exported data could not be encoded or decoded.
+    #[error("corrupt data: {0}")]
+    Corrupt(String),
 }

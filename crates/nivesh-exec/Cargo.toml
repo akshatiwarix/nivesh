@@ -12,6 +12,7 @@ nivesh-core = { path = "../nivesh-core" }
 nivesh-risk = { path = "../nivesh-risk" }
 nivesh-strategy = { path = "../nivesh-strategy" }
 serde.workspace = true
+serde_json.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]

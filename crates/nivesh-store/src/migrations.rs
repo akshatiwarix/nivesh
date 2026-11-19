@@ -134,6 +134,34 @@ const MIGRATIONS: &[&str] = &[
     "
     ALTER TABLE backtests ADD COLUMN curve_json TEXT;
     ",
+    // v10: the hash-chained, append-only audit log (Part 6). The triggers
+    // refuse edits and deletes; the head row lets verification notice rows
+    // cut off the end.
+    "
+    CREATE TABLE audit_log (
+        seq         INTEGER PRIMARY KEY,
+        at_ms       INTEGER NOT NULL,
+        kind        TEXT NOT NULL,
+        strategy_id INTEGER,
+        payload     TEXT NOT NULL,
+        prev_hash   TEXT NOT NULL,
+        hash        TEXT NOT NULL
+    ) STRICT;
+
+    CREATE INDEX audit_log_kind ON audit_log (kind);
+
+    CREATE TABLE audit_head (
+        id   INTEGER PRIMARY KEY CHECK (id = 1),
+        seq  INTEGER NOT NULL,
+        hash TEXT NOT NULL
+    ) STRICT;
+
+    CREATE TRIGGER audit_log_no_update BEFORE UPDATE ON audit_log
+    BEGIN SELECT RAISE(ABORT, 'the audit log is append-only'); END;
+
+    CREATE TRIGGER audit_log_no_delete BEFORE DELETE ON audit_log
+    BEGIN SELECT RAISE(ABORT, 'the audit log is append-only'); END;
+    ",
 ];
 
 /// The schema version a fully migrated database has.
@@ -191,6 +219,8 @@ mod tests {
         assert_eq!(
             tables(&conn),
             [
+                "audit_head",
+                "audit_log",
                 "backtests",
                 "broker_tokens",
                 "command_history",

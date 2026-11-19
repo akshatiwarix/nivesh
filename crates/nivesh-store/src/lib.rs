@@ -11,6 +11,7 @@
 //!
 //! Secrets never go in this database (they live in the OS keychain).
 
+mod audit;
 mod broker_tokens;
 mod cache;
 mod error;
@@ -20,6 +21,10 @@ mod store;
 mod strategy;
 mod watchlists;
 
+pub use audit::{
+    AuditEntry, AuditQuery, AuditRecord, AuditVerification, GENESIS_HASH, parse_audit_jsonl,
+    row_hash, verify_records,
+};
 pub use broker_tokens::BrokerTokenRow;
 pub use cache::CacheRow;
 pub use error::StoreError;
