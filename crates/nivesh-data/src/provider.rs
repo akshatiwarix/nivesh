@@ -6,7 +6,7 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use nivesh_core::{
     Candle, CandleSeries, Exchange, FeedKind, IndexId, IndexQuote, IndexSnapshot, Instrument,
-    InstrumentId, Interval, ProviderId, Quote, Sourced,
+    InstrumentId, Interval, Provenance, ProviderId, Quote, Sourced,
 };
 use serde::{Deserialize, Serialize};
 
@@ -148,7 +148,10 @@ pub struct Mover {
     pub quote: Quote,
 }
 
-/// Top movers of one index universe. The three lists come from one source.
+/// Top movers of one index universe. The gainers and losers come from one
+/// source; the most-active list is from that source too when it reports
+/// volumes, and otherwise it is an EOD ranking with its own provenance
+/// (see [`Movers::most_active_info`]).
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct Movers {
     pub gainers: Vec<Mover>,
@@ -156,6 +159,21 @@ pub struct Movers {
     /// By traded volume. Empty when the source gives no volume per stock.
     #[serde(default)]
     pub most_active: Vec<Mover>,
+    /// Set only when most-active is ranked from the last full session's
+    /// traded value (the daily bhavcopy) instead of this source's own
+    /// volumes. The rows then come from whichever provider priced the
+    /// index's constituents, so they carry their own provenance.
+    #[serde(default)]
+    pub most_active_info: Option<MostActiveInfo>,
+}
+
+/// Provenance of an EOD-ranked most-active list.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MostActiveInfo {
+    /// Provenance of the constituent quotes the rows come from.
+    pub provenance: Provenance,
+    /// `YYYY-MM-DD` of the bhavcopy session the ranking came from.
+    pub ranked_as_of: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

@@ -52,6 +52,7 @@ pub fn compute_movers(constituents: &[Quote], limit: usize) -> Movers {
         gainers: take(gainers),
         losers: take(losers),
         most_active: take(active),
+        most_active_info: None,
     }
 }
 

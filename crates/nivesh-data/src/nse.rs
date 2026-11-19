@@ -614,6 +614,7 @@ pub fn parse_variations(
             gainers,
             losers,
             most_active: Vec::new(),
+            most_active_info: None,
         },
         provenance(parse_nse_time(&stamp)?),
     ))
