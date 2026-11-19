@@ -2913,6 +2913,7 @@ dependencies = [
  "governor",
  "nivesh-broker",
  "nivesh-core",
+ "nivesh-data",
  "nivesh-secrets",
  "nivesh-store",
  "proptest",

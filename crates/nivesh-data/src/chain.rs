@@ -58,8 +58,9 @@ fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 }
 
 pub(crate) struct Inner {
-    providers: HashMap<ProviderId, Arc<dyn DataProvider>>,
+    providers: Mutex<HashMap<ProviderId, Arc<dyn DataProvider>>>,
     routing: Routing,
+    health: HealthConfig,
     clock: Arc<dyn Clock>,
     breakers: Mutex<HashMap<ProviderId, Breaker>>,
     forced: Mutex<HashMap<ProviderId, DataError>>,
@@ -152,8 +153,9 @@ impl MarketDataBuilder {
             .map(|config| Arc::new(CacheLayer::new(config, Arc::clone(&self.clock))));
         MarketData {
             inner: Arc::new(Inner {
-                providers: self.providers.into_iter().map(|p| (p.id(), p)).collect(),
+                providers: Mutex::new(self.providers.into_iter().map(|p| (p.id(), p)).collect()),
                 routing: self.routing,
+                health: self.health,
                 clock: self.clock,
                 breakers: Mutex::new(breakers),
                 forced: Mutex::new(HashMap::new()),
@@ -241,6 +243,35 @@ impl MarketData {
         };
     }
 
+    /// Adds a provider at runtime — a broker coming online (its id is
+    /// already in the routing order, so routes pick it up immediately) —
+    /// with a fresh circuit breaker. Re-registering replaces it.
+    pub fn register(&self, provider: Arc<dyn DataProvider>) {
+        let id = provider.id();
+        let breaker = Breaker::new(self.inner.health);
+        {
+            let mut providers = self.providers_write();
+            providers.insert(id, provider);
+        }
+        let mut breakers = lock(&self.inner.breakers);
+        breakers.insert(id, breaker);
+    }
+
+    /// Removes a provider that went away (a broker logging out): routes
+    /// fall back to the remaining providers automatically.
+    pub fn unregister(&self, id: ProviderId) {
+        {
+            let mut providers = self.providers_write();
+            providers.remove(&id);
+        }
+        lock(&self.inner.breakers).remove(&id);
+    }
+
+    /// The provider map, mutable: the inner is shared behind an Arc.
+    fn providers_write(&self) -> std::sync::MutexGuard<'_, HashMap<ProviderId, Arc<dyn DataProvider>>> {
+        lock(&self.inner.providers)
+    }
+
     /// Runs `call` against `order`'s providers until one succeeds.
     pub(crate) async fn route<T, F, Fut>(
         &self,
@@ -253,32 +284,38 @@ impl MarketData {
         Fut: Future<Output = Result<T, DataError>>,
     {
         let mut errors = Vec::new();
-        for id in order {
-            let Some(provider) = self.inner.providers.get(id) else {
-                continue;
-            };
+        // Snapshot the providers under the lock, then drop it: the calls
+        // await, and the guard is not Send.
+        let snapshot: Vec<(ProviderId, Arc<dyn DataProvider>)> = {
+            let providers = lock(&self.inner.providers);
+            order
+                .iter()
+                .filter_map(|id| providers.get(id).map(|p| (*id, Arc::clone(p))))
+                .collect()
+        };
+        for (id, provider) in snapshot {
             if !provider.capabilities().contains(need) {
                 continue;
             }
-            if self.permit(*id) == Permit::No {
+            if self.permit(id) == Permit::No {
                 errors.push(DataError::Upstream(format!(
                     "{id} is temporarily skipped (circuit open)"
                 )));
                 continue;
             }
-            let forced = lock(&self.inner.forced).get(id).cloned();
+            let forced = lock(&self.inner.forced).get(&id).cloned();
             let result = match forced {
                 Some(e) => Err(e),
-                None => call(Arc::clone(provider)).await,
+                None => call(provider).await,
             };
             match result {
                 Ok(value) => {
-                    self.record(*id, None);
+                    self.record(id, None);
                     return Ok(value);
                 }
                 Err(e) => {
                     tracing::debug!(provider = %id, error = %e, "provider failed; trying next");
-                    self.record(*id, Some(&e));
+                    self.record(id, Some(&e));
                     errors.push(e);
                 }
             }

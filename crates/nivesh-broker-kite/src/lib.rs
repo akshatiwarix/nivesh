@@ -8,6 +8,7 @@ pub mod dump;
 pub mod kite_account;
 pub mod login;
 pub mod parser;
+pub mod provider;
 pub mod rest;
 pub mod stream;
 
@@ -18,5 +19,6 @@ pub use login::{
     DEFAULT_REDIRECT_PORT, KEY_ACCESS_TOKEN, KEY_API_KEY, KEY_API_SECRET, KiteLogin, REDIRECT_PATH,
 };
 pub use parser::RawTick;
+pub use provider::KiteQuoteProvider;
 pub use rest::{DEFAULT_BASE_URL, KiteRest, RateClass};
 pub use stream::{KiteStream, TICKER_URL};

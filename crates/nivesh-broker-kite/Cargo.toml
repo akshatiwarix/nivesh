@@ -14,6 +14,7 @@ futures-util.workspace = true
 governor.workspace = true
 nivesh-broker = { path = "../nivesh-broker" }
 nivesh-core = { path = "../nivesh-core" }
+nivesh-data = { path = "../nivesh-data" }
 nivesh-secrets = { path = "../nivesh-secrets" }
 nivesh-store = { path = "../nivesh-store" }
 reqwest.workspace = true
