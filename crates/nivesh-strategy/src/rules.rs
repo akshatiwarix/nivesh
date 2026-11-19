@@ -121,8 +121,7 @@ impl Operand {
                 if params.is_empty() {
                     kind.clone()
                 } else {
-                    let joined: Vec<String> =
-                        params.iter().map(|p| format!("{p}")).collect();
+                    let joined: Vec<String> = params.iter().map(|p| format!("{p}")).collect();
                     format!("{kind}({})", joined.join(", "))
                 }
             }
@@ -265,7 +264,10 @@ mod tests {
             }),
             Box::new(Rule::Not(Box::new(golden_cross()))),
         );
-        assert_eq!(r.describe(), "(CLOSE > SMA(50)) and (not (SMA(50) crossed above SMA(200)))");
+        assert_eq!(
+            r.describe(),
+            "(CLOSE > SMA(50)) and (not (SMA(50) crossed above SMA(200)))"
+        );
         assert_eq!(Rule::True.describe(), "always");
         assert_eq!(Operand::Constant(42.0).describe(), "42");
     }
