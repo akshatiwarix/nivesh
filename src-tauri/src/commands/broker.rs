@@ -72,6 +72,18 @@ async fn manager_kite_listener(
         .map_err(IpcError::from)
 }
 
+/// Starts the demo broker: the whole account experience with no broker
+/// account and no network, clearly labelled demo. `LOGOUT` ends it.
+#[tauri::command]
+pub async fn broker_demo(
+    app: AppHandle,
+    broker: State<'_, Arc<BrokerManager>>,
+) -> Result<BrokerSessionDto, IpcError> {
+    let session = broker.setup_demo().await.map_err(IpcError::from)?;
+    let _ = app.emit(SESSION_EVENT, &session);
+    Ok(session)
+}
+
 /// Ends the session and reports the (now logged-out) status.
 #[tauri::command]
 pub async fn broker_logout(

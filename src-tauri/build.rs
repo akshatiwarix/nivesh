@@ -4,6 +4,7 @@
 const COMMANDS: &[&str] = &[
     "all_indices",
     "app_info",
+    "broker_demo",
     "broker_login",
     "broker_logout",
     "broker_setup",
