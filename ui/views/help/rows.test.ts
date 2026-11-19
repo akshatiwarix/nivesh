@@ -21,8 +21,12 @@ describe("help rows", () => {
     const rows = keyRows();
     const nonF = KEYMAP.filter((b) => b.action.type !== "fkey");
     for (const b of nonF) expect(rows.some((r) => r.keys === b.keys.join(" / "))).toBe(true);
-    expect(rows.some((r) => r.keys.startsWith("F1 "))).toBe(true);
-    // F9 lands on ORD now; an unassigned key must not appear.
-    expect(rows.some((r) => r.keys.startsWith("F10 "))).toBe(false);
+    // F1-F10 are all assigned now (F10 = STRAT); F11/F12 stay unassigned
+    // because macOS reserves them.
+    for (const n of ["F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10"]) {
+      expect(rows.some((r) => r.keys.startsWith(`${n} `))).toBe(true);
+    }
+    expect(rows.some((r) => r.keys.startsWith("F11"))).toBe(false);
+    expect(rows.some((r) => r.keys.startsWith("F12"))).toBe(false);
   });
 });

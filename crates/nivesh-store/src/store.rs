@@ -51,6 +51,12 @@ impl Store {
         })
     }
 
+    /// The connection, for commands that need a query this module does not
+    /// wrap. Kept narrow: prefer adding a method here.
+    pub fn connection(&self) -> Result<MutexGuard<'_, Connection>, StoreError> {
+        self.lock()
+    }
+
     pub(crate) fn lock(&self) -> Result<MutexGuard<'_, Connection>, StoreError> {
         self.conn.lock().map_err(|_| StoreError::Poisoned)
     }

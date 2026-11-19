@@ -6,6 +6,13 @@
   "permissions": [
     "allow-all-indices",
     "allow-app-info",
+    "allow-backtest-result",
+    "allow-backtest-strategy",
+    "allow-paper-start",
+    "allow-paper-stop",
+    "allow-strategies",
+    "allow-strategy-delete",
+    "allow-strategy-save",
     "allow-broker-demo",
     "allow-broker-login",
     "allow-broker-logout",

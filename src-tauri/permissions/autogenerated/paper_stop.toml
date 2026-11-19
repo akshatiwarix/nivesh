@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-paper-stop"
+description = "Enables the paper_stop command without any pre-configured scope."
+commands.allow = ["paper_stop"]
+
+[[permission]]
+identifier = "deny-paper-stop"
+description = "Denies the paper_stop command without any pre-configured scope."
+commands.deny = ["paper_stop"]

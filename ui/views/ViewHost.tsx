@@ -17,6 +17,7 @@ import { NewsView } from "./news/NewsView";
 import { EmptyView } from "./PlaceholderViews";
 import { QuoteView } from "./quote/QuoteView";
 import { SectorsView } from "./sectors/SectorsView";
+import { BacktestView, PaperDashboardView, StrategiesView } from "./strategy/StrategyViews";
 import type { View } from "./types";
 import { WatchlistView } from "./watchlist/WatchlistView";
 import "./views.css";
@@ -55,6 +56,12 @@ function renderView(view: View): JSX.Element {
       return <FundsView />;
     case "help":
       return <HelpView />;
+    case "strat":
+      return <StrategiesView />;
+    case "bt":
+      return <BacktestView name={view.name} />;
+    case "paper":
+      return <PaperDashboardView />;
   }
 }
 

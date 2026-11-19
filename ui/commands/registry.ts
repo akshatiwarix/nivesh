@@ -122,6 +122,25 @@ export const COMMANDS: readonly CommandDef[] = [
     usage: "FUNDS",
   },
   {
+    id: "strat",
+    names: ["STRAT"],
+    summary: "Strategies. STRAT MA 20 50 1 builds from a template (QTY 3rd)",
+    usage: "STRAT [MA 20 50 1 | RSI 14 | BREAKOUT 20]",
+    fkey: 10,
+  },
+  {
+    id: "bt",
+    names: ["BT", "BACKTEST"],
+    summary: "Backtest a strategy: BT <NAME> [INTERVAL] [RANGE]. Deterministic, no lookahead",
+    usage: "BT <NAME> [1D 1Y]",
+  },
+  {
+    id: "paper",
+    names: ["PAPER"],
+    summary: "Paper trading dashboard. PAPER START|STOP <NAME>. Simulated fills only",
+    usage: "PAPER [START|STOP <NAME>]",
+  },
+  {
     id: "login",
     names: ["LOGIN"],
     summary: "Connect a broker. LOGIN starts the Kite login; LOGIN DEMO shows demo data",

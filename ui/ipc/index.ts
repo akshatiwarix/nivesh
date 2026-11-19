@@ -1,5 +1,7 @@
 export { appInfo } from "./app";
 export type { AppInfo } from "./bindings/AppInfo";
+export type { BacktestResultDto } from "./bindings/BacktestResultDto";
+export type { BacktestTradeDto } from "./bindings/BacktestTradeDto";
 export type { BarDto } from "./bindings/BarDto";
 export type { BreadthDto } from "./bindings/BreadthDto";
 export type { BrokerLoginDto } from "./bindings/BrokerLoginDto";
@@ -26,6 +28,7 @@ export type { MoversDto } from "./bindings/MoversDto";
 export type { NewsDto } from "./bindings/NewsDto";
 export type { NewsItemDto } from "./bindings/NewsItemDto";
 export type { OrderDto } from "./bindings/OrderDto";
+export type { PaperStateDto } from "./bindings/PaperStateDto";
 export type { PositionsDto } from "./bindings/PositionsDto";
 export type { ProgressDto } from "./bindings/ProgressDto";
 export type { ProvenanceDto } from "./bindings/ProvenanceDto";
@@ -36,6 +39,7 @@ export type { SectorsDto } from "./bindings/SectorsDto";
 export type { SessionKind } from "./bindings/SessionKind";
 export type { SourcedIndexQuoteDto } from "./bindings/SourcedIndexQuoteDto";
 export type { SourcedQuoteDto } from "./bindings/SourcedQuoteDto";
+export type { StrategyDto } from "./bindings/StrategyDto";
 export type { TopicDto } from "./bindings/TopicDto";
 export type { TradeDto } from "./bindings/TradeDto";
 export type { UiState } from "./bindings/UiState";
@@ -82,6 +86,15 @@ export {
   getSectors,
   openNewsLink,
 } from "./markets";
+export {
+  backtestResult,
+  backtestStrategy,
+  paperStart,
+  paperStop,
+  strategies,
+  strategyDelete,
+  strategySave,
+} from "./strategy";
 export { loadUiState, saveCommandHistory, saveLayout } from "./uiState";
 export {
   watchlistActivate,

@@ -24,6 +24,7 @@ nivesh-broker = { path = "../crates/nivesh-broker" }
 nivesh-broker-kite = { path = "../crates/nivesh-broker-kite" }
 nivesh-core = { path = "../crates/nivesh-core" }
 nivesh-secrets = { path = "../crates/nivesh-secrets" }
+nivesh-strategy = { path = "../crates/nivesh-strategy" }
 nivesh-data = { path = "../crates/nivesh-data" }
 url = { workspace = true }
 nivesh-indicators = { path = "../crates/nivesh-indicators" }
