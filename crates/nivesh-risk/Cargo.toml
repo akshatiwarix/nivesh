@@ -1,0 +1,14 @@
+[package]
+name = "nivesh-risk"
+description = "Nivesh's pre-trade risk engine: hard limits, pure checks, and the ApprovedOrder token only the engine can mint. Order placement cannot bypass it by construction."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+serde.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true
