@@ -4,11 +4,13 @@
 
 pub mod backtest;
 pub mod evaluate;
+pub mod paper;
 pub mod rules;
 pub mod templates;
 
 pub use backtest::{BacktestOptions, BacktestResult, BacktestTrade, backtest};
 pub use evaluate::Evaluator;
+pub use paper::{PaperPosition, PaperRunner, PaperState};
 pub use rules::{
     Comparison, CrossDirection, IntentSide, Operand, OrderIntent, Rule, RuleSet, Sizing,
 };
