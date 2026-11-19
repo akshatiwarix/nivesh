@@ -4,6 +4,7 @@
 //! plugins and commands, and owns process-level concerns such as logging and
 //! the main window. Business logic lives in the `nivesh-*` library crates.
 
+mod audit;
 mod broker;
 mod commands;
 pub mod ipc;

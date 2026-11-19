@@ -14,7 +14,9 @@ use nivesh_core::{Candle, Side};
 use nivesh_risk::{RiskEngine, RiskLimits, paise};
 use nivesh_strategy::{IntentSide, PaperRunner, PaperState};
 
-use crate::{AccountView, Fill, GatewayError, NextOpen, OrderGateway, OrderIntent, PaperBroker};
+use crate::{
+    AccountView, AuditSink, Fill, GatewayError, NextOpen, OrderGateway, OrderIntent, PaperBroker,
+};
 
 /// What one closed bar did to one strategy.
 #[derive(Debug, Clone, PartialEq)]
@@ -40,14 +42,18 @@ pub struct PaperDesk {
 
 impl PaperDesk {
     /// A desk filling at the next bar's open with the default cost model
-    /// (the backtester's default too).
-    pub fn new(engine: RiskEngine) -> Self {
-        Self::with_broker(engine, Arc::new(NextOpen::default()))
+    /// (the backtester's default too), auditing to `audit`.
+    pub fn new(engine: RiskEngine, audit: Arc<dyn AuditSink>) -> Self {
+        Self::with_broker(engine, Arc::new(NextOpen::default()), audit)
     }
 
-    pub fn with_broker(engine: RiskEngine, paper: Arc<dyn PaperBroker>) -> Self {
+    pub fn with_broker(
+        engine: RiskEngine,
+        paper: Arc<dyn PaperBroker>,
+        audit: Arc<dyn AuditSink>,
+    ) -> Self {
         Self {
-            gateway: OrderGateway::new(engine, paper),
+            gateway: OrderGateway::new(engine, paper, audit),
             runners: BTreeMap::new(),
             limits: HashMap::new(),
             marks: HashMap::new(),
@@ -130,7 +136,10 @@ impl PaperDesk {
         let mut refused = Vec::new();
 
         // 1. Orders from the previous bar settle at this bar's open.
-        for settled in self.gateway.on_closed_bar(strategy_id, &symbol, bar) {
+        for settled in self
+            .gateway
+            .on_closed_bar(strategy_id, &symbol, bar, now_ms)
+        {
             match settled {
                 Ok(fill) => {
                     runner.on_fill(
@@ -238,6 +247,7 @@ mod tests {
                 ..RiskLimits::default()
             }),
             Arc::new(NextOpen::FREE),
+            Arc::new(crate::MemoryAudit::default()),
         );
         desk.start(
             id,
@@ -304,6 +314,7 @@ mod tests {
                 ..RiskLimits::default()
             }),
             Arc::new(NextOpen::FREE),
+            Arc::new(crate::MemoryAudit::default()),
         );
         desk.start(1, PaperRunner::new(set, "NSE:RELIANCE", 100_000.0).unwrap());
         desk.on_closed_bar(1, bar(0, 100.0, 100.0), T0);
