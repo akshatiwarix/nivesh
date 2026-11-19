@@ -4,6 +4,7 @@
 //! `MarketData` facade (added in a later commit), never to a provider directly.
 //! Every value leaves this crate as a `Sourced<T>` carrying its provenance.
 
+pub mod activity;
 pub mod analytics;
 pub mod bse;
 mod cache;
@@ -26,6 +27,9 @@ mod singleflight;
 mod util;
 pub mod yahoo;
 
+pub use activity::{
+    ActivityList, ActivityTable, DEFAULT_BASES as ACTIVITY_BASES, most_active_from_activity,
+};
 pub use cache::{CacheConfig, CachePolicy, PersistentCache, Ttl, daily_fresh_for};
 pub use chain::{MarketData, MarketDataBuilder, Routing};
 pub use error::DataError;
@@ -38,6 +42,6 @@ pub use markets::{
     DMA_PERIODS, DmaBreadth, DmaUniverse, IndexBreadth, Progress, SectorPerformance, SectorRow,
 };
 pub use provider::{
-    Capabilities, DataProvider, HistoryRange, HistoryRequest, Mover, Movers, MoversRequest,
-    NewsItem, NewsRequest,
+    Capabilities, DataProvider, HistoryRange, HistoryRequest, MostActiveInfo, Mover, Movers,
+    MoversRequest, NewsItem, NewsRequest,
 };
