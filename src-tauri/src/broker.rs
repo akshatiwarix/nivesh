@@ -74,6 +74,8 @@ pub struct BrokerManager {
 
 struct Inner {
     kite: Option<KiteWiring>,
+    /// The demo broker: no credentials, no network, clearly labelled.
+    demo: bool,
     /// One login flow at a time: the loopback port is single-use.
     logging_in: bool,
 }
@@ -111,6 +113,7 @@ impl BrokerManager {
             base,
             inner: AsyncMutex::new(Inner {
                 kite: None,
+                demo: false,
                 logging_in: false,
             }),
         }
@@ -126,7 +129,7 @@ impl BrokerManager {
         };
         let status = wiring.login.restore_session()?;
         Ok(BrokerSessionDto::new(
-            self.broker_name(true),
+            self.broker_name(true, false),
             status,
             self.user_id(),
         ))
@@ -208,6 +211,7 @@ impl BrokerManager {
             .set_setting("kite.user_id", &session.user_id)
             .map_err(|e| BrokerError::Upstream(format!("storing the user id: {e}")))?;
         Ok(BrokerSessionDto::connected(
+            "kite",
             &session.user_id,
             session.expires_at.timestamp_millis(),
         ))
@@ -227,6 +231,10 @@ impl BrokerManager {
         let wiring = {
             let mut inner = self.inner.lock().await;
             inner.logging_in = false;
+            if inner.demo {
+                inner.demo = false;
+                return Ok(self.current_status(&inner));
+            }
             inner.kite.as_ref().cloned()
         };
         if let Some(wiring) = wiring {
@@ -248,18 +256,38 @@ impl BrokerManager {
     }
 
     fn current_status(&self, inner: &Inner) -> BrokerSessionDto {
+        if inner.demo {
+            let expiry = nivesh_broker::demo_session().expires_at.timestamp_millis();
+            return BrokerSessionDto::connected("demo", "demo", expiry);
+        }
         match &inner.kite {
             Some(wiring) => match wiring.login.restore_session() {
-                Ok(status) => BrokerSessionDto::new(self.broker_name(true), status, self.user_id()),
+                Ok(status) => {
+                    BrokerSessionDto::new(self.broker_name(true, false), status, self.user_id())
+                }
                 Err(_) => BrokerSessionDto::degraded(),
             },
-            None => self.logged_out(),
+            // No wiring: a stored key means set up (so the name stays), and
+            // the demo flag is already known false here.
+            None => {
+                let broker = self.broker_name(self.has_any_credentials(), false);
+                BrokerSessionDto::new(
+                    broker,
+                    SessionStatus {
+                        state: SessionState::LoggedOut,
+                        expires_at: None,
+                    },
+                    None,
+                )
+            }
         }
     }
 
-    /// Which broker the wiring (or stored credentials) name. "kite" or none;
-    /// never a secret.
-    fn broker_name(&self, has_kite: bool) -> Option<String> {
+    /// Which broker the wiring (or stored credentials) name. Never a secret.
+    fn broker_name(&self, has_kite: bool, demo: bool) -> Option<String> {
+        if demo {
+            return Some("demo".to_owned());
+        }
         if has_kite {
             return Some("kite".to_owned());
         }
@@ -270,12 +298,40 @@ impl BrokerManager {
             .map(|_| "kite".to_owned())
     }
 
+    /// Starts the demo broker: no credentials, no network, clearly labelled.
+    /// A Kite setup is untouched and wins again on a normal login.
+    pub async fn setup_demo(&self) -> Result<BrokerSessionDto, BrokerError> {
+        let mut inner = self.inner.lock().await;
+        inner.demo = true;
+        let expiry = nivesh_broker::demo_session().expires_at.timestamp_millis();
+        Ok(BrokerSessionDto::connected("demo", "demo", expiry))
+    }
+
+    /// The demo wiring, when it is active. The views and hub use it; the
+    /// live-data provider lands with the next chunk.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub async fn demo_wiring(
+        &self,
+    ) -> Option<(
+        Arc<nivesh_broker::DemoBroker>,
+        Arc<nivesh_broker::DemoStream>,
+    )> {
+        let inner = self.inner.lock().await;
+        inner.demo.then(|| {
+            (
+                Arc::new(nivesh_broker::DemoBroker),
+                Arc::new(nivesh_broker::DemoStream),
+            )
+        })
+    }
+
     fn user_id(&self) -> Option<String> {
         self.store.setting("kite.user_id").ok().flatten()
     }
 
     fn logged_out(&self) -> BrokerSessionDto {
-        let broker = self.broker_name(self.has_any_credentials());
+        let demo = self.inner.try_lock().map(|i| i.demo).unwrap_or(false);
+        let broker = self.broker_name(self.has_any_credentials(), demo);
         BrokerSessionDto::new(
             broker,
             SessionStatus {
@@ -451,5 +507,59 @@ mod tests {
                 .unwrap()
                 .is_none()
         );
+    }
+}
+
+#[cfg(test)]
+mod demo_tests {
+    use super::*;
+    use crate::ipc::broker::SessionStateDto;
+    use nivesh_secrets::InMemorySecretStore;
+    use std::sync::Arc;
+
+    #[tokio::test]
+    async fn the_demo_broker_connects_without_any_credentials() {
+        let store = Arc::new(Store::open_in_memory().unwrap());
+        let manager = BrokerManager::with_secrets(
+            store,
+            Arc::new(InMemorySecretStore::new()),
+            Some("http://mock.invalid".into()),
+        );
+        let session = manager.setup_demo().await.unwrap();
+        assert_eq!(session.broker.as_deref(), Some("demo"));
+        assert_eq!(session.state, SessionStateDto::Connected);
+        assert_eq!(session.user_id.as_deref(), Some("demo"));
+
+        // The wiring is available for views and the hub.
+        let wiring = manager.demo_wiring().await;
+        assert!(wiring.is_some());
+
+        // Status stays demo while it is active...
+        let status = manager.status().await;
+        assert_eq!(status.broker.as_deref(), Some("demo"));
+
+        // ...and LOGOUT ends it.
+        let after = manager.logout().await.unwrap();
+        assert_eq!(after.state, SessionStateDto::LoggedOut);
+        assert!(manager.demo_wiring().await.is_none());
+    }
+
+    #[tokio::test]
+    async fn logout_prefers_the_demo_session_and_leaves_kite_alone() {
+        let store = Arc::new(Store::open_in_memory().unwrap());
+        let secrets = Arc::new(InMemorySecretStore::new());
+        let manager =
+            BrokerManager::with_secrets(store, secrets, Some("http://mock.invalid".into()));
+        manager.setup("key1234", "secret").await.unwrap();
+        manager.setup_demo().await.unwrap();
+        manager.logout().await.unwrap();
+        // The demo ended; the kite credentials are untouched.
+        assert!(
+            manager.kite_wiring().await.is_some(),
+            "a kite setup survives a demo logout"
+        );
+        let status = manager.status().await;
+        assert_eq!(status.state, SessionStateDto::LoggedOut);
+        assert_eq!(status.broker.as_deref(), Some("kite"));
     }
 }

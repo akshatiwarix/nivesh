@@ -8,12 +8,14 @@
 //! can trade.
 
 pub mod conformance;
+pub mod demo;
 pub mod error;
 pub mod status;
 pub mod ticks;
 pub mod traits;
 pub mod types;
 
+pub use demo::{DemoBroker, DemoStream, demo_session};
 pub use error::BrokerError;
 pub use status::OrderStatus;
 pub use ticks::{Tick, TickBatch, TickMode, TickSubscription};

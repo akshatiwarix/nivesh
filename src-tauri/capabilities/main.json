@@ -6,6 +6,7 @@
   "permissions": [
     "allow-all-indices",
     "allow-app-info",
+    "allow-broker-demo",
     "allow-broker-login",
     "allow-broker-logout",
     "allow-broker-setup",

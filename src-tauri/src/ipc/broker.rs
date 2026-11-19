@@ -48,9 +48,9 @@ impl BrokerSessionDto {
         }
     }
 
-    pub fn connected(user_id: &str, expires_at_ms: i64) -> Self {
+    pub fn connected(broker: &str, user_id: &str, expires_at_ms: i64) -> Self {
         Self {
-            broker: Some("kite".into()),
+            broker: Some(broker.to_owned()),
             state: SessionStateDto::Connected,
             expires_at_ms: Some(expires_at_ms),
             user_id: Some(user_id.to_owned()),
