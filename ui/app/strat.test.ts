@@ -16,9 +16,9 @@ describe("parseStratArgs", () => {
   it("reads SL, T and RISK as percent or fraction, and names the variant", () => {
     expect(parseStratArgs(["BREAKOUT", "20", "SL", "2", "T", "0.05", "RISK", "1"])).toEqual({
       template: "BREAKOUT",
-      name: "Breakout 20 SL2 T5 R1",
+      name: "Breakout 20/10 SL2 T5 R1",
       fast: 20,
-      slow: 50,
+      slow: 10,
       quantity: 1,
       stopLoss: 0.02,
       target: 0.05,

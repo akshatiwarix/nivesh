@@ -126,7 +126,7 @@ export const COMMANDS: readonly CommandDef[] = [
     names: ["STRAT"],
     summary:
       "Strategies. STRAT MA 20 50 1 builds from a template (QTY 3rd); SL 2 · T 5 · RISK 1 set stop, target and ATR sizing (percent)",
-    usage: "STRAT [MA 20 50 1 | RSI 14 | BREAKOUT 20] [SL %] [T %] [RISK %]",
+    usage: "STRAT [MA 20 50 1 | RSI 14 | BREAKOUT 20 10] [SL %] [T %] [RISK %]",
     fkey: 10,
   },
   {
@@ -159,7 +159,7 @@ export const COMMANDS: readonly CommandDef[] = [
     id: "add",
     names: ["ADD"],
     summary:
-      "Add an indicator to the focused chart: SMA EMA WMA BOLL VWAP (on price), RSI MACD ATR (own pane)",
+      "Add an indicator to the focused chart: SMA EMA WMA BOLL VWAP HIGHEST LOWEST (on price), RSI MACD ATR (own pane)",
     usage: "ADD <INDICATOR> [PERIOD…], e.g. ADD SMA 50, ADD RSI 14",
   },
   {

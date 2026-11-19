@@ -88,7 +88,7 @@ export const StrategiesView: Component = () => {
         />
         <p class="strat__hint">
           STRAT &lt;TEMPLATE&gt; [QTY] builds from a template: STRAT MA 20 50 1, STRAT RSI 14, STRAT
-          BREAKOUT 20 · PAPER START/STOP runs or stops it
+          BREAKOUT 20 10 · PAPER START/STOP runs or stops it
         </p>
       </DataPanel>
     </div>
