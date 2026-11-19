@@ -7,6 +7,7 @@ use std::fmt;
 use chrono::{DateTime, Utc};
 use nivesh_core::InstrumentId;
 use secrecy::SecretString;
+use serde::{Deserialize, Serialize};
 
 use crate::status::OrderStatus;
 
@@ -115,7 +116,7 @@ pub struct Positions {
 }
 
 /// Buy or sell.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Side {
     Buy,
     Sell,

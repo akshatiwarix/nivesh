@@ -2965,6 +2965,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "nivesh-exec"
+version = "0.1.0"
+dependencies = [
+ "nivesh-broker",
+ "nivesh-core",
+ "nivesh-risk",
+ "serde",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "nivesh-indicators"
 version = "0.1.0"
 dependencies = [
