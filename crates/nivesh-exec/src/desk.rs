@@ -160,6 +160,12 @@ impl PaperDesk {
         paused
     }
 
+    /// Pauses a strategy: its intents are refused until it is resumed, and
+    /// it is disarmed. Returns `false` if it was already paused.
+    pub fn pause(&mut self, strategy_id: i64, reason: &str, now_ms: i64) -> bool {
+        self.gateway.pause(strategy_id, reason, now_ms)
+    }
+
     /// Resumes a paused strategy (the user's deliberate choice).
     pub fn resume(&mut self, strategy_id: i64, now_ms: i64) -> Result<(), GatewayError> {
         self.gateway.resume(strategy_id, now_ms)

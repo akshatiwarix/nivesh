@@ -68,3 +68,8 @@ export function strategyArm(name: string, typed?: string): Promise<RiskActionDto
 export function strategyDisarm(name: string): Promise<boolean> {
   return call<boolean>("strategy_disarm", { name });
 }
+
+/** Resumes a paused strategy; why it was paused, or null if it was not. */
+export function strategyResume(name: string): Promise<string | null> {
+  return call<string | null>("strategy_resume", { name });
+}

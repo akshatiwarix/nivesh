@@ -34,7 +34,7 @@ export const SettingsView: Component<{ view: Extract<View, { kind: "settings" }>
       {
         setting: "Kill switch",
         value: k ? (k.engaged ? "ENGAGED" : "ready") : "…",
-        change: "KILL (Ctrl+Shift+K) / KILL RESET",
+        change: "KILL (Ctrl+Shift+K; Ctrl+Alt+Shift+K from any app) / KILL RESET",
       },
       { setting: "Risk limits", value: "see RISK", change: "RISK SET <FIELD> <N>" },
       { setting: "Layout", value: "1, 2 or 4 panels", change: "Alt+1 / Alt+2 / Alt+4" },

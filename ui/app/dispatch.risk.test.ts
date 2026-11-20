@@ -136,3 +136,9 @@ describe("SCRIPT", () => {
     expect(await dispatch(parse("script"), ws)).toContain("SCRIPT <NAME>");
   });
 });
+
+describe("RESUME", () => {
+  it("needs one name", async () => {
+    expect(await dispatch(parse("resume"), createWorkspace())).toContain("RESUME <NAME>");
+  });
+});

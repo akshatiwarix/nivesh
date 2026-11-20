@@ -226,6 +226,18 @@ pub async fn strategy_disarm(
     Ok(paper.disarm(row.id))
 }
 
+/// Resumes a paused strategy: `RESUME <NAME>`. Returns why it had been
+/// paused, or `None` if it was not paused. It stays disarmed.
+#[tauri::command]
+pub async fn strategy_resume(
+    name: String,
+    paper: Paper<'_>,
+    store: State<'_, Arc<Store>>,
+) -> Result<Option<String>, IpcError> {
+    let row = strategy_named(&store, &name)?;
+    paper.resume(row.id)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

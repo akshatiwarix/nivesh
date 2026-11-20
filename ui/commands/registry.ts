@@ -182,7 +182,7 @@ export const COMMANDS: readonly CommandDef[] = [
     id: "kill",
     names: ["KILL"],
     summary:
-      "Kill switch (also Ctrl+Shift+K): blocks new orders, cancels open ones, disarms every strategy. KILL RESET asks for a typed phrase after a 5-minute cool-down",
+      "Kill switch (also Ctrl+Shift+K, or Ctrl+Alt+Shift+K from any app): blocks new orders, cancels open ones, disarms every strategy. KILL RESET asks for a typed phrase after a 5-minute cool-down",
     usage: "KILL | KILL RESET",
   },
   {
@@ -191,6 +191,13 @@ export const COMMANDS: readonly CommandDef[] = [
     summary:
       "The live-trading master switch, off at every start. LIVE ON asks for a typed phrase; LIVE OFF disarms everything at once",
     usage: "LIVE ON | LIVE OFF",
+  },
+  {
+    id: "resume",
+    names: ["RESUME"],
+    summary:
+      "Resume a paused strategy (paused after an unclear order, for example). Refused while one of its live orders is unresolved; it stays disarmed",
+    usage: "RESUME <NAME>",
   },
   {
     id: "arm",

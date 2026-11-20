@@ -60,7 +60,7 @@ export const Onboarding: Component = () => {
             <p>
               Backtests and PAPER runs never send an order. Live trading is off until you turn it on
               with LIVE and arm a strategy with ARM, each confirmed by a typed phrase. The kill
-              switch (Ctrl+Shift+K) stops everything at once.
+              switch (Ctrl+Shift+K, or Ctrl+Alt+Shift+K from any app) stops everything at once.
             </p>
           </section>
           <section>

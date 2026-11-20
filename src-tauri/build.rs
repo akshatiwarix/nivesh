@@ -32,6 +32,7 @@ const COMMANDS: &[&str] = &[
     "risk_status",
     "strategy_arm",
     "strategy_disarm",
+    "strategy_resume",
     "script_save",
     "script_source",
     "script_validate",

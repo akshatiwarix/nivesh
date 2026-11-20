@@ -1,6 +1,6 @@
 import type { Exchange, Parsed } from "../commands";
 import { describeError } from "../data/errors";
-import { askChallenge, confirmable, engageKill, setKill } from "../data/risk";
+import { askChallenge, confirmable, engageKill, riskChanged, setKill } from "../data/risk";
 import {
   type ItemRef,
   parseItemRef,
@@ -24,6 +24,7 @@ import {
   riskSetLimit,
   strategyArm,
   strategyDisarm,
+  strategyResume,
   strategySave,
 } from "../ipc";
 import { formatIstHm } from "../lib/time";
@@ -263,6 +264,22 @@ export function runCommand(
         await strategyDisarm(name);
         return { done: true, confirm: null };
       });
+    }
+    case "resume": {
+      const name = args[0];
+      if (name === undefined || args.length > 1) return "RESUME <NAME>: which strategy?";
+      if (!inTauri()) return "Strategies run in the Nivesh app.";
+      return (async () => {
+        try {
+          const reason = await strategyResume(name);
+          riskChanged();
+          return reason === null
+            ? `${name} is not paused.`
+            : `Resumed ${name} (it was paused: ${reason}). It is not armed; ARM ${name} to trade live again.`;
+        } catch (err) {
+          return describeError(err);
+        }
+      })();
     }
     case "login": {
       // LOGIN DEMO starts the demo broker; LOGIN starts the Kite login whose

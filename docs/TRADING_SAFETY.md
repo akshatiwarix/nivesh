@@ -103,14 +103,18 @@ order**. Instead it:
 3. records the order with its tag, so reconciliation can find it at the
    broker later
 
-Resuming a paused strategy from the UI is not built yet.
+When you have checked the broker's order book, `RESUME <NAME>` resumes
+the strategy. It is refused while one of the strategy's live orders is
+still unresolved, and it never re-arms: run `ARM <NAME>` again to trade
+live.
 
 ## The kill switch
 
 **Engaging it:**
 
-- By hand: press `Ctrl+Shift+K`, run `KILL`, or click the status-bar button.
-  None of them asks for confirmation.
+- By hand: press `Ctrl+Shift+K` in Nivesh, press `Ctrl+Alt+Shift+K` from
+  any app (it works with Nivesh hidden), run `KILL`, or click the
+  status-bar button. None of them asks for confirmation.
 - Automatically, when any of these happens:
   - today's loss reaches the `LOSS` limit
   - 5 rejections within a minute

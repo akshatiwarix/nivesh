@@ -113,6 +113,7 @@ export {
   riskStatus,
   strategyArm,
   strategyDisarm,
+  strategyResume,
 } from "./risk";
 export { scriptSave, scriptSource, scriptValidate } from "./script";
 export {
