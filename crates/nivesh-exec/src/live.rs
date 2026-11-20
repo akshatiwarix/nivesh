@@ -19,7 +19,7 @@
 
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use nivesh_broker::{BrokerExecution, OrderAck, OrderStatus, OrderTag};
+use nivesh_broker::{BrokerError, BrokerExecution, OrderAck, OrderStatus, OrderTag};
 use nivesh_core::InstrumentId;
 use nivesh_risk::ApprovedOrder;
 
@@ -53,10 +53,63 @@ impl LiveRoute {
         *self.lock() = book;
     }
 
+    /// Cancels every open Nivesh-tagged order at the broker: the kill
+    /// switch's second half (the first, blocking new orders, never waits on
+    /// the network). The broker's own book is read, so orders from an
+    /// ambiguous placement or another session are found too. Each request
+    /// is audited (best-effort) with its outcome, and nothing is retried.
+    /// Returns the tags cancelled and those that failed, with why.
+    pub async fn cancel_open(&self, now_ms: i64) -> Result<CancelReport, BrokerError> {
+        let open: Vec<_> = self
+            .broker
+            .orders()
+            .await?
+            .into_iter()
+            .filter(|o| o.status.is_live() && o.tag.as_deref().is_some_and(OrderTag::is_nivesh))
+            .collect();
+        let mut report = CancelReport::default();
+        for order in open {
+            let tag = order.tag.clone().unwrap_or_default();
+            let result = self.broker.cancel(&order.id).await;
+            let error = result.as_ref().err().map(ToString::to_string);
+            let _ = self.audit.record(
+                now_ms,
+                &AuditEvent::LiveCancel {
+                    tag: tag.clone(),
+                    broker_id: order.id.to_string(),
+                    error: error.clone(),
+                },
+            );
+            match error {
+                None => {
+                    if let Some(t) = self
+                        .lock()
+                        .orders
+                        .iter_mut()
+                        .find(|t| t.tag.as_str() == tag)
+                    {
+                        t.status = Some(OrderStatus::Cancelled);
+                    }
+                    report.cancelled.push(tag);
+                }
+                Some(why) => report.failed.push((tag, why)),
+            }
+        }
+        Ok(report)
+    }
+
     fn lock(&self) -> MutexGuard<'_, LiveBook> {
         // A poisoned book is still the best record there is.
         self.book.lock().unwrap_or_else(|e| e.into_inner())
     }
+}
+
+/// What [`LiveRoute::cancel_open`] did.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct CancelReport {
+    pub cancelled: Vec<String>,
+    /// Tags the broker did not cancel, and why.
+    pub failed: Vec<(String, String)>,
 }
 
 /// An approved order for an armed strategy, ready for the broker. Only the
