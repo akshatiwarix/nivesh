@@ -5,18 +5,18 @@ describe("parseStratArgs", () => {
   it("reads the positional numbers with the template's defaults", () => {
     expect(parseStratArgs(["MA", "10", "40", "3"])).toEqual({
       template: "MA",
-      name: "MA 10/40",
+      name: "MA-10-40",
       fast: 10,
       slow: 40,
       quantity: 3,
     });
-    expect(parseStratArgs(["RSI"])).toMatchObject({ name: "RSI 14", fast: 14, quantity: 1 });
+    expect(parseStratArgs(["RSI"])).toMatchObject({ name: "RSI-14", fast: 14, quantity: 1 });
   });
 
   it("reads SL, T and RISK as percent or fraction, and names the variant", () => {
     expect(parseStratArgs(["BREAKOUT", "20", "SL", "2", "T", "0.05", "RISK", "1"])).toEqual({
       template: "BREAKOUT",
-      name: "Breakout 20/10 SL2 T5 R1",
+      name: "BREAKOUT-20-10-SL2-T5-R1",
       fast: 20,
       slow: 10,
       quantity: 1,

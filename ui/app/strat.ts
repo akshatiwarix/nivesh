@@ -62,12 +62,8 @@ export function parseStratArgs(args: readonly string[]): StratArgs | string {
   // The breakout's second number is its exit channel, which is shorter.
   const slow = numbers[1] ?? (template === "BREAKOUT" ? 10 : 50);
   const quantity = numbers[2] ?? 1;
-  const base =
-    template === "MA"
-      ? `MA ${fast}/${slow}`
-      : template === "RSI"
-        ? `RSI ${fast}`
-        : `Breakout ${fast}/${slow}`;
+  // One word, so BT, PAPER, ARM and RESUME can name it: MA-20-50.
+  const base = template === "RSI" ? `RSI-${fast}` : `${template}-${fast}-${slow}`;
   // The name says what differs, so variants don't collide.
   const suffix = [
     settings.stopLoss !== undefined ? `SL${+(settings.stopLoss * 100).toFixed(2)}` : undefined,
@@ -76,7 +72,7 @@ export function parseStratArgs(args: readonly string[]): StratArgs | string {
   ].filter((x) => x !== undefined);
   return {
     template,
-    name: suffix.length > 0 ? `${base} ${suffix.join(" ")}` : base,
+    name: [base, ...suffix].join("-"),
     fast,
     slow,
     quantity,

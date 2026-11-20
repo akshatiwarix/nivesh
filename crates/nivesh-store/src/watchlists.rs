@@ -291,8 +291,37 @@ fn renumber(conn: &Connection, list_id: i64) -> Result<(), StoreError> {
 mod tests {
     use super::*;
 
+    /// A fresh store whose default list is emptied of its starter symbols,
+    /// so each test starts from nothing.
     fn store() -> Store {
-        Store::open_in_memory().unwrap()
+        let s = Store::open_in_memory().unwrap();
+        clear_default(&s);
+        s
+    }
+
+    fn clear_default(s: &Store) {
+        let id = s.active_watchlist().unwrap();
+        for item in s
+            .watchlists()
+            .unwrap()
+            .into_iter()
+            .find(|l| l.id == id)
+            .unwrap()
+            .items
+        {
+            s.remove_watch_item(id, &item.exchange, &item.symbol)
+                .unwrap();
+        }
+    }
+
+    #[test]
+    fn a_fresh_database_starts_with_ten_large_caps() {
+        let s = Store::open_in_memory().unwrap();
+        let id = s.active_watchlist().unwrap();
+        let syms = symbols(&s, id);
+        assert_eq!(syms.len(), 10);
+        assert_eq!(syms[0], "RELIANCE");
+        assert_eq!(syms[9], "MARUTI");
     }
 
     fn symbols(store: &Store, list: i64) -> Vec<String> {
@@ -478,6 +507,7 @@ mod tests {
         let path = dir.path().join("n.db");
         let (second, expected) = {
             let s = Store::open(&path).unwrap();
+            clear_default(&s);
             let first = s.active_watchlist().unwrap();
             let second = s.create_watchlist("SECOND").unwrap();
             for sym in ["A", "B", "C"] {

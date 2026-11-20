@@ -30,7 +30,13 @@ import {
   saveChartIndicators,
   subscribeFormingBar,
 } from "../../ipc";
-import { changeTone, formatCount, formatMovePct, formatPrice } from "../../lib/format";
+import {
+  changeTone,
+  formatCount,
+  formatMovePct,
+  formatPrice,
+  formatVolumeShort,
+} from "../../lib/format";
 import { useViewCommands, useViewOps } from "../context";
 import type { View } from "../types";
 import "./ChartView.css";
@@ -62,6 +68,13 @@ import {
   volumePoints,
   zoomRange,
 } from "./model";
+
+/** Indian-grouped rupee prices, for the candles and price overlays. */
+const PRICE_FORMAT = {
+  type: "custom" as const,
+  formatter: (p: number) => formatPrice(p),
+  minMove: 0.01,
+};
 
 type ChartViewDef = Extract<View, { kind: "chart" }>;
 
@@ -182,8 +195,9 @@ export const ChartView: Component<{ view: ChartViewDef }> = (props) => {
           axisLabel(time, isIntraday(interval()), false),
       },
       localization: {
+        // No chart-wide priceFormatter: it would override every series'
+        // own format (volume included). Prices format per series instead.
         timeFormatter: (time: UTCTimestamp) => crosshairLabel(time, isIntraday(interval())),
-        priceFormatter: (p: number) => formatPrice(p),
       },
     });
     const candles = chart.addSeries(lib.CandlestickSeries, {
@@ -193,10 +207,16 @@ export const ChartView: Component<{ view: ChartViewDef }> = (props) => {
       wickDownColor: theme.colors.down,
       borderVisible: false,
       priceLineColor: theme.amber,
+      priceFormat: PRICE_FORMAT,
     });
     const volume = chart.addSeries(
       lib.HistogramSeries,
-      { priceFormat: { type: "volume" }, priceLineVisible: false, lastValueVisible: false },
+      {
+        // Its own formatter: the chart-wide one gives prices two decimals.
+        priceFormat: { type: "custom", formatter: formatVolumeShort, minMove: 1 },
+        priceLineVisible: false,
+        lastValueVisible: false,
+      },
       1,
     );
     chart.panes()[1]?.setStretchFactor(0.22);
@@ -292,6 +312,7 @@ export const ChartView: Component<{ view: ChartViewDef }> = (props) => {
               lastValueVisible: !dim,
               crosshairMarkerVisible: false,
               title: dim ? "" : line.name,
+              priceFormat: PRICE_FORMAT,
             },
             0,
           );

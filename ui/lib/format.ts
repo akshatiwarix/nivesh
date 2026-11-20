@@ -42,6 +42,16 @@ export function formatCount(v: number | null | undefined): string {
   return isNum(v) ? nf(0).format(Math.round(v)) : NO_VALUE;
 }
 
+/** Volumes in Indian units for tight spaces: `37.8L`, `1.2Cr`, `950`. */
+export function formatVolumeShort(v: number | null | undefined): string {
+  if (!isNum(v)) return NO_VALUE;
+  const a = Math.abs(v);
+  if (a >= 1e7) return `${+(v / 1e7).toFixed(1)}Cr`;
+  if (a >= 1e5) return `${+(v / 1e5).toFixed(1)}L`;
+  if (a >= 1e3) return `${+(v / 1e3).toFixed(1)}K`;
+  return String(Math.round(v));
+}
+
 /** Colour for a change. Always pair it with {@link arrow} (colour-blind safe). */
 export function changeTone(v: number | null | undefined): "up" | "down" | undefined {
   if (!isNum(v) || v === 0) return undefined;

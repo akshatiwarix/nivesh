@@ -28,7 +28,7 @@ import "./broker.css";
 export const BrokerBadge: Component<{ session: BrokerSessionDto | undefined }> = (props) => {
   const session = () => props.session;
   return (
-    <Show when={session() && session()?.broker} fallback={<Badge tone="neutral">NO BROKER</Badge>}>
+    <Show when={session()?.broker} fallback={<Badge tone="neutral">NO BROKER</Badge>}>
       <Badge tone={session()?.broker === "demo" ? "paper" : "live"}>
         {session()?.broker === "demo" ? "DEMO" : `${session()?.broker?.toUpperCase()} CONNECTED`}
       </Badge>
@@ -39,10 +39,10 @@ export const BrokerBadge: Component<{ session: BrokerSessionDto | undefined }> =
 /** A login banner: what to type, honestly, for each state. */
 const LoginHint: Component<{ session: BrokerSessionDto | undefined; error?: string }> = (props) => (
   <p class="broker__hint" role="status">
-    <Show when={props.error} fallback="Loading session…">
-      {(text) => text()}
-    </Show>
-    <Show when={!props.error && props.session?.broker === undefined}>
+    <Show when={props.error}>{(text) => text()}</Show>
+    {/* "Loading" only until the session is known, not beside every state. */}
+    <Show when={!props.error && props.session === undefined}>Loading session…</Show>
+    <Show when={!props.error && props.session !== undefined && props.session.broker === undefined}>
       No broker is connected. <b>LOGIN DEMO</b> shows this view with demo data; LOGIN connects Kite.
     </Show>
     <Show when={!props.error && props.session?.broker === "demo"}>

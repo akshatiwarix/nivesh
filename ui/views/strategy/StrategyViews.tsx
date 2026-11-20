@@ -9,6 +9,7 @@ import { type Component, createMemo, createResource, createSignal, Show } from "
 import { Badge } from "../../components/Badge";
 import { DataPanel } from "../../components/DataPanel";
 import { type Column, DataTable } from "../../components/DataTable";
+import { btRun } from "../../data/backtest";
 import { describeError } from "../../data/errors";
 import { createPoll } from "../../data/poll";
 import type {
@@ -175,52 +176,67 @@ function windowRows(wf: WalkForwardDto): WindowRow[] {
 
 /** `BT <NAME>`: the latest backtest result of a strategy. */
 export const BacktestView: Component<{ name?: string }> = (props) => {
+  // Refetch whenever a run of this strategy finishes; while one runs,
+  // show that rather than the result saved before it.
+  const run = () => btRun(props.name);
   const [result] = createResource(
-    () => inTauri() && props.name !== undefined,
-    () => backtestResult(props.name ?? ""),
+    () => {
+      const r = run();
+      if (!inTauri() || props.name === undefined || r?.state === "running") return false;
+      return { name: props.name, at: r?.state === "done" ? r.at : 0 };
+    },
+    (src) => backtestResult(src.name),
   );
 
   const emptyText = () => {
     if (!inTauri()) return "Backtests are available in the Nivesh app.";
-    if (result.state === "pending") return "Running…";
+    const r = run();
+    if (r?.state === "running") return "Running…";
+    if (r?.state === "failed") return `${r.error}. Fix it and run it again: BT ${props.name}`;
+    if (result.state === "pending") return "Loading…";
     if (result.error) return `${describeError(result.error)}. Run it again: BT ${props.name}`;
     if (props.name === undefined) return "Which strategy? BT <NAME>.";
     return undefined;
   };
 
-  const trades = createMemo(() => result()?.trades ?? []);
+  // A running or failed run hides the result saved before it.
+  const shown = () => (run() === undefined || run()?.state === "done" ? result() : undefined);
+  const trades = createMemo(() => shown()?.trades ?? []);
 
   return (
     <div class="view bt" data-view="bt">
       <DataPanel
         provenance={null}
         title={`BACKTEST · ${props.name ?? "—"}${
-          result() ? ` · ${result()?.symbol} ${result()?.interval} ${result()?.range}` : ""
+          shown() ? ` · ${shown()?.symbol} ${shown()?.interval} ${shown()?.range}` : ""
         }`}
       >
         <PaperBadge />
-        <Show when={result()}>
+        <Show when={shown()}>
           {(r) => (
             <p class="strat__funds">
               NET P&L {formatPrice(r().totalPnl)} · COSTS {formatPrice(r().totalCharges)} · MAX DD{" "}
-              {formatPrice(r().maxDrawdown)} · TRADES {r().trades.length} · BARS {r().barsInMarket}/
-              {r().totalBars}
+              {formatPrice(r().maxDrawdown)} · TRADES {r().trades.length}
+              {/* Saved runs don't keep bar counts: show them only when known. */}
+              {r().totalBars > 0 ? ` · BARS ${r().barsInMarket}/${r().totalBars}` : ""}
             </p>
           )}
         </Show>
-        <Show when={result.error || (result.state === "ready" && !result())}>
+        <Show
+          when={run()?.state === "failed" || result.error || (result.state === "ready" && !shown())}
+        >
           <p class="view__error" role="alert">
             {emptyText()}
           </p>
         </Show>
-        <Show when={result()}>{(r) => <BacktestChart result={r()} />}</Show>
+        <Show when={shown()}>{(r) => <BacktestChart result={r()} />}</Show>
         <DataTable
           label="Backtest trades"
           columns={TRADE_COLUMNS}
           rows={trades()}
-          emptyText={emptyText()}
+          emptyText={run()?.state === "failed" || result.error ? "No trades." : emptyText()}
         />
-        <Show when={result()?.walkForward}>
+        <Show when={shown()?.walkForward}>
           {(wf) => (
             <>
               <p class="strat__funds">

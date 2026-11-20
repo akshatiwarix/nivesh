@@ -162,6 +162,19 @@ const MIGRATIONS: &[&str] = &[
     CREATE TRIGGER audit_log_no_delete BEFORE DELETE ON audit_log
     BEGIN SELECT RAISE(ABORT, 'the audit log is append-only'); END;
     ",
+    // v11: a starter watchlist, so a first start shows prices at once. Only
+    // the default list, and only while it is still empty: nobody's own
+    // symbols are touched.
+    "
+    WITH starter (symbol, position) AS (VALUES
+        ('RELIANCE', 0), ('TCS', 1), ('HDFCBANK', 2), ('INFY', 3), ('ICICIBANK', 4),
+        ('BHARTIARTL', 5), ('ITC', 6), ('SBIN', 7), ('LT', 8), ('MARUTI', 9))
+    INSERT INTO watchlist_items (list_id, exchange, symbol, position)
+    SELECT w.id, 'NSE', s.symbol, s.position
+    FROM watchlists w, starter s
+    WHERE w.name = 'WATCHLIST'
+      AND NOT EXISTS (SELECT 1 FROM watchlist_items i WHERE i.list_id = w.id);
+    ",
 ];
 
 /// The schema version a fully migrated database has.

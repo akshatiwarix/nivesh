@@ -26,10 +26,22 @@ pub async fn get_movers(
 ) -> Result<MoversDto, IpcError> {
     let id = parse_index(&index)?;
     let limit = limit.unwrap_or(DEFAULT_MOVERS).clamp(1, MAX_MOVERS) as usize;
-    let movers = services
+    let mut movers = services
         .market
         .movers(&MoversRequest { index: id, limit })
         .await?;
+    // Some sources list symbols only; the names come from the local list.
+    for m in movers
+        .data
+        .gainers
+        .iter_mut()
+        .chain(movers.data.losers.iter_mut())
+        .chain(movers.data.most_active.iter_mut())
+    {
+        if m.quote.name.is_none() {
+            m.quote.name = services.instruments.get(&m.quote.id).map(|i| i.name);
+        }
+    }
     Ok(MoversDto::new(id.code(), &movers))
 }
 

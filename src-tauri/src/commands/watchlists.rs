@@ -184,6 +184,12 @@ mod tests {
     fn snapshot_reports_lists_items_and_the_active_list() {
         let store = Store::open_in_memory().unwrap();
         let first = store.active_watchlist().unwrap();
+        // Empty the starter symbols first.
+        for item in store.watchlists().unwrap()[0].items.clone() {
+            store
+                .remove_watch_item(first, &item.exchange, &item.symbol)
+                .unwrap();
+        }
         store.add_watch_item(first, "NSE", "TCS").unwrap();
         let second = store.create_watchlist("banks").unwrap();
         store.set_active_watchlist(second).unwrap();
