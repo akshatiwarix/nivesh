@@ -1,0 +1,76 @@
+name: Release
+
+# Pushing a tag like v0.1.0 builds the Apple silicon .dmg and publishes it on a
+# GitHub Release. The asset always has the same name, so the landing page can
+# link to releases/latest/download/Nivesh_aarch64.dmg and never needs editing.
+# Builds are unsigned until signing arrives in Part 6 (see README).
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  release-macos:
+    name: Release (macOS aarch64 .dmg)
+    # Same host and steps as the CI bundle-macos job.
+    runs-on: macos-15-intel
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Tag matches the app version
+        run: |
+          version=$(node -p "require('./package.json').version")
+          if [ "${GITHUB_REF_NAME}" != "v${version}" ]; then
+            echo "tag ${GITHUB_REF_NAME} does not match package.json version ${version}"
+            exit 1
+          fi
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install Rust toolchain
+        run: |
+          rustup toolchain install
+          rustup target add aarch64-apple-darwin
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: aarch64-apple-darwin
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Keep Spotlight off the bundle volumes
+        run: |
+          sudo mdutil -i off / || true
+          sudo mdutil -i off /System/Volumes/Data || true
+
+      - name: Build .dmg
+        run: |
+          for attempt in 1 2 3; do
+            if pnpm tauri build --target aarch64-apple-darwin --bundles dmg; then
+              exit 0
+            fi
+            echo "bundle attempt $attempt failed; retrying"
+          done
+          exit 1
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp target/aarch64-apple-darwin/release/bundle/dmg/*.dmg Nivesh_aarch64.dmg
+          gh release create "${GITHUB_REF_NAME}" Nivesh_aarch64.dmg \
+            --title "Nivesh ${GITHUB_REF_NAME}" \
+            --notes "Apple silicon build. Unsigned: see \"Opening an unsigned .dmg\" in the README before you open it."
