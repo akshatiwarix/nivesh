@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 
 use ts_rs::{Config, ExportError, TS};
 
-use crate::commands::app::AppInfo;
+use crate::commands::app::{AppInfo, AppPaths};
 use crate::commands::market::MarketStatusDto;
 use crate::commands::ui_state::UiState;
 use crate::commands::watchlists::WatchlistsDto;
@@ -43,6 +43,7 @@ pub fn export(dir: &Path) -> Result<(), ExportError> {
 
     IpcError::export_all(&cfg)?;
     AppInfo::export_all(&cfg)?;
+    AppPaths::export_all(&cfg)?;
     BrokerSessionDto::export_all(&cfg)?;
     BrokerLoginDto::export_all(&cfg)?;
     HoldingDto::export_all(&cfg)?;

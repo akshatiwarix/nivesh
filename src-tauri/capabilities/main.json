@@ -6,6 +6,9 @@
   "permissions": [
     "allow-all-indices",
     "allow-app-info",
+    "allow-app-paths",
+    "allow-app-ready",
+    "allow-finish-onboarding",
     "allow-audit-export",
     "allow-audit-log",
     "allow-audit-verify",

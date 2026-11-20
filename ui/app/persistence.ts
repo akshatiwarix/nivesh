@@ -1,6 +1,7 @@
 import { createEffect, on, onMount } from "solid-js";
 import { createHistory, type History } from "../commands/history";
 import { inTauri, loadUiState, saveCommandHistory, saveLayout } from "../ipc";
+import { showOnboarding } from "./onboardingState";
 import { isLayoutKind, type Workspace } from "./workspace";
 
 /**
@@ -25,6 +26,7 @@ export function createPersistence(ws: Workspace): { history: History } {
       .then((state) => {
         if (isLayoutKind(state.layout)) ws.setLayout(state.layout);
         history.load(state.history);
+        if (!state.onboarded) showOnboarding(true);
       })
       .catch(ignore)
       .finally(() => {

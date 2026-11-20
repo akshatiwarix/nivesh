@@ -11,4 +11,8 @@ layout: number,
 /**
  * Command history, oldest first.
  */
-history: Array<string>, };
+history: Array<string>, 
+/**
+ * Whether the first-run onboarding has been read.
+ */
+onboarded: boolean, };

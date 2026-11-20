@@ -166,6 +166,19 @@ export const COMMANDS: readonly CommandDef[] = [
     usage: "AUDIT [KIND <PREFIX>] [FOR <NAME>] | AUDIT VERIFY | AUDIT EXPORT CSV|JSONL",
   },
   {
+    id: "settings",
+    names: ["SETTINGS"],
+    summary:
+      "What the app is set to (live trading, kill switch, layout, folders) and the command that changes each",
+    usage: "SETTINGS",
+  },
+  {
+    id: "welcome",
+    names: ["WELCOME"],
+    summary: "Shows the first-run introduction again: DELAYED data, paper by default, not advice",
+    usage: "WELCOME",
+  },
+  {
     id: "kill",
     names: ["KILL"],
     summary:

@@ -20,6 +20,7 @@ import { QuoteView } from "./quote/QuoteView";
 import { RiskView } from "./risk/RiskView";
 import { ScriptView } from "./script/ScriptView";
 import { SectorsView } from "./sectors/SectorsView";
+import { SettingsView } from "./settings/SettingsView";
 import { BacktestView, PaperDashboardView, StrategiesView } from "./strategy/StrategyViews";
 import type { View } from "./types";
 import { WatchlistView } from "./watchlist/WatchlistView";
@@ -69,6 +70,8 @@ function renderView(view: View): JSX.Element {
       return <RiskView />;
     case "script":
       return <ScriptView view={view} />;
+    case "settings":
+      return <SettingsView view={view} />;
     case "audit":
       return <AuditView view={view} />;
   }

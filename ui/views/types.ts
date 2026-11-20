@@ -30,6 +30,7 @@ export type View =
   | { kind: "bt"; name?: string }
   | { kind: "paper" }
   | { kind: "risk" }
+  | { kind: "settings" }
   | { kind: "script"; name: string }
   /** `filter`: a kind prefix; `strategy`: a strategy name. */
   | { kind: "audit"; filter?: string; strategy?: string };
@@ -77,6 +78,8 @@ export function viewTitle(view: View): string {
       return "Paper Trading";
     case "risk":
       return "Risk";
+    case "settings":
+      return "Settings";
     case "script":
       return `Script · ${view.name}`;
     case "audit":

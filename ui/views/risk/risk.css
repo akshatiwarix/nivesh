@@ -49,3 +49,8 @@
 .risk__alert--critical {
   color: var(--c-down);
 }
+
+.risk__disclaimer {
+  margin: 0;
+  color: var(--c-amber);
+}

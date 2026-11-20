@@ -26,6 +26,7 @@ pub const MAIN_WINDOW: &str = "main";
 
 /// Builds and runs the app. Returns when the app exits.
 pub fn run() -> anyhow::Result<()> {
+    commands::app::mark_process_start();
     tauri::Builder::default()
         // Must be registered first: a second launch hands its arguments to the
         // running instance and exits before anything else starts. Two instances
@@ -92,6 +93,9 @@ pub fn run() -> anyhow::Result<()> {
         // Keep in sync with COMMANDS in build.rs.
         .invoke_handler(tauri::generate_handler![
             commands::app::app_info,
+            commands::app::app_paths,
+            commands::app::app_ready,
+            commands::ui_state::finish_onboarding,
             commands::audit::audit_export,
             commands::audit::audit_log,
             commands::audit::audit_verify,

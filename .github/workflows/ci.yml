@@ -89,6 +89,10 @@ jobs:
       - name: Frontend build
         run: pnpm build
 
+      # PLAN.md §2.9: initial JS under 150 KB gz (the chart library is lazy).
+      - name: Initial bundle budget
+        run: pnpm check:bundle
+
       # The Rust test `committed_bindings_are_fresh` already catches drift;
       # this also catches files that are untracked or stale on disk.
       - name: IPC bindings are fresh

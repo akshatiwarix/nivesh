@@ -1,0 +1,53 @@
+/* The first-run dialog: centred over the shell, which is dimmed. */
+
+.onboarding {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  background: rgb(0 0 0 / 70%);
+}
+
+.onboarding__box {
+  max-width: 44em;
+  padding: 16px 20px;
+  border: 1px solid var(--c-amber);
+  background: var(--c-bg);
+  color: var(--c-fg);
+}
+
+.onboarding__box h2 {
+  margin: 0 0 8px;
+  color: var(--c-amber);
+  font-size: var(--fs-md, 1rem);
+}
+
+.onboarding__box h3 {
+  margin: 10px 0 2px;
+  font-size: var(--fs-sm);
+}
+
+.onboarding__box p {
+  margin: 0;
+  line-height: 1.5;
+}
+
+.onboarding__box .onboarding__keys {
+  margin-top: 12px;
+  color: var(--c-fg-faint);
+}
+
+.onboarding__ok {
+  margin-top: 14px;
+  padding: 4px 12px;
+  border: 1px solid var(--c-amber);
+  background: transparent;
+  color: var(--c-amber);
+  font: inherit;
+}
+
+.onboarding__ok:focus-visible {
+  outline: 2px solid var(--c-amber);
+  outline-offset: 2px;
+}
