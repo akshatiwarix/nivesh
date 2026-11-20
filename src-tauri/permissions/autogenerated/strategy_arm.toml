@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-strategy-arm"
+description = "Enables the strategy_arm command without any pre-configured scope."
+commands.allow = ["strategy_arm"]
+
+[[permission]]
+identifier = "deny-strategy-arm"
+description = "Denies the strategy_arm command without any pre-configured scope."
+commands.deny = ["strategy_arm"]

@@ -22,7 +22,7 @@ use crate::ipc::dto::{
     SourcedQuoteDto, TopicDto,
 };
 use crate::ipc::markets::{BreadthDto, DmaBreadthDto, MoversDto, NewsDto, ProgressDto, SectorsDto};
-use crate::ipc::risk::KillStatusDto;
+use crate::ipc::risk::{KillStatusDto, RiskActionDto, RiskAlertDto, RiskStatusDto};
 use crate::ipc::strategy::{
     BacktestResultDto, CurvePointDto, PaperFillDto, PaperStateDto, StrategyDto, WalkForwardDto,
 };
@@ -75,5 +75,8 @@ pub fn export(dir: &Path) -> Result<(), ExportError> {
     WalkForwardDto::export_all(&cfg)?;
     CurvePointDto::export_all(&cfg)?;
     KillStatusDto::export_all(&cfg)?;
+    RiskStatusDto::export_all(&cfg)?;
+    RiskActionDto::export_all(&cfg)?;
+    RiskAlertDto::export_all(&cfg)?;
     Ok(())
 }

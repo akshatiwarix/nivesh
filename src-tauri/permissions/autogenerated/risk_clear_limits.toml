@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-risk-clear-limits"
+description = "Enables the risk_clear_limits command without any pre-configured scope."
+commands.allow = ["risk_clear_limits"]
+
+[[permission]]
+identifier = "deny-risk-clear-limits"
+description = "Denies the risk_clear_limits command without any pre-configured scope."
+commands.deny = ["risk_clear_limits"]

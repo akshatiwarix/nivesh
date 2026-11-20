@@ -7,7 +7,13 @@
 //! [`FormingBar::apply_closing`]. Each closed bar goes through the desk
 //! (gateway, risk check, paper fill at the next open), and the strategy's
 //! state is saved after every bar. At startup, every strategy saved as
-//! running resumes from that state. Nothing here can reach a real broker.
+//! running resumes from that state.
+//!
+//! The safety controls live here too: limits (saved, changes audited),
+//! the session-only master switch, arming and the kill switch, each change
+//! reported to the UI as `killswitch:changed` / `risk:alert`. No live
+//! route is installed yet, so nothing can be armed and nothing here can
+//! reach a real broker.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
@@ -15,7 +21,10 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use nivesh_core::{Candle, FeedKind, Freshness, Sourced};
 use nivesh_data::forming::FormingBar;
 use nivesh_data::{HubUpdate, QuoteHub, SubscriptionId, Topic};
-use nivesh_exec::{KillReason, KillState, LiveDispatch, PaperDesk};
+use nivesh_exec::{
+    ArmConditions, ArmError, DeskUsage, GatewayError, KillReason, KillState, LiveDispatch,
+    PaperDesk,
+};
 use nivesh_risk::{RiskEngine, RiskLimits};
 use nivesh_store::Store;
 use nivesh_strategy::{PaperRunner, PaperState, RuleSet};
@@ -24,6 +33,8 @@ use tokio::sync::mpsc;
 
 use crate::commands::chart::parse_request;
 use crate::ipc::IpcError;
+use crate::ipc::risk::AlertLevel;
+use crate::notify::Notifier;
 use crate::services::Services;
 
 /// Starting paper equity, rupees (sizing and the equity mark).
@@ -83,6 +94,52 @@ pub struct PaperManager {
     store: Arc<Store>,
     desk: Arc<Mutex<PaperDesk>>,
     running: Mutex<HashMap<i64, Running>>,
+    notifier: Notifier,
+}
+
+/// The outcome of an action that may need a typed confirmation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Confirm {
+    Done,
+    /// Nothing changed: type this phrase and try again.
+    Needs(String),
+}
+
+/// A strategy's safety state, for the RISK view.
+#[derive(Debug, Clone, PartialEq)]
+pub struct StrategyRisk {
+    pub id: i64,
+    pub running: bool,
+    pub armed_until: Option<i64>,
+    pub paused: Option<String>,
+    pub limits: Option<RiskLimits>,
+}
+
+/// Everything the RISK view shows, at one instant.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RiskView {
+    pub kill: KillState,
+    pub live_enabled: bool,
+    pub live_route: bool,
+    pub limits: RiskLimits,
+    pub usage: DeskUsage,
+    pub strategies: Vec<StrategyRisk>,
+}
+
+/// A refusal that only asks for the phrase becomes [`Confirm::Needs`];
+/// anything else is an error for the user.
+fn confirmable(result: Result<(), GatewayError>) -> Result<Confirm, IpcError> {
+    match result {
+        Ok(()) => Ok(Confirm::Done),
+        Err(GatewayError::NeedsConfirmation { phrase })
+        | Err(GatewayError::Arm(ArmError::WrongPhrase { expected: phrase })) => {
+            Ok(Confirm::Needs(phrase))
+        }
+        Err(GatewayError::AuditFailed(e)) => Err(IpcError::internal(format!(
+            "the audit log could not be written, so nothing changed: {e}"
+        ))),
+        Err(err) => Err(IpcError::invalid_argument(err.to_string())),
+    }
 }
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -96,15 +153,152 @@ fn now_ms() -> i64 {
 impl PaperManager {
     /// A desk over the store, with the kill switch as it was saved: an
     /// engaged switch stays engaged across a restart.
+    ///
+    /// The saved limits come back too. Unreadable global limits fall back
+    /// to the conservative defaults with the kill switch engaged (the saved
+    /// ones may have been tighter); an unreadable strategy's limits are
+    /// dropped, which leaves it unable to arm.
     pub fn new(store: Arc<Store>) -> Self {
         let audit = Arc::new(crate::audit::StoreAudit(Arc::clone(&store)));
-        let mut desk = PaperDesk::new(RiskEngine::new(RiskLimits::default()), audit);
-        desk.restore_kill(load_kill(&store));
+        let (limits, limits_ok) = load_limits(&store);
+        let mut desk = PaperDesk::new(RiskEngine::new(limits), audit);
+        let mut kill = load_kill(&store);
+        if !limits_ok && !kill.engaged {
+            kill = unreadable(SAVED_LIMITS_UNREADABLE);
+        }
+        desk.restore_kill(kill);
+        for row in store.strategies().unwrap_or_default() {
+            desk.set_strategy_limits(row.id, load_strategy_limits(&store, row.id));
+        }
         Self {
             store,
             desk: Arc::new(Mutex::new(desk)),
             running: Mutex::new(HashMap::new()),
+            notifier: Notifier::default(),
         }
+    }
+
+    /// Lets the manager emit its events once the app is up.
+    pub fn attach(&self, app: tauri::AppHandle) {
+        self.notifier.attach(app);
+    }
+
+    /// The safety state the RISK view shows. `ids`: every saved strategy.
+    pub fn risk_view(&self, ids: &[i64]) -> RiskView {
+        let now = now_ms();
+        let desk = lock(&self.desk);
+        RiskView {
+            kill: desk.kill_state().clone(),
+            live_enabled: desk.live_enabled(),
+            live_route: desk.live_route().is_some(),
+            limits: desk.risk_limits().clone(),
+            usage: desk.usage(now),
+            strategies: ids
+                .iter()
+                .map(|&id| StrategyRisk {
+                    id,
+                    running: desk.is_running(id),
+                    armed_until: desk.armed_until(id, now),
+                    paused: desk.paused(id).map(str::to_owned),
+                    limits: desk.strategy_limits(id).cloned(),
+                })
+                .collect(),
+        }
+    }
+
+    /// Changes the global limits (`strategy_id` none) or a strategy's own
+    /// (`edit` starts from its current ones, or a copy of the global ones).
+    /// Loosening needs the typed phrase. Saved once applied.
+    pub fn change_limits(
+        &self,
+        strategy_id: Option<i64>,
+        edit: impl FnOnce(&mut RiskLimits),
+        typed: &str,
+    ) -> Result<Confirm, IpcError> {
+        let mut desk = lock(&self.desk);
+        let now = now_ms();
+        match strategy_id {
+            None => {
+                let mut limits = desk.risk_limits().clone();
+                edit(&mut limits);
+                let json = encode_limits(&limits)?;
+                let done = confirmable(desk.change_risk_limits(limits, typed, now).map(drop))?;
+                if done == Confirm::Done {
+                    self.store.set_setting(LIMITS_SETTING, &json)?;
+                }
+                Ok(done)
+            }
+            Some(id) => {
+                let mut limits = desk
+                    .strategy_limits(id)
+                    .unwrap_or_else(|| desk.risk_limits())
+                    .clone();
+                edit(&mut limits);
+                let json = encode_limits(&limits)?;
+                let done = confirmable(
+                    desk.change_strategy_limits(id, Some(limits), typed, now)
+                        .map(drop),
+                )?;
+                if done == Confirm::Done {
+                    self.store.set_setting(&strategy_limits_key(id), &json)?;
+                }
+                Ok(done)
+            }
+        }
+    }
+
+    /// Removes a strategy's own limits (a loosening: typed phrase).
+    pub fn clear_strategy_limits(
+        &self,
+        strategy_id: i64,
+        typed: &str,
+    ) -> Result<Confirm, IpcError> {
+        let mut desk = lock(&self.desk);
+        let done = confirmable(
+            desk.change_strategy_limits(strategy_id, None, typed, now_ms())
+                .map(drop),
+        )?;
+        if done == Confirm::Done {
+            // "null" reads back as no limits.
+            self.store
+                .set_setting(&strategy_limits_key(strategy_id), "null")?;
+        }
+        Ok(done)
+    }
+
+    /// The master switch: on needs the typed phrase; off is immediate and
+    /// disarms everything. Never saved: every start is off.
+    pub fn set_live_enabled(&self, on: bool, typed: &str) -> Result<Confirm, IpcError> {
+        confirmable(lock(&self.desk).set_live_enabled(on, typed, now_ms()))
+    }
+
+    /// Arms a running strategy (every precondition, then the phrase).
+    pub fn arm(
+        &self,
+        strategy_id: i64,
+        name: &str,
+        typed: &str,
+        broker_connected: bool,
+    ) -> Result<Confirm, IpcError> {
+        let live_feed = self
+            .store
+            .paper_state(strategy_id)?
+            .is_some_and(|(_, json)| PaperRecord::decode(&json).live_feed);
+        let conditions = ArmConditions {
+            broker_connected,
+            data: if live_feed {
+                Freshness::Live
+            } else {
+                Freshness::Delayed
+            },
+        };
+        let result = lock(&self.desk).arm(strategy_id, name, typed, conditions, now_ms());
+        confirmable(result.map(drop))
+    }
+
+    /// Disarms a strategy at once.
+    pub fn disarm(&self, strategy_id: i64) -> bool {
+        lock(&self.desk).disarm(strategy_id, now_ms())
     }
 
     pub fn kill_state(&self) -> KillState {
@@ -116,6 +310,9 @@ impl PaperManager {
     pub fn engage_kill(&self, detail: &str) -> Result<Option<usize>, IpcError> {
         let mut desk = lock(&self.desk);
         let cancelled = desk.engage_kill(KillReason::Manual, detail, now_ms());
+        if cancelled.is_some() {
+            self.notifier.kill_changed(desk.kill_state());
+        }
         save_kill(&self.store, desk.kill_state())?;
         Ok(cancelled.map(|c| c.len()))
     }
@@ -126,6 +323,7 @@ impl PaperManager {
         let mut desk = lock(&self.desk);
         desk.reset_kill(typed, now_ms())
             .map_err(|e| IpcError::invalid_argument(e.to_string()))?;
+        self.notifier.kill_changed(desk.kill_state());
         save_kill(&self.store, desk.kill_state())
     }
 
@@ -179,7 +377,11 @@ impl PaperManager {
             state: runner.state().clone(),
         };
         self.stop_task(strategy_id);
-        lock(&self.desk).start(strategy_id, runner, now_ms());
+        {
+            let mut desk = lock(&self.desk);
+            desk.start(strategy_id, runner, now_ms());
+            desk.set_strategy_limits(strategy_id, load_strategy_limits(&self.store, strategy_id));
+        }
         self.store
             .save_paper_state(strategy_id, true, &record.encode()?)?;
 
@@ -197,6 +399,7 @@ impl PaperManager {
             record.clone(),
             services.hub.clone(),
             subscription,
+            self.notifier.clone(),
         ));
         lock(&self.running).insert(strategy_id, Running { task, subscription });
         tracing::info!(strategy_id, stream = %req.id, interval = %req.interval, "paper strategy started");
@@ -290,12 +493,54 @@ fn load_kill(store: &Store) -> KillState {
 }
 
 fn unreadable_kill() -> KillState {
+    unreadable("the saved kill-switch state could not be read")
+}
+
+const SAVED_LIMITS_UNREADABLE: &str =
+    "the saved risk limits could not be read; the defaults apply until you review them";
+
+fn unreadable(detail: &str) -> KillState {
     KillState {
         engaged: true,
         reason: Some(KillReason::Manual),
-        detail: "the saved kill-switch state could not be read".into(),
+        detail: detail.into(),
         engaged_at_ms: Some(now_ms()),
     }
+}
+
+/// Where the global limits live; a strategy's are under
+/// [`strategy_limits_key`].
+const LIMITS_SETTING: &str = "risk_limits";
+
+fn strategy_limits_key(strategy_id: i64) -> String {
+    format!("risk_limits:{strategy_id}")
+}
+
+fn encode_limits(limits: &RiskLimits) -> Result<String, IpcError> {
+    serde_json::to_string(limits)
+        .map_err(|e| IpcError::internal(format!("cannot encode the limits: {e}")))
+}
+
+/// The saved global limits, and whether they were readable.
+fn load_limits(store: &Store) -> (RiskLimits, bool) {
+    match store.setting(LIMITS_SETTING) {
+        Ok(None) => (RiskLimits::default(), true),
+        Ok(Some(json)) => match serde_json::from_str(&json) {
+            Ok(limits) => (limits, true),
+            Err(_) => (RiskLimits::default(), false),
+        },
+        Err(_) => (RiskLimits::default(), false),
+    }
+}
+
+/// A strategy's saved limits; unreadable ones are dropped (fail closed: a
+/// strategy without limits cannot arm).
+fn load_strategy_limits(store: &Store, strategy_id: i64) -> Option<RiskLimits> {
+    let json = store.setting(&strategy_limits_key(strategy_id)).ok()??;
+    serde_json::from_str::<Option<RiskLimits>>(&json).unwrap_or_else(|_| {
+        tracing::warn!(strategy_id, "unreadable strategy limits dropped");
+        None
+    })
 }
 
 fn save_kill(store: &Store, state: &KillState) -> Result<(), IpcError> {
@@ -317,6 +562,7 @@ async fn feed(
     mut record: PaperRecord,
     hub: QuoteHub,
     subscription: SubscriptionId,
+    notifier: Notifier,
 ) {
     while let Some(update) = rx.recv().await {
         let HubUpdate::Pinned(Sourced { data, provenance }) = update else {
@@ -327,26 +573,49 @@ async fn feed(
             continue;
         };
         let freshness = provenance.freshness();
-        let Some(dispatches) =
-            on_closed_bar(strategy_id, closed, freshness, &desk, &store, &mut record)
-        else {
+        let Some(dispatches) = on_closed_bar(
+            strategy_id,
+            closed,
+            freshness,
+            &desk,
+            &store,
+            &mut record,
+            &notifier,
+        ) else {
             break;
         };
         // Live orders (armed strategies only) are sent outside the lock.
         for dispatch in dispatches {
             let outcome = dispatch.send(now_ms()).await;
             if let Err(err) = &outcome {
-                tracing::warn!(strategy_id, error = %err, "live order not placed");
+                let level = match err {
+                    GatewayError::AmbiguousPlacement(_) | GatewayError::AuditFailed(_) => {
+                        AlertLevel::Critical
+                    }
+                    _ => AlertLevel::Warn,
+                };
+                notifier.alert(level, Some(strategy_id), format!("live order: {err}"));
             }
-            if let Some(kill) = lock(&desk).on_live_outcome(strategy_id, &outcome, now_ms()) {
-                tracing::warn!(strategy_id, reason = ?kill.reason, "kill switch engaged");
-                if let Err(err) = save_kill(&store, &kill) {
-                    tracing::error!(error = ?err, "saving the kill switch failed");
-                }
+            let kill = lock(&desk).on_live_outcome(strategy_id, &outcome, now_ms());
+            if let Some(kill) = kill {
+                tripped(&notifier, &store, &kill);
             }
         }
     }
     hub.unsubscribe(subscription);
+}
+
+/// The kill switch tripped on its own: tell the UI and save it.
+fn tripped(notifier: &Notifier, store: &Store, kill: &KillState) {
+    notifier.kill_changed(kill);
+    notifier.alert(
+        AlertLevel::Critical,
+        None,
+        format!("kill switch engaged: {}", kill.detail),
+    );
+    if let Err(err) = save_kill(store, kill) {
+        tracing::error!(error = ?err, "saving the kill switch failed");
+    }
 }
 
 /// Returns `None` when the strategy is no longer running, else the live
@@ -358,6 +627,7 @@ fn on_closed_bar(
     desk: &Mutex<PaperDesk>,
     store: &Store,
     record: &mut PaperRecord,
+    notifier: &Notifier,
 ) -> Option<Vec<LiveDispatch>> {
     let report = lock(desk).on_closed_bar(strategy_id, bar, freshness, now_ms())?;
     for fill in &report.fills {
@@ -365,12 +635,12 @@ fn on_closed_bar(
     }
     for refusal in &report.refused {
         tracing::info!(strategy_id, reason = %refusal, "paper order refused");
+        if matches!(refusal, GatewayError::NotLiveData(_)) {
+            notifier.alert(AlertLevel::Warn, Some(strategy_id), refusal.to_string());
+        }
     }
     if let Some(kill) = &report.kill {
-        tracing::warn!(strategy_id, reason = ?kill.reason, detail = %kill.detail, "kill switch engaged");
-        if let Err(err) = save_kill(store, kill) {
-            tracing::error!(error = ?err, "saving the kill switch failed");
-        }
+        tripped(notifier, store, kill);
     }
     record.state = report.state;
     match record.encode() {
@@ -415,6 +685,75 @@ mod tests {
             .map(|r| r.kind)
             .collect();
         assert_eq!(kinds, ["kill.engaged"]);
+    }
+
+    #[test]
+    fn limits_are_saved_and_loosening_needs_the_phrase() {
+        let store = Arc::new(Store::open_in_memory().unwrap());
+        let manager = PaperManager::new(Arc::clone(&store));
+        let tighten = |l: &mut RiskLimits| l.max_order_quantity = 10;
+        assert_eq!(
+            manager.change_limits(None, tighten, "").unwrap(),
+            Confirm::Done
+        );
+        let loosen = |l: &mut RiskLimits| l.max_order_quantity = 5_000;
+        assert_eq!(
+            manager.change_limits(None, loosen, "").unwrap(),
+            Confirm::Needs(nivesh_exec::LOOSEN_PHRASE.into())
+        );
+
+        // A restart keeps the tightened limit, and the kill switch off.
+        let restarted = PaperManager::new(Arc::clone(&store));
+        let view = restarted.risk_view(&[]);
+        assert_eq!(view.limits.max_order_quantity, 10);
+        assert!(!view.kill.engaged);
+        assert_eq!(
+            restarted
+                .change_limits(None, loosen, nivesh_exec::LOOSEN_PHRASE)
+                .unwrap(),
+            Confirm::Done
+        );
+        assert_eq!(restarted.risk_view(&[]).limits.max_order_quantity, 5_000);
+    }
+
+    #[test]
+    fn unreadable_limits_fail_closed() {
+        let store = Arc::new(Store::open_in_memory().unwrap());
+        store.set_setting(LIMITS_SETTING, "{not json").unwrap();
+        let manager = PaperManager::new(store);
+        let view = manager.risk_view(&[]);
+        assert_eq!(view.limits, RiskLimits::default());
+        assert!(view.kill.engaged, "the kill switch holds until reviewed");
+    }
+
+    #[test]
+    fn every_start_is_disarmed_with_live_trading_off() {
+        let store = Arc::new(Store::open_in_memory().unwrap());
+        let manager = PaperManager::new(Arc::clone(&store));
+        assert_eq!(
+            manager.set_live_enabled(true, "").unwrap(),
+            Confirm::Needs(nivesh_exec::LIVE_PHRASE.into())
+        );
+        assert_eq!(
+            manager
+                .set_live_enabled(true, nivesh_exec::LIVE_PHRASE)
+                .unwrap(),
+            Confirm::Done
+        );
+        assert!(manager.risk_view(&[]).live_enabled);
+        // Without a broker that can trade, nothing arms, phrase or not.
+        let id = store
+            .save_strategy(None, "Test", "MA Crossover", "{}", 0)
+            .unwrap();
+        let err = manager
+            .arm(id, "Test", &nivesh_exec::arm_phrase("Test"), true)
+            .unwrap_err();
+        assert!(err.message.contains("not running"), "{}", err.message);
+
+        let restarted = PaperManager::new(store);
+        let view = restarted.risk_view(&[id]);
+        assert!(!view.live_enabled, "the master switch is never saved");
+        assert_eq!(view.strategies[0].armed_until, None);
     }
 
     #[test]
@@ -499,7 +838,8 @@ mod tests {
                 Freshness::Delayed,
                 &desk,
                 &store,
-                &mut record
+                &mut record,
+                &Notifier::default(),
             )
             .is_some()
         );
@@ -510,7 +850,8 @@ mod tests {
                 Freshness::Delayed,
                 &desk,
                 &store,
-                &mut record
+                &mut record,
+                &Notifier::default(),
             )
             .is_some()
         );
@@ -552,7 +893,8 @@ mod tests {
                 Freshness::Delayed,
                 &desk,
                 &store,
-                &mut record
+                &mut record,
+                &Notifier::default(),
             )
             .is_none()
         );
