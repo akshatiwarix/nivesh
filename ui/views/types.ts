@@ -28,7 +28,8 @@ export type View =
   | { kind: "help" }
   | { kind: "strat" }
   | { kind: "bt"; name?: string }
-  | { kind: "paper" };
+  | { kind: "paper" }
+  | { kind: "risk" };
 
 export const EMPTY_VIEW: View = { kind: "empty" };
 
@@ -71,6 +72,8 @@ export function viewTitle(view: View): string {
       return "Backtest";
     case "paper":
       return "Paper Trading";
+    case "risk":
+      return "Risk";
     case "help":
       return "Help";
   }

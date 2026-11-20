@@ -144,6 +144,34 @@ export const COMMANDS: readonly CommandDef[] = [
     usage: "PAPER [START <NAME> [SYMBOL] [INTERVAL] | STOP <NAME>]",
   },
   {
+    id: "risk",
+    names: ["RISK"],
+    summary:
+      "Risk limits and usage. RISK SET LOSS 2000 [FOR <NAME>] changes one limit; RISK CLEAR <NAME> drops a strategy's own. Loosening asks for a typed phrase",
+    usage:
+      "RISK [SET <QTY|VALUE|EXPOSURE|POSITIONS|OPM|OPD|LOSS|BAND> <N> [FOR <NAME>] | CLEAR <NAME>]",
+  },
+  {
+    id: "live",
+    names: ["LIVE"],
+    summary:
+      "The live-trading master switch, off at every start. LIVE ON asks for a typed phrase; LIVE OFF disarms everything at once",
+    usage: "LIVE ON | LIVE OFF",
+  },
+  {
+    id: "arm",
+    names: ["ARM"],
+    summary:
+      "Arm a running strategy for live trading until 15:30 IST. Needs LIVE ON, LIVE data, its own limits, a broker that can trade and a typed phrase",
+    usage: "ARM <NAME>",
+  },
+  {
+    id: "disarm",
+    names: ["DISARM"],
+    summary: "Disarm a strategy at once: back to paper",
+    usage: "DISARM <NAME>",
+  },
+  {
     id: "login",
     names: ["LOGIN"],
     summary: "Connect a broker. LOGIN starts the Kite login; LOGIN DEMO shows demo data",

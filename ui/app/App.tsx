@@ -5,8 +5,9 @@ import { CommandBar } from "../components/CommandBar";
 import { Panel } from "../components/Panel";
 import { ProviderHealth } from "../components/ProviderHealth";
 import { createProviderHealth } from "../data/health";
+import { pushAlert, riskChanged } from "../data/risk";
 import { createVisibilityReporter } from "../data/visibility";
-import { appInfo, inTauri, searchInstruments } from "../ipc";
+import { appInfo, inTauri, onKillSwitchChanged, onRiskAlert, searchInstruments } from "../ipc";
 import { resolveKey } from "../keys/keymap";
 import { hasViewOps, sendViewOp } from "../views/context";
 import { viewTitle } from "../views/types";
@@ -54,6 +55,15 @@ export const App: Component = () => {
   };
   onMount(() => window.addEventListener("keydown", onKey));
   onCleanup(() => window.removeEventListener("keydown", onKey));
+
+  // Safety events: alerts are kept for the RISK view, and any kill-switch
+  // change makes it refetch.
+  if (inTauri()) {
+    const stops = [onRiskAlert(pushAlert), onKillSwitchChanged(() => riskChanged())];
+    onCleanup(() => {
+      for (const stop of stops) void stop.then((f) => f());
+    });
+  }
 
   return (
     <div class="shell">

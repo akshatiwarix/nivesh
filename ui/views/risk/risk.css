@@ -1,0 +1,51 @@
+/* RISK: switches, the confirmation box and alerts. */
+
+.risk__switches {
+  display: flex;
+  gap: var(--pad-x);
+  padding: var(--pad-y) var(--pad-x);
+}
+
+.risk__kill {
+  margin: 0;
+  padding: var(--pad-y) var(--pad-x);
+  color: var(--c-down);
+  font-size: var(--fs-sm);
+}
+
+.risk__confirm {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: var(--pad-y) var(--pad-x);
+  padding: var(--pad-y) var(--pad-x);
+  border: 1px solid var(--c-amber);
+  font-size: var(--fs-sm);
+}
+
+.risk__confirm code {
+  color: var(--c-amber);
+}
+
+.risk__confirm-input {
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  border: 1px solid var(--c-fg-faint);
+  padding: 2px 4px;
+}
+
+.risk__alerts {
+  margin: 0;
+  padding: var(--pad-y) var(--pad-x);
+  list-style: none;
+  font-size: var(--fs-sm);
+}
+
+.risk__alert--warn {
+  color: var(--c-amber);
+}
+
+.risk__alert--critical {
+  color: var(--c-down);
+}
