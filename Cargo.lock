@@ -2978,7 +2978,7 @@ checksum = "650eef8c711430f1a879fdd01d4745a7deea475becfb90269c06775983bbf086"
 
 [[package]]
 name = "nivesh-app"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "chrono",
@@ -3012,7 +3012,7 @@ dependencies = [
 
 [[package]]
 name = "nivesh-broker"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "async-trait",
  "chrono",
@@ -3026,7 +3026,7 @@ dependencies = [
 
 [[package]]
 name = "nivesh-broker-kite"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "async-trait",
  "chrono",
@@ -3059,7 +3059,7 @@ dependencies = [
 
 [[package]]
 name = "nivesh-core"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "chrono",
  "criterion",
@@ -3070,7 +3070,7 @@ dependencies = [
 
 [[package]]
 name = "nivesh-data"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "async-trait",
  "chrono",
@@ -3092,7 +3092,7 @@ dependencies = [
 
 [[package]]
 name = "nivesh-exec"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "async-trait",
  "nivesh-broker",
@@ -3108,7 +3108,7 @@ dependencies = [
 
 [[package]]
 name = "nivesh-indicators"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "criterion",
  "proptest",
@@ -3118,7 +3118,7 @@ dependencies = [
 
 [[package]]
 name = "nivesh-risk"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "nivesh-core",
  "proptest",
@@ -3128,7 +3128,7 @@ dependencies = [
 
 [[package]]
 name = "nivesh-script"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "nivesh-core",
  "nivesh-indicators",
@@ -3141,7 +3141,7 @@ dependencies = [
 
 [[package]]
 name = "nivesh-secrets"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "keyring",
  "secrecy",
@@ -3150,7 +3150,7 @@ dependencies = [
 
 [[package]]
 name = "nivesh-store"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "rusqlite",
  "serde",
@@ -3162,7 +3162,7 @@ dependencies = [
 
 [[package]]
 name = "nivesh-strategy"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "chrono",
  "insta",
