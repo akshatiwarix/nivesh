@@ -119,6 +119,19 @@ interval (or tab in MOV). `Alt+Enter` opens a row in the next panel.
 The grammar is `[EXCH:]TARGET [FUNCTION] [ARGS]`, case-insensitive; NSE is the
 default exchange and index names win over stock symbols.
 
+Strategies, paper trading and safety (paper is the default; read
+[docs/TRADING_SAFETY.md](docs/TRADING_SAFETY.md) before trading live):
+
+| Input | Does |
+|---|---|
+| `STRAT MA 20 50 1`, `SCRIPT <NAME>` | Build a strategy from a template, or write one as a sandboxed script |
+| `BT <NAME>`, `PAPER START <NAME>` | Backtest it; paper-trade it (simulated fills only) |
+| `RISK`, `AUDIT`, `SETTINGS` | Limits and usage; the hash-chained audit log; what the app is set to |
+| `Ctrl+Shift+K` / `KILL` | Kill switch: blocks orders, cancels open ones, disarms everything |
+| `LIVE ON`, `ARM <NAME>` | Live trading, each confirmed by a typed phrase |
+
+Releases follow [docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md).
+
 ## Keyboard reference
 
 HELP (`F1`) always shows the current list, generated from the keymap.
@@ -153,6 +166,10 @@ Measured on this repo's Linux dev box (optimised build, `cargo bench`):
 `scripts/perf/chart-perf.html` measures the chart in WebKitGTK (PLAN §2.9: first
 render of 5,000 candles < 100 ms, 60 fps pan and zoom). Benchmarks are compiled
 in CI but only run by hand: `cargo bench -p nivesh-indicators -p nivesh-core`.
+
+App budgets, on an Apple M5 release build: startup to interactive about
+0.6 s (logged as `startup to interactive`), initial JS 52 KB gz (CI fails
+over 150 KB: `pnpm check:bundle`), about 160 MB RSS with WebKit.
 
 ## Layout
 
