@@ -37,6 +37,7 @@ tauri.workspace = true
 tauri-plugin-opener.workspace = true
 tauri-plugin-single-instance.workspace = true
 thiserror.workspace = true
+chrono.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 tracing-appender.workspace = true
@@ -44,7 +45,6 @@ tracing-subscriber.workspace = true
 ts-rs.workspace = true
 
 [dev-dependencies]
-chrono.workspace = true
 wiremock.workspace = true
 
 [lints]

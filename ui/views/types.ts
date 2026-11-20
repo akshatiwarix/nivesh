@@ -29,7 +29,9 @@ export type View =
   | { kind: "strat" }
   | { kind: "bt"; name?: string }
   | { kind: "paper" }
-  | { kind: "risk" };
+  | { kind: "risk" }
+  /** `filter`: a kind prefix; `strategy`: a strategy name. */
+  | { kind: "audit"; filter?: string; strategy?: string };
 
 export const EMPTY_VIEW: View = { kind: "empty" };
 
@@ -74,6 +76,10 @@ export function viewTitle(view: View): string {
       return "Paper Trading";
     case "risk":
       return "Risk";
+    case "audit":
+      return view.filter || view.strategy
+        ? `Audit · ${[view.filter, view.strategy].filter(Boolean).join(" · ")}`
+        : "Audit";
     case "help":
       return "Help";
   }

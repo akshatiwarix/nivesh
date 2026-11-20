@@ -13,6 +13,7 @@ use crate::commands::market::MarketStatusDto;
 use crate::commands::ui_state::UiState;
 use crate::commands::watchlists::WatchlistsDto;
 use crate::ipc::IpcError;
+use crate::ipc::audit::{AuditRowDto, AuditVerifyDto};
 use crate::ipc::broker::{
     BrokerLoginDto, BrokerSessionDto, FundsDto, HoldingDto, OrderDto, PositionsDto, TradeDto,
 };
@@ -75,6 +76,8 @@ pub fn export(dir: &Path) -> Result<(), ExportError> {
     WalkForwardDto::export_all(&cfg)?;
     CurvePointDto::export_all(&cfg)?;
     KillStatusDto::export_all(&cfg)?;
+    AuditRowDto::export_all(&cfg)?;
+    AuditVerifyDto::export_all(&cfg)?;
     RiskStatusDto::export_all(&cfg)?;
     RiskActionDto::export_all(&cfg)?;
     RiskAlertDto::export_all(&cfg)?;

@@ -91,6 +91,9 @@ pub fn run() -> anyhow::Result<()> {
         // Keep in sync with COMMANDS in build.rs.
         .invoke_handler(tauri::generate_handler![
             commands::app::app_info,
+            commands::audit::audit_export,
+            commands::audit::audit_log,
+            commands::audit::audit_verify,
             commands::broker::broker_demo,
             commands::broker::broker_login,
             commands::broker::broker_logout,

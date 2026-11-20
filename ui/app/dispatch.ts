@@ -8,6 +8,8 @@ import {
   watchlistStore,
 } from "../data/watchlists";
 import {
+  auditExport,
+  auditVerify,
   backtestStrategy,
   brokerDemo,
   brokerLogin,
@@ -214,6 +216,8 @@ export function runCommand(
     }
     case "risk":
       return runRisk(args, ws);
+    case "audit":
+      return runAudit(args, ws);
     case "kill": {
       const sub = args[0]?.toUpperCase();
       if (sub !== undefined && sub !== "RESET") return "KILL, or KILL RESET.";
@@ -438,4 +442,53 @@ async function startKillReset(): Promise<string | undefined> {
   } catch (err) {
     return describeError(err);
   }
+}
+
+const AUDIT_USAGE = "AUDIT [KIND <PREFIX>] [FOR <NAME>], AUDIT VERIFY, or AUDIT EXPORT CSV|JSONL.";
+
+/** AUDIT [KIND <PREFIX>] [FOR <NAME>] | VERIFY | EXPORT CSV|JSONL. */
+function runAudit(args: readonly string[], ws: Workspace): CommandResult {
+  const sub = args[0]?.toUpperCase();
+  if (sub === "VERIFY") {
+    if (!inTauri()) return "The audit log is in the Nivesh app.";
+    return (async () => {
+      try {
+        const v = await auditVerify();
+        return v.intact
+          ? `Audit chain intact: ${v.rows} records verified.`
+          : `Audit chain BROKEN at record #${v.brokenAt}: ${v.reason}.`;
+      } catch (err) {
+        return describeError(err);
+      }
+    })();
+  }
+  if (sub === "EXPORT") {
+    const format = args[1]?.toLowerCase();
+    if ((format !== "csv" && format !== "jsonl") || args.length > 2) return AUDIT_USAGE;
+    if (!inTauri()) return "The audit log is in the Nivesh app.";
+    return (async () => {
+      try {
+        return `Audit log saved to ${await auditExport(format)}.`;
+      } catch (err) {
+        return describeError(err);
+      }
+    })();
+  }
+  let filter: string | undefined;
+  let strategy: string | undefined;
+  for (let i = 0; i < args.length; i += 2) {
+    const word = args[i]?.toUpperCase();
+    const value = args[i + 1];
+    if (value === undefined) return AUDIT_USAGE;
+    if (word === "KIND") filter = value.toLowerCase();
+    else if (word === "FOR") strategy = value;
+    else return AUDIT_USAGE;
+  }
+  const view = {
+    kind: "audit" as const,
+    ...(filter ? { filter } : {}),
+    ...(strategy ? { strategy } : {}),
+  };
+  ws.open(view);
+  return undefined;
 }

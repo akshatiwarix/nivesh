@@ -1,6 +1,9 @@
 export { appInfo } from "./app";
+export { type AuditFilter, auditExport, auditLog, auditVerify } from "./audit";
 export type { AlertLevel } from "./bindings/AlertLevel";
 export type { AppInfo } from "./bindings/AppInfo";
+export type { AuditRowDto } from "./bindings/AuditRowDto";
+export type { AuditVerifyDto } from "./bindings/AuditVerifyDto";
 export type { BacktestResultDto } from "./bindings/BacktestResultDto";
 export type { BacktestTradeDto } from "./bindings/BacktestTradeDto";
 export type { BarDto } from "./bindings/BarDto";
