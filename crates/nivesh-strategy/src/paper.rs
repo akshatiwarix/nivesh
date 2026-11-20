@@ -18,6 +18,7 @@
 use nivesh_core::Candle;
 use serde::{Deserialize, Serialize};
 
+use crate::decide::Decide;
 use crate::evaluate::{Evaluator, RuleError};
 use crate::rules::{IntentSide, OrderIntent, RuleSet};
 
@@ -82,7 +83,7 @@ pub struct PaperState {
 
 /// The runner: one evaluator, one position, one symbol.
 pub struct PaperRunner {
-    evaluator: Evaluator,
+    evaluator: Box<dyn Decide>,
     state: PaperState,
     symbol: String,
     /// Starting paper equity, rupees (sizing and the equity mark).
@@ -93,11 +94,21 @@ impl PaperRunner {
     pub fn new(set: RuleSet, symbol: impl Into<String>, equity: f64) -> Result<Self, RuleError> {
         let symbol = symbol.into();
         Ok(Self {
-            evaluator: Evaluator::new(set, equity)?.with_symbol(symbol.clone()),
+            evaluator: Box::new(Evaluator::new(set, equity)?.with_symbol(symbol.clone())),
             state: PaperState::default(),
             symbol,
             equity,
         })
+    }
+
+    /// A runner over any [`Decide`]r (a script, say), for `symbol`.
+    pub fn with_decider(decider: Box<dyn Decide>, symbol: impl Into<String>, equity: f64) -> Self {
+        Self {
+            evaluator: decider,
+            state: PaperState::default(),
+            symbol: symbol.into(),
+            equity,
+        }
     }
 
     /// Restores a saved state. Call [`Self::warm_up`] afterwards (or with no

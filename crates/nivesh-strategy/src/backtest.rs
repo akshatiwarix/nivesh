@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::costs::CostModel;
 
+use crate::decide::Decide;
 use crate::evaluate::Evaluator;
 use crate::rules::{IntentSide, OrderIntent, RuleSet};
 
@@ -127,11 +128,17 @@ pub fn backtest_range(
     options: BacktestOptions,
     progress: &mut dyn FnMut(usize, usize) -> bool,
 ) -> BacktestResult {
-    let trade_from = trade_from.min(candles.len());
-    let mut evaluator = match Evaluator::new(set, options.equity) {
-        Ok(e) => e.with_symbol(options.symbol),
+    match Evaluator::new(set, options.equity) {
+        Ok(e) => backtest_decider(
+            Box::new(e.with_symbol(options.symbol)),
+            candles,
+            trade_from,
+            options,
+            progress,
+        ),
         Err(_) => {
-            return BacktestResult {
+            let trade_from = trade_from.min(candles.len());
+            BacktestResult {
                 trades: Vec::new(),
                 equity: vec![options.equity],
                 total_pnl: 0.0,
@@ -140,10 +147,22 @@ pub fn backtest_range(
                 bars_in_market: 0,
                 total_bars: candles.len() - trade_from,
                 cancelled: false,
-            };
+            }
         }
-    };
+    }
+}
 
+/// Like [`backtest_range`], driving any [`Decide`]r: a rule evaluator or
+/// a script. Same fills, same costs, same rules: no pyramiding, no exits
+/// while flat, one bar of delay.
+pub fn backtest_decider(
+    mut evaluator: Box<dyn Decide>,
+    candles: &[Candle],
+    trade_from: usize,
+    options: BacktestOptions,
+    progress: &mut dyn FnMut(usize, usize) -> bool,
+) -> BacktestResult {
+    let trade_from = trade_from.min(candles.len());
     let mut trades: Vec<BacktestTrade> = Vec::new();
     let mut pending: Option<OrderIntent> = None;
     let mut equity_curve: Vec<f64> = Vec::with_capacity(candles.len() + 1);

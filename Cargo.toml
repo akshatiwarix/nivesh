@@ -18,6 +18,9 @@ futures-util = { version = "0.3.34", default-features = false, features = ["std"
 feed-rs = "3.0.0"
 governor = "0.10.4"
 keyring = { version = "3.6.3", default-features = false, features = ["apple-native", "windows-native", "sync-secret-service"] }
+# no_module: no `import`, so no file access; no_time: scripts are deterministic.
+# Never enable `unchecked`: it turns the sandbox limits off.
+rhai = { version = "1.27.0", default-features = false, features = ["std", "sync", "no_module", "no_time"] }
 reqwest = { version = "0.13.5", features = ["brotli", "cookies", "form", "gzip", "json"] }
 secrecy = "0.10.3"
 sha2 = "0.10.9"
