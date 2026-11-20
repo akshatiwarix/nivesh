@@ -1,4 +1,6 @@
 import { commandForFunctionKey } from "../commands";
+import { engageKill } from "../data/risk";
+import { inTauri } from "../ipc";
 import type { Action } from "../keys/keymap";
 import { sendViewOp } from "../views/context";
 import { runCommand } from "./dispatch";
@@ -21,6 +23,10 @@ export function runAction(action: Action, ws: Workspace): void {
       return;
     case "view":
       sendViewOp(ws.state.focused, action.op);
+      return;
+    case "kill":
+      // Never waits on anything, never asks.
+      if (inTauri()) void engageKill();
       return;
     case "fkey": {
       const command = commandForFunctionKey(action.n);

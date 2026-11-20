@@ -39,7 +39,7 @@ pub use kill::{
     KillError, KillMonitor, KillReason, KillState, KillSwitch, KillTriggers, Observation,
     RESET_COOLDOWN_MS, RESET_PHRASE,
 };
-pub use live::{LiveDispatch, LiveRoute};
+pub use live::{CancelReport, LiveDispatch, LiveRoute};
 pub use reconcile::{
     LiveBook, Mismatch, Reconciliation, TrackedOrder, broker_shares, reconcile, reconcile_with,
 };

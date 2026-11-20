@@ -1,6 +1,6 @@
 import type { Exchange, Parsed } from "../commands";
 import { describeError } from "../data/errors";
-import { confirmable } from "../data/risk";
+import { askChallenge, confirmable, engageKill, setKill } from "../data/risk";
 import {
   type ItemRef,
   parseItemRef,
@@ -13,6 +13,8 @@ import {
   brokerLogin,
   brokerLogout,
   inTauri,
+  killReset,
+  killStatus,
   liveSwitch,
   paperStart,
   paperStop,
@@ -22,6 +24,7 @@ import {
   strategyDisarm,
   strategySave,
 } from "../ipc";
+import { formatIstHm } from "../lib/time";
 import { DEFAULT_UNIVERSE, findUniverse } from "../lib/universe";
 import { parseChartArgs, parseInterval } from "../views/chart/model";
 import { sendViewCommand } from "../views/context";
@@ -211,6 +214,14 @@ export function runCommand(
     }
     case "risk":
       return runRisk(args, ws);
+    case "kill": {
+      const sub = args[0]?.toUpperCase();
+      if (sub !== undefined && sub !== "RESET") return "KILL, or KILL RESET.";
+      if (!inTauri()) return "The kill switch is in the Nivesh app.";
+      if (sub === undefined) return engageKill();
+      openRisk(ws);
+      return startKillReset();
+    }
     case "live": {
       const sub = args[0]?.toUpperCase();
       if (sub !== "ON" && sub !== "OFF") return "LIVE ON or LIVE OFF.";
@@ -401,4 +412,30 @@ function runRisk(args: readonly string[], ws: Workspace): CommandResult {
     return confirmable(`remove ${name}'s own limits`, (typed) => riskClearLimits(name, typed));
   }
   return RISK_USAGE;
+}
+
+/** KILL RESET: only when engaged and past the cool-down, with the phrase. */
+async function startKillReset(): Promise<string | undefined> {
+  try {
+    const status = await killStatus();
+    setKill(status);
+    if (!status.engaged) return "The kill switch is not engaged.";
+    if (status.resettableAt !== null && status.resettableAt > Date.now()) {
+      return `The kill switch can be reset from ${formatIstHm(status.resettableAt)} IST (5-minute cool-down).`;
+    }
+    const phrase = status.resetPhrase;
+    askChallenge({
+      action: "reset the kill switch",
+      phrase,
+      run: async (typed) => {
+        // Rust checks the phrase too; this only keeps the box open on a typo.
+        if (typed !== phrase) return { done: false, confirm: phrase };
+        setKill(await killReset(typed));
+        return { done: true, confirm: null };
+      },
+    });
+    return `To reset the kill switch, type ${phrase} in the RISK panel (Esc cancels).`;
+  } catch (err) {
+    return describeError(err);
+  }
 }

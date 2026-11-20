@@ -1,6 +1,6 @@
 .shell {
   display: grid;
-  grid-template-rows: var(--bar-h) 1fr var(--bar-h) var(--bar-h);
+  grid-template-rows: var(--bar-h) auto 1fr var(--bar-h) var(--bar-h);
   height: 100%;
 }
 
@@ -56,4 +56,42 @@
 
 .shell__grid[data-layout="4"] {
   grid-template: 1fr 1fr / 1fr 1fr;
+}
+
+/* Safety: the kill switch in the status bar and the LIVE banner. */
+.kill {
+  font: inherit;
+  font-size: var(--fs-sm);
+  padding: 0 6px;
+  border: 1px solid var(--c-down);
+  white-space: nowrap;
+}
+
+.kill--ready {
+  color: var(--c-down);
+  background: transparent;
+  cursor: pointer;
+}
+
+.kill--ready:focus-visible {
+  outline: 2px solid var(--c-down);
+}
+
+.kill--engaged {
+  color: var(--c-bg);
+  background: var(--c-down);
+}
+
+.live-banner {
+  display: flex;
+  gap: calc(var(--pad-x) * 2);
+  align-items: center;
+  padding: 2px var(--pad-x);
+  background: var(--c-down);
+  color: var(--c-bg);
+  font-size: var(--fs-sm);
+}
+
+.live-banner__hint {
+  margin-left: auto;
 }

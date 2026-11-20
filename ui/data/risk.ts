@@ -3,7 +3,8 @@
 // that tells the view to refetch after an action.
 
 import { createSignal } from "solid-js";
-import type { RiskActionDto, RiskAlertDto } from "../ipc";
+import type { KillStatusDto, RiskActionDto, RiskAlertDto } from "../ipc";
+import { killEngage } from "../ipc";
 import { describeError } from "./errors";
 
 /** A riskier action waiting for its phrase. */
@@ -19,8 +20,28 @@ export interface Challenge {
 const [challenge, setChallenge] = createSignal<Challenge>();
 const [changed, setChanged] = createSignal(0);
 const [alerts, setAlerts] = createSignal<readonly RiskAlertDto[]>([]);
+const [kill, setKill] = createSignal<KillStatusDto>();
 
-export { alerts, challenge, changed };
+export { alerts, challenge, changed, kill, setKill };
+
+/**
+ * Engages the kill switch: one keystroke, no confirmation. Resolves to an
+ * error message, or undefined.
+ */
+export async function engageKill(): Promise<string | undefined> {
+  try {
+    setKill(await killEngage());
+    riskChanged();
+    return undefined;
+  } catch (err) {
+    return describeError(err);
+  }
+}
+
+/** Puts up a challenge directly (the phrase is already known). */
+export function askChallenge(c: Challenge): void {
+  setChallenge(c);
+}
 
 /** Most recent alerts kept. */
 const MAX_ALERTS = 20;

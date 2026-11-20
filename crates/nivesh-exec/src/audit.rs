@@ -106,6 +106,13 @@ pub enum AuditEvent {
         tag: String,
         broker_id: String,
     },
+    /// The kill switch asked the broker to cancel an open Nivesh-tagged
+    /// order; `error` when the broker refused or failed.
+    LiveCancel {
+        tag: String,
+        broker_id: String,
+        error: Option<String>,
+    },
     /// A live order was not placed, or its outcome is unknown
     /// (`ambiguous`: reconciled by its tag, never placed again).
     OrderFailed {
@@ -140,6 +147,8 @@ impl AuditEvent {
             Self::StrategyDisarmed { .. } => "strategy.disarmed",
             Self::NotLive { .. } => "intent.not_live",
             Self::OrderAcked { .. } => "order.acked",
+            Self::LiveCancel { error: None, .. } => "order.cancel",
+            Self::LiveCancel { .. } => "order.cancel_failed",
             Self::OrderFailed {
                 ambiguous: true, ..
             } => "order.ambiguous",
@@ -169,7 +178,8 @@ impl AuditEvent {
             Self::KillEngaged { .. }
             | Self::OrdersCancelled { .. }
             | Self::KillReset
-            | Self::LiveSwitched { .. } => None,
+            | Self::LiveSwitched { .. }
+            | Self::LiveCancel { .. } => None,
         }
     }
 

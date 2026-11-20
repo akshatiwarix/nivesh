@@ -314,6 +314,8 @@ impl PaperManager {
             self.notifier.kill_changed(desk.kill_state());
         }
         save_kill(&self.store, desk.kill_state())?;
+        drop(desk);
+        cancel_at_broker(&self.desk, &self.notifier);
         Ok(cancelled.map(|c| c.len()))
     }
 
@@ -598,15 +600,53 @@ async fn feed(
             }
             let kill = lock(&desk).on_live_outcome(strategy_id, &outcome, now_ms());
             if let Some(kill) = kill {
-                tripped(&notifier, &store, &kill);
+                tripped(&desk, &notifier, &store, &kill);
             }
         }
     }
     hub.unsubscribe(subscription);
 }
 
-/// The kill switch tripped on its own: tell the UI and save it.
-fn tripped(notifier: &Notifier, store: &Store, kill: &KillState) {
+/// The kill switch's broker half: with a live route, every open
+/// Nivesh-tagged order there is cancelled, in the background (blocking new
+/// orders already happened and never waits on the network).
+fn cancel_at_broker(desk: &Mutex<PaperDesk>, notifier: &Notifier) {
+    let Some(route) = lock(desk).live_route().cloned() else {
+        return;
+    };
+    let notifier = notifier.clone();
+    tauri::async_runtime::spawn(async move {
+        match route.cancel_open(now_ms()).await {
+            Ok(report) if report.failed.is_empty() => {
+                tracing::info!(cancelled = report.cancelled.len(), "kill switch: broker orders cancelled");
+            }
+            Ok(report) => notifier.alert(
+                AlertLevel::Critical,
+                None,
+                format!(
+                    "kill switch: {} order(s) could not be cancelled at the broker: {}",
+                    report.failed.len(),
+                    report
+                        .failed
+                        .iter()
+                        .map(|(tag, why)| format!("{tag} ({why})"))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ),
+            ),
+            Err(err) => notifier.alert(
+                AlertLevel::Critical,
+                None,
+                format!("kill switch: the broker's order book could not be read, so its open orders were not cancelled: {err}"),
+            ),
+        }
+    });
+}
+
+/// The kill switch tripped on its own: tell the UI, save it, and cancel at
+/// the broker.
+fn tripped(desk: &Mutex<PaperDesk>, notifier: &Notifier, store: &Store, kill: &KillState) {
+    cancel_at_broker(desk, notifier);
     notifier.kill_changed(kill);
     notifier.alert(
         AlertLevel::Critical,
@@ -640,7 +680,7 @@ fn on_closed_bar(
         }
     }
     if let Some(kill) = &report.kill {
-        tripped(notifier, store, kill);
+        tripped(desk, notifier, store, kill);
     }
     record.state = report.state;
     match record.encode() {

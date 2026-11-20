@@ -4,6 +4,8 @@ import { KeyHint } from "../components/KeyHint";
 export interface StatusBarProps {
   layout: number;
   focused: number;
+  /** The kill switch control, always first. */
+  kill?: JSX.Element;
   /** Provider health, shown at the right ahead of `extra`. */
   health?: JSX.Element;
   /** Right-aligned extra content, e.g. app version. */
@@ -13,6 +15,7 @@ export interface StatusBarProps {
 /** Bottom bar: focus and layout state plus the most important key hints. */
 export const StatusBar: Component<StatusBarProps> = (props) => (
   <footer class="shell__statusbar">
+    {props.kill}
     <span>
       PANEL {props.focused + 1}/{props.layout}
     </span>
