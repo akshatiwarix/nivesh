@@ -182,7 +182,7 @@ export const COMMANDS: readonly CommandDef[] = [
     id: "kill",
     names: ["KILL"],
     summary:
-      "Kill switch (also Ctrl+Shift+K): blocks new orders, cancels open ones, disarms every strategy. KILL RESET asks for a typed phrase after a 5-minute cool-down",
+      "Kill switch (also Ctrl+Shift+K, or Ctrl+Alt+Shift+K from any app): blocks new orders, cancels open ones, disarms every strategy. KILL RESET asks for a typed phrase after a 5-minute cool-down",
     usage: "KILL | KILL RESET",
   },
   {

@@ -112,8 +112,9 @@ live.
 
 **Engaging it:**
 
-- By hand: press `Ctrl+Shift+K`, run `KILL`, or click the status-bar button.
-  None of them asks for confirmation.
+- By hand: press `Ctrl+Shift+K` in Nivesh, press `Ctrl+Alt+Shift+K` from
+  any app (it works with Nivesh hidden), run `KILL`, or click the
+  status-bar button. None of them asks for confirmation.
 - Automatically, when any of these happens:
   - today's loss reaches the `LOSS` limit
   - 5 rejections within a minute

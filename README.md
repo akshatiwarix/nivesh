@@ -127,7 +127,7 @@ Strategies, paper trading and safety (paper is the default; read
 | `STRAT MA 20 50 1`, `SCRIPT <NAME>` | Build a strategy from a template, or write one as a sandboxed script |
 | `BT <NAME>`, `PAPER START <NAME>` | Backtest it; paper-trade it (simulated fills only) |
 | `RISK`, `AUDIT`, `SETTINGS` | Limits and usage; the hash-chained audit log; what the app is set to |
-| `Ctrl+Shift+K` / `KILL` | Kill switch: blocks orders, cancels open ones, disarms everything |
+| `Ctrl+Shift+K` / `KILL` | Kill switch: blocks orders, cancels open ones, disarms everything (`Ctrl+Alt+Shift+K` works from any app) |
 | `LIVE ON`, `ARM <NAME>` | Live trading, each confirmed by a typed phrase |
 
 Releases follow [docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md).

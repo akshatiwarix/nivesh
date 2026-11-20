@@ -65,6 +65,7 @@ fn start(app: &mut tauri::App) -> anyhow::Result<()> {
         let services = Arc::clone(&services);
         tauri::async_runtime::spawn(async move { paper.resume_all(&services).await });
     }
+    register_kill_shortcut(app, Arc::clone(&paper));
     app.manage(paper);
     app.manage(services);
 
@@ -80,6 +81,37 @@ fn start(app: &mut tauri::App) -> anyhow::Result<()> {
     window_state::track(&window, store);
     window.show().context("showing main window")?;
     Ok(())
+}
+
+/// The OS-wide kill switch: Ctrl+Alt+Shift+K engages it from any app,
+/// handled here in Rust so it works with the window hidden or the UI
+/// stuck. (Ctrl+Shift+K inside the app is the UI's own binding.) Failing
+/// to register (another app holds the keys) is logged, not fatal.
+fn register_kill_shortcut(app: &tauri::App, paper: Arc<paper::PaperManager>) {
+    use tauri_plugin_global_shortcut::{Code, Modifiers, Shortcut, ShortcutState};
+
+    let kill = Shortcut::new(
+        Some(Modifiers::CONTROL | Modifiers::ALT | Modifiers::SHIFT),
+        Code::KeyK,
+    );
+    let plugin = tauri_plugin_global_shortcut::Builder::new()
+        .with_shortcut(kill)
+        .map(|b| {
+            b.with_handler(move |_app, shortcut, event| {
+                if shortcut == &kill && event.state() == ShortcutState::Pressed {
+                    match paper.engage_kill("global shortcut Ctrl+Alt+Shift+K") {
+                        Ok(_) => tracing::warn!("kill switch engaged by the global shortcut"),
+                        Err(err) => tracing::error!(?err, "global kill shortcut failed"),
+                    }
+                }
+            })
+            .build()
+        });
+    match plugin.map(|p| app.handle().plugin(p)) {
+        Ok(Ok(())) => tracing::info!("global kill shortcut Ctrl+Alt+Shift+K registered"),
+        Ok(Err(err)) => tracing::warn!(%err, "global kill shortcut not registered"),
+        Err(err) => tracing::warn!(%err, "global kill shortcut not registered"),
+    }
 }
 
 /// Builds and runs the app. Returns when the app exits.
