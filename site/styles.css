@@ -1,0 +1,270 @@
+/* Colours and type come from the app (ui/styles/tokens.css), so the page looks
+   like the terminal it's selling. */
+@font-face {
+  font-family: "Source Code Pro";
+  src: url("/fonts/SourceCodePro-VF-Upright.woff2") format("woff2");
+  font-weight: 200 900;
+  font-display: swap;
+}
+
+:root {
+  --bg: #000000;
+  --bg-panel: #070707;
+  --bg-bar: #121212;
+  --line: #262626;
+  --fg: #d6d6d6;
+  --fg-dim: #8c8c8c;
+  --amber: #ffb000;
+  --up: #2bd47d;
+  --mono: "Source Code Pro", ui-monospace, "SF Mono", Menlo, monospace;
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--mono);
+  font-size: 15px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+a {
+  color: var(--amber);
+  text-decoration: none;
+}
+a:hover {
+  text-decoration: underline;
+}
+
+code,
+pre {
+  font-family: var(--mono);
+}
+code {
+  color: var(--amber);
+}
+
+.bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 1.25rem;
+  background: var(--bg-bar);
+  border-bottom: 1px solid var(--line);
+  font-size: 13px;
+}
+
+.brand {
+  font-weight: 600;
+  letter-spacing: 0.12em;
+}
+.bar nav {
+  display: flex;
+  gap: 1.5rem;
+}
+.bar nav a {
+  color: var(--fg-dim);
+}
+.bar nav a:hover {
+  color: var(--fg);
+  text-decoration: none;
+}
+
+main {
+  max-width: 60rem;
+  margin: 0 auto;
+  padding: 0 1.25rem;
+}
+
+section {
+  padding: 4rem 0 0;
+}
+
+.hero {
+  padding-top: 6rem;
+}
+
+.tag {
+  display: inline-block;
+  margin: 0 0 1.5rem;
+  padding: 0.1rem 0.5rem;
+  background: var(--amber);
+  color: #000;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+h1 {
+  margin: 0;
+  max-width: 18ch;
+  font-size: clamp(2rem, 5vw, 3.25rem);
+  font-weight: 500;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+  color: #fff;
+}
+
+h2 {
+  margin: 0 0 1rem;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--amber);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+h3 {
+  margin: 2.5rem 0 0.5rem;
+  font-size: 15px;
+  font-weight: 600;
+  color: #fff;
+}
+
+.lede {
+  max-width: 42rem;
+  margin: 1.5rem 0 0;
+  font-size: 17px;
+  color: var(--fg);
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1.5rem;
+  margin-top: 2rem;
+}
+
+.button {
+  display: inline-block;
+  padding: 0.6rem 1.1rem;
+  background: var(--amber);
+  color: #000;
+  font-weight: 600;
+  border: 1px solid var(--amber);
+}
+.button:hover {
+  background: transparent;
+  color: var(--amber);
+  text-decoration: none;
+}
+
+.fine {
+  margin: 1rem 0 0;
+  font-size: 13px;
+  color: var(--fg-dim);
+}
+
+.shot {
+  margin: 4rem 0 0;
+  border: 1px solid var(--line);
+}
+.shot img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.commands {
+  margin: 1.5rem 0 0;
+  border-top: 1px solid var(--line);
+}
+.commands div {
+  display: grid;
+  grid-template-columns: minmax(12rem, 1fr) 2fr;
+  gap: 1rem;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid var(--line);
+}
+.commands dt {
+  color: var(--amber);
+}
+.commands dd {
+  margin: 0;
+  color: var(--fg-dim);
+}
+
+.parts {
+  margin: 1.5rem 0 0;
+  padding: 0;
+  list-style: none;
+  border-top: 1px solid var(--line);
+}
+.parts li {
+  padding: 0.5rem 0;
+  border-bottom: 1px solid var(--line);
+}
+.parts span {
+  display: inline-block;
+  width: 4.5rem;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.parts .done span {
+  color: var(--up);
+}
+.parts .now span {
+  color: var(--amber);
+}
+
+.steps {
+  padding-left: 1.25rem;
+}
+.steps li {
+  margin: 0.5rem 0;
+}
+b {
+  color: #fff;
+  font-weight: 600;
+}
+
+pre {
+  margin: 0.75rem 0;
+  padding: 0.75rem 1rem;
+  overflow-x: auto;
+  background: var(--bg-panel);
+  border: 1px solid var(--line);
+  font-size: 13px;
+}
+
+.foot {
+  display: block;
+  margin-top: 6rem;
+  padding: 1.5rem 1.25rem;
+  border-top: 1px solid var(--line);
+  border-bottom: 0;
+  color: var(--fg-dim);
+}
+.foot p {
+  max-width: 60rem;
+  margin: 0 auto 0.5rem;
+}
+
+@media (max-width: 40rem) {
+  .hero {
+    padding-top: 3rem;
+  }
+  .commands div {
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+}
