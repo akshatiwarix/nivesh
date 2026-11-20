@@ -68,6 +68,11 @@ jobs:
       - name: Rust tests
         run: cargo test --workspace
 
+      # Order placement is compiled only with this feature; its tests run
+      # against a mock Kite server, never the real broker.
+      - name: Rust tests (live-trading feature, mock broker only)
+        run: cargo test -p nivesh-broker-kite --features live-trading
+
       # Cheap and early: a case-only clash passes on Linux and fails on macOS.
       - name: File name case collisions
         run: ./scripts/check-case-collisions.sh
