@@ -1,187 +1,185 @@
 # Nivesh
 
-A keyboard-driven, Bloomberg-style desktop terminal for Indian markets (NSE and
-BSE). Tauri 2, a Rust core and a SolidJS UI.
+**A fast, keyboard-first market screen for Indian stocks.** Watch your
+favourite shares and try out trading ideas on paper. It's free and runs on
+your Mac.
 
-Status: Part 1 (foundation). The shell, command bar, keymap, help, market
-calendar and local store work. There is **no market data yet and the app makes
-no network requests**. Real data arrives in Part 2. Paper trading is the default
-and live trading doesn't exist yet. See [`PLAN.md`](PLAN.md) for the roadmap and
-[`CLAUDE.md`](CLAUDE.md) for contributor conventions.
+![Nivesh showing a watchlist, a Reliance chart, the main indices and market news side by side](docs/images/nivesh.png)
 
-## Prerequisites
+Nivesh puts Indian market information on one screen:
 
-All platforms: Rust (the toolchain is pinned in `rust-toolchain.toml` and
-`rustup` installs it on first use), Node.js 24 or newer and
-[pnpm](https://pnpm.io) (the version is pinned in `package.json`; with Node's
-Corepack, `corepack enable` is enough).
+- prices
+- charts
+- the big indices
+- top gainers and losers
+- news
 
-**macOS (12 or newer):** install the Xcode command line tools.
+You use it by typing, the way professionals use a Bloomberg terminal. Type a
+company's name and press Enter, and its price is on screen.
 
-```sh
-xcode-select --install
+It also lets you try out trading ideas on past prices and with pretend money.
+You see how an idea would have done before it ever touches real money.
+
+![Typing RELIANCE, opening its chart, adding a moving average, then the market overview](docs/images/tour.gif)
+
+---
+
+## Download
+
+**For Macs with Apple silicon (M1, M2, M3, M4 or M5).**
+
+**[⬇ Download Nivesh for Mac](https://github.com/akshatiwarix/nivesh/releases/latest/download/Nivesh_aarch64.dmg)**
+
+### Installing it
+
+1. Open the downloaded **Nivesh_aarch64.dmg** file.
+2. Drag **Nivesh** into your **Applications** folder.
+3. Open your Applications folder, then **right-click** Nivesh and choose
+   **Open**. Click **Open** again when your Mac asks.
+
+You only do step 3 the first time. After that, open Nivesh like any other app.
+
+**If your Mac says Nivesh "can't be opened" or "is damaged":** Nivesh isn't
+signed with an Apple developer certificate yet, so macOS is being careful. To
+open it anyway:
+
+1. Open **System Settings → Privacy & Security**.
+2. Scroll down until you see the message about Nivesh.
+3. Click **Open Anyway**.
+
+If that button isn't there, open the **Terminal** app, paste the line below,
+press Enter, and open Nivesh again:
+
+```
+xattr -dr com.apple.quarantine /Applications/Nivesh.app
 ```
 
-**Linux (Ubuntu 22.04 or newer, or the equivalent):**
+---
 
-```sh
-sudo apt-get update
-sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file \
-  libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
-```
+## Getting started
 
-Other distributions: see the
-[Tauri prerequisites](https://v2.tauri.app/start/prerequisites/#linux).
+When Nivesh opens, a short welcome note explains how it works. After that,
+just start typing. Whatever you type goes into the bar at the bottom of the
+window.
 
-## Develop
-
-```sh
-pnpm install
-pnpm tauri dev        # app with hot reload
-pnpm dev              # UI only, in a browser (no backend, so no persistence)
-```
-
-The first `pnpm tauri dev` compiles the Rust workspace and takes a few minutes.
-
-Checks (CI runs exactly these):
-
-```sh
-cargo fmt --all -- --check
-cargo clippy --workspace --all-targets --all-features -- -D warnings
-cargo test --workspace
-
-pnpm lint            # Biome
-pnpm typecheck       # tsc
-pnpm test            # Vitest
-pnpm build           # production UI build into dist/
-pnpm gen:bindings    # regenerate ui/ipc/bindings after changing IPC types
-```
-
-## Build
-
-```sh
-pnpm tauri build                          # bundles for the host OS
-pnpm tauri build --bundles dmg            # macOS
-pnpm tauri build --bundles deb,appimage   # Linux
-```
-
-Bundles land in `target/release/bundle/`. On Linux the AppImage tools need
-`file` (in the dependency list above) and either FUSE or
-`APPIMAGE_EXTRACT_AND_RUN=1`.
-
-CI builds an Apple Silicon `.dmg` and Linux `.deb` and `.AppImage` on every PR
-and push to `main`; download them from the workflow run's artifacts.
-
-## Opening an unsigned `.dmg`
-
-Builds aren't signed or notarised yet (planned for Part 6). The app is ad-hoc
-signed, so macOS Gatekeeper will refuse to open it at first:
-
-1. Open the `.dmg` and drag **Nivesh** to **Applications**.
-2. In Finder, right-click (or Control-click) **Nivesh** and choose **Open**,
-   then **Open** in the dialog.
-3. If macOS says the app is damaged or can't be verified (browser downloads are
-   quarantined), clear the quarantine flag and open it again:
-
-   ```sh
-   xattr -dr com.apple.quarantine /Applications/Nivesh.app
-   ```
-
-On macOS 15 and later, if the right-click route is missing, open
-**System Settings → Privacy & Security** and choose **Open Anyway** next to the
-Nivesh message.
-
-## Using it
-
-Type anywhere: printable keys go to the command bar at the bottom.
-
-| Input | Does |
+| Type this | And press Enter to |
 |---|---|
-| `RELIANCE` ⏎ | Quote view for NSE:RELIANCE (placeholder until Part 2) |
-| `BSE:RELIANCE` ⏎ | Quote view on BSE |
-| `NIFTY`, `BANKNIFTY`, `SENSEX` ⏎ | Index view (placeholder until Part 2) |
-| `HELP`, `?`, `F1` | Every command and key |
+| `RELIANCE` | see Reliance's price today |
+| `RELIANCE CH` | see Reliance's price chart |
+| `WL` | see your watchlist (it starts with ten big companies) |
+| `WL ADD TITAN` | add a company to your watchlist |
+| `MKT` | see the main indices: Nifty 50, Sensex, Bank Nifty and more |
+| `MOV` | see today's biggest gainers and losers |
+| `NEWS` | read the latest market headlines |
+| `HELP` | see everything Nivesh can do |
 
-Charts and market views (all data is public and labelled DELAYED or STALE):
+A few keys help you move around:
 
-| Input | Does |
-|---|---|
-| `RELIANCE CH 5M 1MO` ⏎ | Candlestick chart (interval, then range). `F4`/`CH` charts the focused instrument |
-| `ADD SMA 50`, `ADD RSI 14`, `RM RSI` | Indicators on the focused chart (SMA EMA WMA BOLL VWAP, RSI MACD ATR) |
-| `MOV [INDEX]` / `F5` | Top gainers, losers, most active |
-| `SEC` / `F6` | Sector returns and a constituent heatmap |
-| `BRD [INDEX]` | Advances/declines and % above 20/50/200-day averages |
-| `NEWS [SYMBOL]` / `F7`, `RELIANCE NEWS` | Headlines from public RSS feeds |
+- **Alt+1**, **Alt+2** or **Alt+4** splits the screen into 1, 2 or 4 panels.
+- **Tab** moves between panels.
+- **Esc** goes back.
 
-Chart keys (command bar empty): `+`/`-` zoom, `←`/`→` pan, `Home`/`End`, `[`/`]`
-interval (or tab in MOV). `Alt+Enter` opens a row in the next panel.
+Each panel can show something different.
 
-The grammar is `[EXCH:]TARGET [FUNCTION] [ARGS]`, case-insensitive; NSE is the
-default exchange and index names win over stock symbols.
+![The watchlist: price, change and volume for ten large Indian companies](docs/images/watchlist.png)
 
-Strategies, paper trading and safety (paper is the default; read
-[docs/TRADING_SAFETY.md](docs/TRADING_SAFETY.md) before trading live):
+### Charts
 
-| Input | Does |
-|---|---|
-| `STRAT MA 20 50 1`, `SCRIPT <NAME>` | Build a strategy from a template, or write one as a sandboxed script |
-| `BT <NAME>`, `PAPER START <NAME>` | Backtest it; paper-trade it (simulated fills only) |
-| `RISK`, `AUDIT`, `SETTINGS` | Limits and usage; the hash-chained audit log; what the app is set to |
-| `Ctrl+Shift+K` / `KILL` | Kill switch: blocks orders, cancels open ones, disarms everything (`Ctrl+Alt+Shift+K` works from any app) |
-| `LIVE ON`, `ARM <NAME>` | Live trading, each confirmed by a typed phrase |
+Type `RELIANCE CH` for a chart. Then type `ADD SMA 50` to draw the 50-day
+average on it. The keys **+** and **−** zoom in and out, and **←** and **→**
+move through time.
 
-Releases follow [docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md).
+### What's moving today
 
-## Keyboard reference
+`MOV` lists today's biggest gainers and losers among the Nifty 50.
 
-HELP (`F1`) always shows the current list, generated from the keymap.
+![Today's biggest gainers among the Nifty 50](docs/images/movers.png)
 
-| Key | Does |
-|---|---|
-| any printable key | Focus the command bar and type |
-| `Enter` | Run the command (GO) |
-| `Esc` | Clear the command bar; when empty, go back in the focused panel |
-| `↑` / `↓` | Command history |
-| `Tab` | Complete the command (repeat to cycle); with an empty bar, focus next panel |
-| `Shift+Tab` | Focus previous panel |
-| `Alt+1` / `Alt+2` / `Alt+4` | 1, 2 or 4 panels |
-| `F1`–`F10` or `Ctrl+1`…`Ctrl+0` | Function keys (`Ctrl+digit` for Mac keyboards that need Fn). Only F1 (HELP) is assigned so far |
-| `?` | HELP, when the command bar isn't focused |
+`NEWS` shows headlines from Indian business papers, with the companies they
+mention. Press Enter on a headline to read it in your browser.
 
-Layout, command history and window position persist across restarts in a local
-SQLite database in the app data directory. Times are stored in UTC and shown in
-IST.
+![Market headlines with the companies they mention](docs/images/news.png)
 
-## Performance budgets
+---
 
-Measured on this repo's Linux dev box (optimised build, `cargo bench`):
+## Trying out trading ideas with pretend money
 
-| Work (100,000 candles) | Measured | Budget |
-|---|---|---|
-| SMA / EMA / WMA | 0.2 / 0.2 / 0.3 ms | < 5 ms |
-| RSI / MACD / ATR / VWAP | 0.5 / 0.5 / 0.6 / 0.25 ms | < 5 ms |
-| Bollinger (20, 2) | 2.0 ms | < 5 ms |
-| Resample 1m to 5m / 1h / 1d / 1w / 1mo | 0.5 / 0.6 / 0.35 / 0.65 / 1.9 ms | < 10 ms |
+You can describe a simple trading idea and see how it would have done, using
+real past prices.
 
-`scripts/perf/chart-perf.html` measures the chart in WebKitGTK (PLAN §2.9: first
-render of 5,000 candles < 100 ms, 60 fps pan and zoom). Benchmarks are compiled
-in CI but only run by hand: `cargo bench -p nivesh-indicators -p nivesh-core`.
+For example, "buy when the 20-day average crosses above the 50-day average":
 
-App budgets, on an Apple M5 release build: startup to interactive about
-0.6 s (logged as `startup to interactive`), initial JS 52 KB gz (CI fails
-over 150 KB: `pnpm check:bundle`), about 160 MB RSS with WebKit.
+1. Type `STRAT MA 20 50 1` to create the idea. It gets a short name, here
+   **MA-20-50**.
+2. Type `BT MA-20-50 RELIANCE 1D 5Y` to test it on five years of Reliance.
 
-## Layout
+Nivesh shows every pretend trade on the chart, along with what each one
+would have made or lost after brokerage charges.
 
-```
-crates/nivesh-core    domain types and the IST market calendar (pure)
-crates/nivesh-indicators  indicator math (pure)
-crates/nivesh-data    providers, cache, news, markets
-crates/nivesh-store   SQLite store and migrations
-src-tauri/            Tauri app crate: thin commands, window state, logging
-ui/                   SolidJS + TypeScript frontend (ui/ipc/bindings is generated)
-```
+![A test of the MA-20-50 idea on five years of Reliance prices, with each buy and sell marked](docs/images/backtest.gif)
 
-## Third-party
+When an idea looks good, `PAPER START MA-20-50` runs it on new prices as they
+come in, still with pretend money. `PAPER` shows how it's doing.
 
-Source Code Pro, bundled in `ui/fonts`, is under the SIL OFL 1.1.
+If you're comfortable with a little code, `SCRIPT MYIDEA` opens a small editor
+where you can write your own rules.
+
+![The script editor with a simple breakout idea](docs/images/script.png)
+
+**Everything here uses pretend money.** Nivesh does not place real trades in
+this version.
+
+---
+
+## Good to know
+
+**The prices are a few minutes late.** Nivesh gets prices from free public
+sources, which run behind the live market. Every panel says **DELAYED** and
+shows when its prices are from. Don't use these numbers for split-second
+decisions.
+
+**Nivesh is not investment advice.** It's a tool for looking at the market
+and testing ideas. How an idea did in the past doesn't promise how it will
+do in the future. Any trading decision, and any money you make or lose, is
+yours.
+
+**Your data stays on your Mac.** There's no account and no sign-up, and
+Nivesh doesn't send anything about you anywhere. It only asks the public
+sources for prices and news.
+
+**There's a big red stop button.** The **KILL** button at the bottom left, or
+**Ctrl+Shift+K**, stops all trading activity at once. It matters most once
+real trading arrives, but it's there from day one.
+
+![The risk screen: trading limits and today's usage](docs/images/risk.png)
+
+---
+
+## Questions
+
+**Does it work on Windows, Linux, or older Intel Macs?**
+Not as a download yet. For now it's Macs with Apple silicon only.
+
+**Do I need a Zerodha account?**
+No. Everything above works without one. A Zerodha Kite connection, for live
+prices and your own holdings, is planned. To see what that screen looks like,
+type `LOGIN DEMO` and then `PORT`. It shows a pretend portfolio.
+
+**It says "NSE BLOCKED" at the bottom.**
+The NSE website sometimes turns away automated requests for a few minutes.
+When that happens, Nivesh switches to another source by itself, so you can
+carry on.
+
+**Something isn't working.**
+Please [open an issue](https://github.com/akshatiwarix/nivesh/issues) and
+describe what you typed and what you saw.
+
+---
+
+## For developers
+
+Building Nivesh from source, running the tests and the project layout are all
+in [docs/DEVELOPING.md](docs/DEVELOPING.md). The safety rules for anything
+near real orders are in [docs/TRADING_SAFETY.md](docs/TRADING_SAFETY.md).
+
+The bundled font, Source Code Pro, is under the SIL Open Font License 1.1.
