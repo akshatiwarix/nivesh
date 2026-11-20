@@ -5,7 +5,7 @@ import { CommandBar } from "../components/CommandBar";
 import { Panel } from "../components/Panel";
 import { ProviderHealth } from "../components/ProviderHealth";
 import { createProviderHealth } from "../data/health";
-import { pushAlert, riskChanged } from "../data/risk";
+import { pushAlert, riskChanged, setKill } from "../data/risk";
 import { createVisibilityReporter } from "../data/visibility";
 import { appInfo, inTauri, onKillSwitchChanged, onRiskAlert, searchInstruments } from "../ipc";
 import { resolveKey } from "../keys/keymap";
@@ -19,6 +19,7 @@ import { type CommandResult, dispatch } from "./dispatch";
 import { Header } from "./Header";
 import { MarketIndicator } from "./MarketIndicator";
 import { createPersistence } from "./persistence";
+import { createSafetyStatus, KillControl, SafetyBanner } from "./SafetyBar";
 import { StatusBar } from "./StatusBar";
 import { createWorkspace, PANEL_COUNT } from "./workspace";
 
@@ -59,15 +60,24 @@ export const App: Component = () => {
   // Safety events: alerts are kept for the RISK view, and any kill-switch
   // change makes it refetch.
   if (inTauri()) {
-    const stops = [onRiskAlert(pushAlert), onKillSwitchChanged(() => riskChanged())];
+    const stops = [
+      onRiskAlert(pushAlert),
+      onKillSwitchChanged((s) => {
+        setKill(s);
+        riskChanged();
+      }),
+    ];
     onCleanup(() => {
       for (const stop of stops) void stop.then((f) => f());
     });
   }
 
+  const safety = createSafetyStatus();
+
   return (
     <div class="shell">
       <Header now={now()} status={<MarketIndicator />} />
+      <SafetyBanner status={safety} />
       <main class="shell__grid" data-layout={ws.state.layout}>
         <For each={PANELS}>
           {(i) => (
@@ -101,6 +111,7 @@ export const App: Component = () => {
       <StatusBar
         layout={ws.state.layout}
         focused={ws.state.focused}
+        kill={<Show when={inTauri()}>{<KillControl />}</Show>}
         health={<ProviderHealth health={health} />}
         extra={
           <Show when={info.state === "ready" && info()}>

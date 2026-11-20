@@ -152,6 +152,13 @@ export const COMMANDS: readonly CommandDef[] = [
       "RISK [SET <QTY|VALUE|EXPOSURE|POSITIONS|OPM|OPD|LOSS|BAND> <N> [FOR <NAME>] | CLEAR <NAME>]",
   },
   {
+    id: "kill",
+    names: ["KILL"],
+    summary:
+      "Kill switch (also Ctrl+Shift+K): blocks new orders, cancels open ones, disarms every strategy. KILL RESET asks for a typed phrase after a 5-minute cool-down",
+    usage: "KILL | KILL RESET",
+  },
+  {
     id: "live",
     names: ["LIVE"],
     summary:

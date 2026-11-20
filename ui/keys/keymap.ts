@@ -9,7 +9,8 @@ export type Action =
   | { type: "fkey"; n: number }
   | { type: "help" }
   | { type: "back" }
-  | { type: "view"; op: ViewOp };
+  | { type: "view"; op: ViewOp }
+  | { type: "kill" };
 
 /** A key chord. `code` is physical (immune to macOS Option remapping); `key` is logical. */
 export interface Chord {
@@ -132,6 +133,14 @@ function viewKey(op: ViewOp, label: string, chord: Chord, summary: string): Bind
 
 export const KEYMAP: readonly Binding[] = [
   ...FKEYS,
+  {
+    id: "kill",
+    keys: ["Ctrl+Shift+K"],
+    chords: [{ code: "KeyK", ctrl: true, shift: true }],
+    action: { type: "kill" },
+    summary: "Engage the kill switch: block new orders, cancel open ones, disarm all",
+    inInput: true,
+  },
   {
     id: "help.question",
     keys: ["?"],
