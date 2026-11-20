@@ -30,6 +30,7 @@ import { formatIstHm } from "../lib/time";
 import { DEFAULT_UNIVERSE, findUniverse } from "../lib/universe";
 import { parseChartArgs, parseInterval } from "../views/chart/model";
 import { sendViewCommand } from "../views/context";
+import { showOnboarding } from "./onboardingState";
 import { parseStratArgs } from "./strat";
 import type { Workspace } from "./workspace";
 
@@ -218,6 +219,12 @@ export function runCommand(
       return runRisk(args, ws);
     case "audit":
       return runAudit(args, ws);
+    case "settings":
+      ws.open({ kind: "settings" });
+      return undefined;
+    case "welcome":
+      showOnboarding(false);
+      return undefined;
     case "script": {
       const name = args[0];
       if (name === undefined || args.length > 1)

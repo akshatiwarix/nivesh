@@ -1,0 +1,35 @@
+/* SETTINGS: a plain table, then facts about the install. */
+
+.settings__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--fs-sm);
+}
+
+.settings__table th,
+.settings__table td {
+  padding: 2px var(--pad-x);
+  text-align: left;
+}
+
+.settings__table th {
+  color: var(--c-fg-faint);
+  font-weight: normal;
+}
+
+.settings__facts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 2px var(--pad-x);
+  margin: var(--pad-y) var(--pad-x);
+  font-size: var(--fs-sm);
+}
+
+.settings__facts dt {
+  color: var(--c-fg-faint);
+}
+
+.settings__facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}

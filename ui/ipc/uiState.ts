@@ -12,3 +12,8 @@ export function saveLayout(layout: 1 | 2 | 4): Promise<void> {
 export function saveCommandHistory(history: readonly string[]): Promise<void> {
   return call<void>("save_command_history", { history });
 }
+
+/** Records that the first-run onboarding was read. */
+export function finishOnboarding(): Promise<void> {
+  return call<void>("finish_onboarding");
+}

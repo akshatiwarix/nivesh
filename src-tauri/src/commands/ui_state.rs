@@ -8,6 +8,8 @@ use ts_rs::TS;
 use crate::ipc::IpcError;
 
 const LAYOUT_KEY: &str = "ui.layout";
+/// Set once the first-run onboarding has been read.
+const ONBOARDED_KEY: &str = "ui.onboarded";
 const VALID_LAYOUTS: [u8; 3] = [1, 2, 4];
 const DEFAULT_LAYOUT: u8 = 1;
 /// Matches the UI's history bound.
@@ -22,6 +24,8 @@ pub struct UiState {
     pub layout: u8,
     /// Command history, oldest first.
     pub history: Vec<String>,
+    /// Whether the first-run onboarding has been read.
+    pub onboarded: bool,
 }
 
 /// A stored layout is trusted only if it is still a valid one.
@@ -51,7 +55,14 @@ pub async fn ui_state(store: State<'_, Arc<Store>>) -> Result<UiState, IpcError>
     Ok(UiState {
         layout: layout_from_setting(store.setting(LAYOUT_KEY)?.as_deref()),
         history: store.command_history(MAX_HISTORY)?,
+        onboarded: store.setting(ONBOARDED_KEY)?.is_some(),
     })
+}
+
+/// Records that the first-run onboarding was read.
+#[tauri::command]
+pub async fn finish_onboarding(store: State<'_, Arc<Store>>) -> Result<(), IpcError> {
+    Ok(store.set_setting(ONBOARDED_KEY, &nivesh_risk::now_ms().to_string())?)
 }
 
 #[tauri::command]

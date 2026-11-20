@@ -1,7 +1,8 @@
-export { appInfo } from "./app";
+export { appInfo, appPaths, appReady } from "./app";
 export { type AuditFilter, auditExport, auditLog, auditVerify } from "./audit";
 export type { AlertLevel } from "./bindings/AlertLevel";
 export type { AppInfo } from "./bindings/AppInfo";
+export type { AppPaths } from "./bindings/AppPaths";
 export type { AuditRowDto } from "./bindings/AuditRowDto";
 export type { AuditVerifyDto } from "./bindings/AuditVerifyDto";
 export type { BacktestResultDto } from "./bindings/BacktestResultDto";
@@ -124,7 +125,7 @@ export {
   strategyDelete,
   strategySave,
 } from "./strategy";
-export { loadUiState, saveCommandHistory, saveLayout } from "./uiState";
+export { finishOnboarding, loadUiState, saveCommandHistory, saveLayout } from "./uiState";
 export {
   watchlistActivate,
   watchlistAdd,

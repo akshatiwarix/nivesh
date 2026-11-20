@@ -10,6 +10,7 @@ import { type Component, createEffect, createMemo, createSignal, For, on, Show }
 import { Badge } from "../../components/Badge";
 import { DataPanel } from "../../components/DataPanel";
 import { type CellTone, type Column, DataTable } from "../../components/DataTable";
+import { DISCLAIMER, isLiveAction } from "../../data/disclaimer";
 import { createPoll } from "../../data/poll";
 import { alerts, answerChallenge, cancelChallenge, challenge, changed } from "../../data/risk";
 import { inTauri, type RiskStatusDto, riskStatus, type StrategyRiskDto } from "../../ipc";
@@ -167,6 +168,9 @@ const ConfirmBox: Component = () => {
           <label for="risk-confirm">
             To {c().action}, type <code>{c().phrase}</code> and press Enter. Esc cancels.
           </label>
+          <Show when={isLiveAction(c().action)}>
+            <p class="risk__disclaimer">{DISCLAIMER}</p>
+          </Show>
           <input
             id="risk-confirm"
             ref={input}

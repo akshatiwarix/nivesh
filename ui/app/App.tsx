@@ -7,7 +7,14 @@ import { ProviderHealth } from "../components/ProviderHealth";
 import { createProviderHealth } from "../data/health";
 import { pushAlert, riskChanged, setKill } from "../data/risk";
 import { createVisibilityReporter } from "../data/visibility";
-import { appInfo, inTauri, onKillSwitchChanged, onRiskAlert, searchInstruments } from "../ipc";
+import {
+  appInfo,
+  appReady,
+  inTauri,
+  onKillSwitchChanged,
+  onRiskAlert,
+  searchInstruments,
+} from "../ipc";
 import { resolveKey } from "../keys/keymap";
 import { hasViewOps, sendViewOp } from "../views/context";
 import { viewTitle } from "../views/types";
@@ -18,6 +25,8 @@ import { createClock } from "./clock";
 import { type CommandResult, dispatch } from "./dispatch";
 import { Header } from "./Header";
 import { MarketIndicator } from "./MarketIndicator";
+import { Onboarding } from "./Onboarding";
+import { setStartupMs } from "./onboardingState";
 import { createPersistence } from "./persistence";
 import { createSafetyStatus, KillControl, SafetyBanner } from "./SafetyBar";
 import { StatusBar } from "./StatusBar";
@@ -57,7 +66,16 @@ export const App: Component = () => {
     e.preventDefault();
     runAction(binding.action, ws);
   };
-  onMount(() => window.addEventListener("keydown", onKey));
+  onMount(() => {
+    window.addEventListener("keydown", onKey);
+    // The shell is built and takes keys: that is the startup budget's
+    // "interactive" (PLAN.md §2.9). Not waiting for a frame, which an
+    // occluded window never gets.
+    if (inTauri())
+      appReady()
+        .then(setStartupMs)
+        .catch(() => {});
+  });
   onCleanup(() => window.removeEventListener("keydown", onKey));
 
   // Safety events: alerts are kept for the RISK view, and any kill-switch
@@ -122,6 +140,7 @@ export const App: Component = () => {
           </Show>
         }
       />
+      <Onboarding />
     </div>
   );
 };
