@@ -218,6 +218,13 @@ export function runCommand(
       return runRisk(args, ws);
     case "audit":
       return runAudit(args, ws);
+    case "script": {
+      const name = args[0];
+      if (name === undefined || args.length > 1)
+        return "SCRIPT <NAME>: one word, e.g. SCRIPT TREND.";
+      ws.open({ kind: "script", name });
+      return undefined;
+    }
     case "kill": {
       const sub = args[0]?.toUpperCase();
       if (sub !== undefined && sub !== "RESET") return "KILL, or KILL RESET.";

@@ -6,8 +6,8 @@ use std::sync::Arc;
 
 use nivesh_store::{FinishedBacktest, Store};
 use nivesh_strategy::{
-    BacktestOptions, CurvePoint, RuleSet, Template, TemplateParams, WalkForward,
-    WalkForwardOptions, backtest, walk_forward,
+    BacktestOptions, CurvePoint, Template, TemplateParams, WalkForward, WalkForwardOptions,
+    backtest_decider, walk_forward,
 };
 use tauri::State;
 
@@ -17,6 +17,7 @@ use crate::ipc::strategy::{
     WalkForwardDto,
 };
 use crate::paper::{PaperManager, PaperRecord};
+use crate::strategy_body::StrategyBody;
 
 fn now_ms() -> i64 {
     std::time::SystemTime::now()
@@ -31,9 +32,7 @@ pub async fn strategies(store: State<'_, Arc<Store>>) -> Result<Vec<StrategyDto>
     let rows = store.strategies()?;
     let mut out = Vec::with_capacity(rows.len());
     for row in rows {
-        let set: RuleSet = serde_json::from_str(&row.json).map_err(|e| {
-            IpcError::internal(format!("stored strategy {} is unreadable: {e}", row.id))
-        })?;
+        let body = StrategyBody::from_row(&row)?;
         let running = store
             .paper_state(row.id)
             .ok()
@@ -44,7 +43,7 @@ pub async fn strategies(store: State<'_, Arc<Store>>) -> Result<Vec<StrategyDto>
             id: row.id,
             name: row.name,
             template: row.template,
-            entry: set.entry.describe(),
+            entry: body.describe(),
             running,
             has_state,
             paper_pnl: None,
@@ -148,8 +147,7 @@ pub async fn backtest_strategy(
     store: State<'_, Arc<Store>>,
 ) -> Result<BacktestResultDto, IpcError> {
     let row = strategy_named(&store, &name)?;
-    let set: RuleSet = serde_json::from_str(&row.json)
-        .map_err(|e| IpcError::internal(format!("stored strategy is unreadable: {e}")))?;
+    let body = StrategyBody::from_row(&row)?;
     let symbol = match symbol {
         Some(symbol) => symbol,
         None => store
@@ -173,8 +171,12 @@ pub async fn backtest_strategy(
     let run_id = store.open_backtest(row.id, &id.to_string(), &interval, &range, now_ms())?;
     let mut progress = |_, _| true;
     let options = BacktestOptions::default();
-    let walk = walk_forward(&set, &candles, options, WalkForwardOptions::default());
-    let result = backtest(set, &candles, options, &mut progress);
+    // Walk-forward re-runs the rules per window; scripts get the plain run.
+    let walk = body
+        .rules()
+        .and_then(|set| walk_forward(set, &candles, options, WalkForwardOptions::default()));
+    let decider = body.decider(options.symbol, options.equity)?;
+    let result = backtest_decider(decider, &candles, 0, options, &mut progress);
     let trades_json = serde_json::to_string(&result.trades)
         .map_err(|e| IpcError::internal(format!("cannot encode the trades: {e}")))?;
     let walk_json = walk
@@ -315,8 +317,7 @@ pub async fn paper_start(
     paper: State<'_, Arc<PaperManager>>,
 ) -> Result<PaperStateDto, IpcError> {
     let row = strategy_named(&store, &name)?;
-    let set: RuleSet = serde_json::from_str(&row.json)
-        .map_err(|e| IpcError::internal(format!("stored strategy is unreadable: {e}")))?;
+    let body = StrategyBody::from_row(&row)?;
     let last = store
         .paper_state(row.id)?
         .map(|(_, json)| PaperRecord::decode(&json))
@@ -324,7 +325,7 @@ pub async fn paper_start(
     let symbol = symbol.unwrap_or(last.symbol);
     let interval = interval.unwrap_or(last.interval);
     let record = paper
-        .start(&services, row.id, set, &last.exchange, &symbol, &interval)
+        .start(&services, row.id, body, &last.exchange, &symbol, &interval)
         .await?;
     Ok(paper_dto(&row.name, true, &record))
 }

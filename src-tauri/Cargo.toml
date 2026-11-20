@@ -26,6 +26,7 @@ nivesh-core = { path = "../crates/nivesh-core" }
 nivesh-exec = { path = "../crates/nivesh-exec" }
 nivesh-risk = { path = "../crates/nivesh-risk" }
 nivesh-secrets = { path = "../crates/nivesh-secrets" }
+nivesh-script = { path = "../crates/nivesh-script" }
 nivesh-strategy = { path = "../crates/nivesh-strategy" }
 nivesh-data = { path = "../crates/nivesh-data" }
 url = { workspace = true }

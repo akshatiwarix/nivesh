@@ -130,6 +130,13 @@ export const COMMANDS: readonly CommandDef[] = [
     fkey: 10,
   },
   {
+    id: "script",
+    names: ["SCRIPT"],
+    summary:
+      "Write a strategy as a sandboxed script: SCRIPT <NAME> opens the editor (Ctrl+S saves). Then BT <NAME> and PAPER START <NAME> like any strategy",
+    usage: "SCRIPT <NAME>",
+  },
+  {
     id: "bt",
     names: ["BT", "BACKTEST"],
     summary:

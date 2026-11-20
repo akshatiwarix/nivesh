@@ -220,3 +220,35 @@ impl From<Side> for SideDto {
         }
     }
 }
+
+/// The result of checking a script. `line` is 1-based.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ScriptCheckDto {
+    pub ok: bool,
+    pub line: Option<u32>,
+    pub message: Option<String>,
+}
+
+impl ScriptCheckDto {
+    pub fn of(result: Result<(), nivesh_script::ScriptError>) -> Self {
+        match result {
+            Ok(()) => Self {
+                ok: true,
+                line: None,
+                message: None,
+            },
+            Err(err) => Self {
+                ok: false,
+                line: match &err {
+                    nivesh_script::ScriptError::Compile { line, .. }
+                    | nivesh_script::ScriptError::Runtime { line, .. } => {
+                        u32::try_from(*line).ok().filter(|l| *l > 0)
+                    }
+                    _ => None,
+                },
+                message: Some(err.to_string()),
+            },
+        }
+    }
+}

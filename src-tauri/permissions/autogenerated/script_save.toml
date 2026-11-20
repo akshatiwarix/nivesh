@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-script-save"
+description = "Enables the script_save command without any pre-configured scope."
+commands.allow = ["script_save"]
+
+[[permission]]
+identifier = "deny-script-save"
+description = "Denies the script_save command without any pre-configured scope."
+commands.deny = ["script_save"]
