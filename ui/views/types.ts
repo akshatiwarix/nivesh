@@ -30,6 +30,7 @@ export type View =
   | { kind: "bt"; name?: string }
   | { kind: "paper" }
   | { kind: "risk" }
+  | { kind: "script"; name: string }
   /** `filter`: a kind prefix; `strategy`: a strategy name. */
   | { kind: "audit"; filter?: string; strategy?: string };
 
@@ -76,6 +77,8 @@ export function viewTitle(view: View): string {
       return "Paper Trading";
     case "risk":
       return "Risk";
+    case "script":
+      return `Script · ${view.name}`;
     case "audit":
       return view.filter || view.strategy
         ? `Audit · ${[view.filter, view.strategy].filter(Boolean).join(" · ")}`

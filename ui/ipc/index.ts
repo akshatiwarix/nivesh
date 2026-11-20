@@ -46,6 +46,7 @@ export type { RiskAlertDto } from "./bindings/RiskAlertDto";
 export type { RiskLimitsDto } from "./bindings/RiskLimitsDto";
 export type { RiskStatusDto } from "./bindings/RiskStatusDto";
 export type { RiskUsageDto } from "./bindings/RiskUsageDto";
+export type { ScriptCheckDto } from "./bindings/ScriptCheckDto";
 export type { SectorRowDto } from "./bindings/SectorRowDto";
 export type { SectorsDto } from "./bindings/SectorsDto";
 export type { SessionKind } from "./bindings/SessionKind";
@@ -112,6 +113,7 @@ export {
   strategyArm,
   strategyDisarm,
 } from "./risk";
+export { scriptSave, scriptSource, scriptValidate } from "./script";
 export {
   backtestResult,
   backtestStrategy,

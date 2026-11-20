@@ -127,3 +127,12 @@ describe("AUDIT", () => {
     expect(await dispatch(parse("audit export pdf"), ws)).toContain("EXPORT CSV|JSONL");
   });
 });
+
+describe("SCRIPT", () => {
+  it("opens the editor for one name", async () => {
+    const ws = createWorkspace();
+    expect(await dispatch(parse("script trend"), ws)).toBeUndefined();
+    expect(ws.currentView(0)).toEqual({ kind: "script", name: "TREND" });
+    expect(await dispatch(parse("script"), ws)).toContain("SCRIPT <NAME>");
+  });
+});

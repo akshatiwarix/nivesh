@@ -45,7 +45,10 @@ export const App: Component = () => {
     if (e.defaultPrevented) return;
     const active = document.activeElement;
     const inInput = isTextInput(active);
-    const inputEmpty = !(active instanceof HTMLInputElement) || active.value === "";
+    // A textarea (the script editor) counts as typing, never as an empty bar.
+    const inputEmpty =
+      !(active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement) ||
+      (active instanceof HTMLInputElement && active.value === "");
     const binding = resolveKey(e, inInput, undefined, inputEmpty);
     if (!binding) return;
     // A view key is only taken when the focused view listens for it, so it
