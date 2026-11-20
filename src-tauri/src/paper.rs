@@ -12,10 +12,10 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
-use nivesh_core::{Candle, FeedKind, Sourced};
+use nivesh_core::{Candle, FeedKind, Freshness, Sourced};
 use nivesh_data::forming::FormingBar;
 use nivesh_data::{HubUpdate, QuoteHub, SubscriptionId, Topic};
-use nivesh_exec::{KillReason, KillState, PaperDesk};
+use nivesh_exec::{KillReason, KillState, LiveDispatch, PaperDesk};
 use nivesh_risk::{RiskEngine, RiskLimits};
 use nivesh_store::Store;
 use nivesh_strategy::{PaperRunner, PaperState, RuleSet};
@@ -179,7 +179,7 @@ impl PaperManager {
             state: runner.state().clone(),
         };
         self.stop_task(strategy_id);
-        lock(&self.desk).start(strategy_id, runner);
+        lock(&self.desk).start(strategy_id, runner, now_ms());
         self.store
             .save_paper_state(strategy_id, true, &record.encode()?)?;
 
@@ -209,7 +209,7 @@ impl PaperManager {
             running.task.abort();
             services.hub.unsubscribe(running.subscription);
         }
-        let state = lock(&self.desk).stop(strategy_id);
+        let state = lock(&self.desk).stop(strategy_id, now_ms());
         let mut record = self
             .store
             .paper_state(strategy_id)?
@@ -326,24 +326,40 @@ async fn feed(
         else {
             continue;
         };
-        if !on_closed_bar(strategy_id, closed, &desk, &store, &mut record) {
+        let freshness = provenance.freshness();
+        let Some(dispatches) =
+            on_closed_bar(strategy_id, closed, freshness, &desk, &store, &mut record)
+        else {
             break;
+        };
+        // Live orders (armed strategies only) are sent outside the lock.
+        for dispatch in dispatches {
+            let outcome = dispatch.send(now_ms()).await;
+            if let Err(err) = &outcome {
+                tracing::warn!(strategy_id, error = %err, "live order not placed");
+            }
+            if let Some(kill) = lock(&desk).on_live_outcome(strategy_id, &outcome, now_ms()) {
+                tracing::warn!(strategy_id, reason = ?kill.reason, "kill switch engaged");
+                if let Err(err) = save_kill(&store, &kill) {
+                    tracing::error!(error = ?err, "saving the kill switch failed");
+                }
+            }
         }
     }
     hub.unsubscribe(subscription);
 }
 
-/// Returns `false` when the strategy is no longer running.
+/// Returns `None` when the strategy is no longer running, else the live
+/// orders to send.
 fn on_closed_bar(
     strategy_id: i64,
     bar: Candle,
+    freshness: Freshness,
     desk: &Mutex<PaperDesk>,
     store: &Store,
     record: &mut PaperRecord,
-) -> bool {
-    let Some(report) = lock(desk).on_closed_bar(strategy_id, bar, now_ms()) else {
-        return false;
-    };
+) -> Option<Vec<LiveDispatch>> {
+    let report = lock(desk).on_closed_bar(strategy_id, bar, freshness, now_ms())?;
     for fill in &report.fills {
         tracing::info!(strategy_id, side = ?fill.side, quantity = fill.quantity, price = fill.price, "paper fill");
     }
@@ -365,7 +381,7 @@ fn on_closed_bar(
         }
         Err(err) => tracing::warn!(strategy_id, error = ?err, "encoding paper state failed"),
     }
-    true
+    Some(report.dispatches)
 }
 
 #[cfg(test)]
@@ -461,7 +477,11 @@ mod tests {
             }),
             Arc::new(crate::audit::StoreAudit(Arc::clone(&store))),
         ));
-        lock(&desk).start(id, PaperRunner::new(set, "NSE:TCS", PAPER_EQUITY).unwrap());
+        lock(&desk).start(
+            id,
+            PaperRunner::new(set, "NSE:TCS", PAPER_EQUITY).unwrap(),
+            now_ms(),
+        );
         let mut record = PaperRecord::default();
         let t0 = now_ms();
         let bar = |t: i64, o: f64| Candle {
@@ -472,20 +492,28 @@ mod tests {
             c: o,
             v: 0.0,
         };
-        assert!(on_closed_bar(
-            id,
-            bar(t0, 100.0),
-            &desk,
-            &store,
-            &mut record
-        ));
-        assert!(on_closed_bar(
-            id,
-            bar(t0 + 60_000, 101.0),
-            &desk,
-            &store,
-            &mut record
-        ));
+        assert!(
+            on_closed_bar(
+                id,
+                bar(t0, 100.0),
+                Freshness::Delayed,
+                &desk,
+                &store,
+                &mut record
+            )
+            .is_some()
+        );
+        assert!(
+            on_closed_bar(
+                id,
+                bar(t0 + 60_000, 101.0),
+                Freshness::Delayed,
+                &desk,
+                &store,
+                &mut record
+            )
+            .is_some()
+        );
 
         let (running, json) = store.paper_state(id).unwrap().unwrap();
         assert!(running);
@@ -516,13 +544,17 @@ mod tests {
         assert_eq!(kinds, ["intent", "order.routed", "fill"]);
         assert!(store.verify_audit().unwrap().is_intact());
 
-        lock(&desk).stop(id);
-        assert!(!on_closed_bar(
-            id,
-            bar(t0 + 120_000, 102.0),
-            &desk,
-            &store,
-            &mut record
-        ));
+        lock(&desk).stop(id, now_ms());
+        assert!(
+            on_closed_bar(
+                id,
+                bar(t0 + 120_000, 102.0),
+                Freshness::Delayed,
+                &desk,
+                &store,
+                &mut record
+            )
+            .is_none()
+        );
     }
 }

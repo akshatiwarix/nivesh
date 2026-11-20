@@ -53,11 +53,13 @@ mod parity {
             std::sync::Arc::new(nivesh_exec::MemoryAudit::default()),
         );
         let runner = PaperRunner::new(template.build(params), "NSE:RELIANCE", 100_000.0).unwrap();
-        desk.start(1, runner);
+        desk.start(1, runner, 0);
         let mut trips = Vec::new();
         let mut open: Option<(i64, f64)> = None;
         for bar in bars {
-            let report = desk.on_closed_bar(1, *bar, bar.t).unwrap();
+            let report = desk
+                .on_closed_bar(1, *bar, nivesh_core::Freshness::Delayed, bar.t)
+                .unwrap();
             assert!(report.refused.is_empty(), "{:?}", report.refused);
             for fill in &report.fills {
                 match fill.side {

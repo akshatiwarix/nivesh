@@ -1,6 +1,6 @@
 [package]
 name = "nivesh-exec"
-description = "Nivesh's order gateway and paper desk: the ONLY path from OrderIntents to brokers. Paper routing now; live routing arrives in Part 6 behind the risk engine, the kill switch and the audit log."
+description = "Nivesh's order gateway and desk: the ONLY path from OrderIntents to brokers. Paper by default; live only for armed strategies, behind the risk engine, the kill switch and the audit log."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
