@@ -36,7 +36,11 @@ nivesh-risk = { path = "../nivesh-risk", optional = true }
 live-trading = ["dep:nivesh-risk"]
 
 [dev-dependencies]
+# The end-to-end safety scenarios drive the real desk against a mock Kite.
+nivesh-exec = { path = "../nivesh-exec" }
 nivesh-risk = { path = "../nivesh-risk" }
+nivesh-script = { path = "../nivesh-script" }
+nivesh-strategy = { path = "../nivesh-strategy" }
 proptest.workspace = true
 tracing-subscriber.workspace = true
 wiremock.workspace = true
