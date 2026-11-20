@@ -69,6 +69,13 @@ import {
   zoomRange,
 } from "./model";
 
+/** Indian-grouped rupee prices, for the candles and price overlays. */
+const PRICE_FORMAT = {
+  type: "custom" as const,
+  formatter: (p: number) => formatPrice(p),
+  minMove: 0.01,
+};
+
 type ChartViewDef = Extract<View, { kind: "chart" }>;
 
 const css = (name: string, fallback: string) =>
@@ -188,8 +195,9 @@ export const ChartView: Component<{ view: ChartViewDef }> = (props) => {
           axisLabel(time, isIntraday(interval()), false),
       },
       localization: {
+        // No chart-wide priceFormatter: it would override every series'
+        // own format (volume included). Prices format per series instead.
         timeFormatter: (time: UTCTimestamp) => crosshairLabel(time, isIntraday(interval())),
-        priceFormatter: (p: number) => formatPrice(p),
       },
     });
     const candles = chart.addSeries(lib.CandlestickSeries, {
@@ -199,6 +207,7 @@ export const ChartView: Component<{ view: ChartViewDef }> = (props) => {
       wickDownColor: theme.colors.down,
       borderVisible: false,
       priceLineColor: theme.amber,
+      priceFormat: PRICE_FORMAT,
     });
     const volume = chart.addSeries(
       lib.HistogramSeries,
@@ -303,6 +312,7 @@ export const ChartView: Component<{ view: ChartViewDef }> = (props) => {
               lastValueVisible: !dim,
               crosshairMarkerVisible: false,
               title: dim ? "" : line.name,
+              priceFormat: PRICE_FORMAT,
             },
             0,
           );

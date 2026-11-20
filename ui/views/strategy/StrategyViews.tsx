@@ -216,8 +216,9 @@ export const BacktestView: Component<{ name?: string }> = (props) => {
           {(r) => (
             <p class="strat__funds">
               NET P&L {formatPrice(r().totalPnl)} · COSTS {formatPrice(r().totalCharges)} · MAX DD{" "}
-              {formatPrice(r().maxDrawdown)} · TRADES {r().trades.length} · BARS {r().barsInMarket}/
-              {r().totalBars}
+              {formatPrice(r().maxDrawdown)} · TRADES {r().trades.length}
+              {/* Saved runs don't keep bar counts: show them only when known. */}
+              {r().totalBars > 0 ? ` · BARS ${r().barsInMarket}/${r().totalBars}` : ""}
             </p>
           )}
         </Show>
@@ -233,7 +234,7 @@ export const BacktestView: Component<{ name?: string }> = (props) => {
           label="Backtest trades"
           columns={TRADE_COLUMNS}
           rows={trades()}
-          emptyText={emptyText()}
+          emptyText={run()?.state === "failed" || result.error ? "No trades." : emptyText()}
         />
         <Show when={shown()?.walkForward}>
           {(wf) => (
