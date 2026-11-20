@@ -12,6 +12,7 @@ pub mod data;
 pub mod market;
 pub mod markets;
 pub mod risk;
+pub mod script;
 pub mod strategy;
 pub mod ui_state;
 pub mod watchlists;

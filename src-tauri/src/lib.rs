@@ -12,6 +12,7 @@ mod logging;
 mod notify;
 mod paper;
 pub mod services;
+mod strategy_body;
 mod window_state;
 
 use std::sync::Arc;
@@ -113,6 +114,9 @@ pub fn run() -> anyhow::Result<()> {
             commands::risk::risk_status,
             commands::risk::strategy_arm,
             commands::risk::strategy_disarm,
+            commands::script::script_save,
+            commands::script::script_source,
+            commands::script::script_validate,
             commands::strategy::backtest_result,
             commands::strategy::backtest_strategy,
             commands::strategy::paper_start,

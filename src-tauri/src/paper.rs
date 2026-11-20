@@ -27,7 +27,7 @@ use nivesh_exec::{
 };
 use nivesh_risk::{RiskEngine, RiskLimits};
 use nivesh_store::Store;
-use nivesh_strategy::{PaperRunner, PaperState, RuleSet};
+use nivesh_strategy::PaperState;
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 
@@ -36,6 +36,7 @@ use crate::ipc::IpcError;
 use crate::ipc::risk::AlertLevel;
 use crate::notify::Notifier;
 use crate::services::Services;
+use crate::strategy_body::StrategyBody;
 
 /// Starting paper equity, rupees (sizing and the equity mark).
 pub const PAPER_EQUITY: f64 = 100_000.0;
@@ -336,7 +337,7 @@ impl PaperManager {
         &self,
         services: &Arc<Services>,
         strategy_id: i64,
-        set: RuleSet,
+        body: StrategyBody,
         exchange: &str,
         symbol: &str,
         interval: &str,
@@ -366,8 +367,8 @@ impl PaperManager {
             Some((last, closed)) => (closed, Some(*last)),
             None => (&candles[..], None),
         };
-        let mut runner = PaperRunner::new(set, req.id.to_string(), PAPER_EQUITY)
-            .map_err(|e| IpcError::invalid_argument(e.to_string()))?
+        let mut runner = body
+            .runner(&req.id.to_string(), PAPER_EQUITY)?
             .with_state(state);
         runner.warm_up(closed);
 
@@ -443,8 +444,8 @@ impl PaperManager {
                 continue;
             };
             let record = PaperRecord::decode(&json);
-            let set: RuleSet = match serde_json::from_str(&row.json) {
-                Ok(set) => set,
+            let body = match StrategyBody::from_row(&row) {
+                Ok(body) => body,
                 Err(err) => {
                     tracing::warn!(strategy_id = row.id, error = %err, "unreadable strategy; not resumed");
                     continue;
@@ -454,7 +455,7 @@ impl PaperManager {
                 .start(
                     services,
                     row.id,
-                    set,
+                    body,
                     &record.exchange,
                     &record.symbol,
                     &record.interval,
@@ -697,6 +698,7 @@ fn on_closed_bar(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use nivesh_strategy::{PaperRunner, RuleSet};
 
     #[test]
     fn the_kill_switch_is_saved_and_survives_a_restart() {

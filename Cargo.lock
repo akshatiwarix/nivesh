@@ -2950,6 +2950,7 @@ dependencies = [
  "nivesh-exec",
  "nivesh-indicators",
  "nivesh-risk",
+ "nivesh-script",
  "nivesh-secrets",
  "nivesh-store",
  "nivesh-strategy",

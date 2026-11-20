@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-script-validate"
+description = "Enables the script_validate command without any pre-configured scope."
+commands.allow = ["script_validate"]
+
+[[permission]]
+identifier = "deny-script-validate"
+description = "Denies the script_validate command without any pre-configured scope."
+commands.deny = ["script_validate"]

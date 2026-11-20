@@ -25,7 +25,8 @@ use crate::ipc::dto::{
 use crate::ipc::markets::{BreadthDto, DmaBreadthDto, MoversDto, NewsDto, ProgressDto, SectorsDto};
 use crate::ipc::risk::{KillStatusDto, RiskActionDto, RiskAlertDto, RiskStatusDto};
 use crate::ipc::strategy::{
-    BacktestResultDto, CurvePointDto, PaperFillDto, PaperStateDto, StrategyDto, WalkForwardDto,
+    BacktestResultDto, CurvePointDto, PaperFillDto, PaperStateDto, ScriptCheckDto, StrategyDto,
+    WalkForwardDto,
 };
 
 /// The committed bindings directory.
@@ -76,6 +77,7 @@ pub fn export(dir: &Path) -> Result<(), ExportError> {
     WalkForwardDto::export_all(&cfg)?;
     CurvePointDto::export_all(&cfg)?;
     KillStatusDto::export_all(&cfg)?;
+    ScriptCheckDto::export_all(&cfg)?;
     AuditRowDto::export_all(&cfg)?;
     AuditVerifyDto::export_all(&cfg)?;
     RiskStatusDto::export_all(&cfg)?;
