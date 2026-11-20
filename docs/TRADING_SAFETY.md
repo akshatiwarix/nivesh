@@ -103,7 +103,10 @@ order**. Instead it:
 3. records the order with its tag, so reconciliation can find it at the
    broker later
 
-Resuming a paused strategy from the UI is not built yet.
+When you have checked the broker's order book, `RESUME <NAME>` resumes
+the strategy. It is refused while one of the strategy's live orders is
+still unresolved, and it never re-arms: run `ARM <NAME>` again to trade
+live.
 
 ## The kill switch
 

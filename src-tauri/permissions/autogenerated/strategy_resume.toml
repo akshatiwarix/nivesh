@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-strategy-resume"
+description = "Enables the strategy_resume command without any pre-configured scope."
+commands.allow = ["strategy_resume"]
+
+[[permission]]
+identifier = "deny-strategy-resume"
+description = "Denies the strategy_resume command without any pre-configured scope."
+commands.deny = ["strategy_resume"]

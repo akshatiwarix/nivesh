@@ -297,6 +297,32 @@ impl PaperManager {
         confirmable(result.map(drop))
     }
 
+    /// Resumes a paused strategy. Refused while one of its live orders is
+    /// unresolved (an ambiguous placement not yet found by reconciliation):
+    /// resuming then could place the same order twice. Resuming never
+    /// re-arms. Returns why it was paused, or `None` if it was not.
+    pub fn resume(&self, strategy_id: i64) -> Result<Option<String>, IpcError> {
+        let mut desk = lock(&self.desk);
+        let Some(reason) = desk.paused(strategy_id).map(str::to_owned) else {
+            return Ok(None);
+        };
+        if let Some(route) = desk.live_route()
+            && route
+                .book()
+                .orders
+                .iter()
+                .any(|o| o.strategy_id == strategy_id && o.broker_id.is_none())
+        {
+            return Err(IpcError::invalid_argument(
+                "a live order of this strategy is still unresolved; check the broker's \
+                 order book and reconcile before resuming",
+            ));
+        }
+        desk.resume(strategy_id, now_ms())
+            .map_err(|e| IpcError::internal(e.to_string()))?;
+        Ok(Some(reason))
+    }
+
     /// Disarms a strategy at once.
     pub fn disarm(&self, strategy_id: i64) -> bool {
         lock(&self.desk).disarm(strategy_id, now_ms())
@@ -796,6 +822,27 @@ mod tests {
         let view = restarted.risk_view(&[id]);
         assert!(!view.live_enabled, "the master switch is never saved");
         assert_eq!(view.strategies[0].armed_until, None);
+    }
+
+    #[test]
+    fn resume_unpauses_without_arming() {
+        let store = Arc::new(Store::open_in_memory().unwrap());
+        let manager = PaperManager::new(Arc::clone(&store));
+        let id = store.save_strategy(None, "P", "test", "{}", 0).unwrap();
+        let runner = PaperRunner::new(RuleSet::default(), "NSE:TCS", PAPER_EQUITY).unwrap();
+        lock(&manager.desk).start(id, runner, now_ms());
+        assert_eq!(
+            manager.resume(id).unwrap(),
+            None,
+            "not paused: nothing to do"
+        );
+        assert!(lock(&manager.desk).pause(id, "ambiguous placement", now_ms()));
+        assert_eq!(
+            manager.resume(id).unwrap().as_deref(),
+            Some("ambiguous placement")
+        );
+        assert!(lock(&manager.desk).paused(id).is_none());
+        assert_eq!(lock(&manager.desk).armed_until(id, now_ms()), None);
     }
 
     #[test]

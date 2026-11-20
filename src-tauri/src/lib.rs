@@ -137,6 +137,7 @@ pub fn run() -> anyhow::Result<()> {
             commands::risk::risk_status,
             commands::risk::strategy_arm,
             commands::risk::strategy_disarm,
+            commands::risk::strategy_resume,
             commands::script::script_save,
             commands::script::script_source,
             commands::script::script_validate,

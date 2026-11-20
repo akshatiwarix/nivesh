@@ -193,6 +193,13 @@ export const COMMANDS: readonly CommandDef[] = [
     usage: "LIVE ON | LIVE OFF",
   },
   {
+    id: "resume",
+    names: ["RESUME"],
+    summary:
+      "Resume a paused strategy (paused after an unclear order, for example). Refused while one of its live orders is unresolved; it stays disarmed",
+    usage: "RESUME <NAME>",
+  },
+  {
     id: "arm",
     names: ["ARM"],
     summary:

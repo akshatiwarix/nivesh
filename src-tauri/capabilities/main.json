@@ -23,6 +23,7 @@
     "allow-risk-status",
     "allow-strategy-arm",
     "allow-strategy-disarm",
+    "allow-strategy-resume",
     "allow-script-save",
     "allow-script-source",
     "allow-script-validate",
