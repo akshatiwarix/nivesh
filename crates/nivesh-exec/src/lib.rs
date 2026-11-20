@@ -4,21 +4,24 @@
 //! engine (minting an [`ApprovedOrder`]), queues the approval, and fills it
 //! through the paper broker when the next bar of the strategy's stream
 //! closes, at that bar's open: the backtester's convention, so paper and
-//! backtest trade alike. Live routing arrives in Part 6 behind the risk
-//! engine, the kill switch and the audit log; the gateway is where the
-//! audit hook will sit.
+//! backtest trade alike. An armed strategy's approved orders go instead
+//! to the live route as a [`LiveDispatch`] (see [`arming`] and [`live`]):
+//! only from LIVE data, only while armed, and audited before they are
+//! sent.
 //!
 //! Late intents are refused: the signal bar must be the last closed bar
 //! the gateway has seen on that strategy's stream, so a stale strategy
 //! cannot fire into the past.
 
+pub mod arming;
 pub mod audit;
 pub mod desk;
 pub mod kill;
+pub mod live;
 pub mod reconcile;
 
-use nivesh_broker::BrokerError;
-use nivesh_core::{Candle, Side};
+use nivesh_broker::{BrokerError, OrderTag};
+use nivesh_core::{Candle, Freshness, InstrumentId, Side};
 use nivesh_risk::{
     ApprovedOrder, OrderRequest, Product, RiskContext, RiskEngine, RiskLimits, RiskRejection,
 };
@@ -27,12 +30,14 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 
+pub use arming::{ArmConditions, ArmError, Arming, arm_phrase, session_end_ms};
 pub use audit::{AuditEvent, AuditSink, MemoryAudit};
 pub use desk::{PaperDesk, StepReport};
 pub use kill::{
     KillError, KillMonitor, KillReason, KillState, KillSwitch, KillTriggers, Observation,
     RESET_COOLDOWN_MS, RESET_PHRASE,
 };
+pub use live::{LiveDispatch, LiveRoute};
 pub use reconcile::{
     LiveBook, Mismatch, Reconciliation, TrackedOrder, broker_shares, reconcile, reconcile_with,
 };
@@ -50,6 +55,14 @@ pub struct OrderIntent {
     pub signal_price: f64,
     /// UTC ms of the signal bar.
     pub signal_bar_t: i64,
+    /// How fresh the data the signal came from was. Armed strategies only
+    /// trade on LIVE; anything unknown counts as STALE.
+    #[serde(default = "unknown_freshness")]
+    pub freshness: Freshness,
+}
+
+fn unknown_freshness() -> Freshness {
+    Freshness::Stale
 }
 
 /// A paper fill the gateway reports back to the strategy.
@@ -96,6 +109,16 @@ pub enum GatewayError {
     /// A kill-switch reset was refused.
     #[error(transparent)]
     Kill(#[from] KillError),
+    /// Arming was refused.
+    #[error(transparent)]
+    Arm(#[from] ArmError),
+    /// An armed strategy's intent came from data that is not LIVE.
+    #[error("live strategies trade only on LIVE data; this signal came from {} data", .0.label())]
+    NotLiveData(Freshness),
+    /// The broker may or may not have the order: it is reconciled by its
+    /// tag, never placed again.
+    #[error("the outcome of order {0} is unknown; it will be reconciled, not retried")]
+    AmbiguousPlacement(String),
 }
 
 impl From<BrokerError> for GatewayError {
@@ -170,6 +193,14 @@ pub struct OrderGateway {
     /// Timestamps of approved orders, newest first (the risk context's
     /// rate-limiter feed).
     approvals: Vec<i64>,
+    /// The master switch and the armed strategies. Never persisted.
+    arming: Arming,
+    /// The broker that can trade, when one is connected.
+    live: Option<Arc<LiveRoute>>,
+    /// Live orders approved and waiting for the harness to send.
+    dispatches: Vec<LiveDispatch>,
+    /// The last client-tag sequence number used.
+    tag_seq: u64,
 }
 
 /// The account as the risk check sees it for one intent. The harness owns
@@ -201,6 +232,10 @@ impl OrderGateway {
             last_closed: HashMap::new(),
             queued: Vec::new(),
             approvals: Vec::new(),
+            arming: Arming::default(),
+            live: None,
+            dispatches: Vec::new(),
+            tag_seq: 0,
         }
     }
 
@@ -318,9 +353,15 @@ impl OrderGateway {
                 detail: detail.to_owned(),
             },
         );
+        self.disarm_all("the kill switch engaged", now_ms);
         let cancelled: Vec<u64> = std::mem::take(&mut self.queued)
             .into_iter()
             .map(|q| q.order.decision_id())
+            .chain(
+                std::mem::take(&mut self.dispatches)
+                    .into_iter()
+                    .map(|d| d.decision_id()),
+            )
             .collect();
         if !cancelled.is_empty() {
             let _ = self.audit.record(
@@ -362,6 +403,8 @@ impl OrderGateway {
         );
         self.paused.insert(strategy_id, reason.to_owned());
         self.queued.retain(|q| q.strategy_id != strategy_id);
+        self.dispatches.retain(|d| d.strategy_id() != strategy_id);
+        self.disarm(strategy_id, "the strategy was paused", now_ms);
         true
     }
 
@@ -391,6 +434,8 @@ impl OrderGateway {
         account: &AccountView,
         now_ms: i64,
     ) -> Result<u64, GatewayError> {
+        // An arming past the session's end is dropped first: back to paper.
+        let live = self.armed_now(intent.strategy_id, now_ms);
         let audit = |event: AuditEvent| {
             self.audit
                 .record(now_ms, &event)
@@ -416,6 +461,13 @@ impl OrderGateway {
                 strategy_id: intent.strategy_id,
             })?;
             return Err(GatewayError::StrategyPaused(reason));
+        }
+        if live && intent.freshness != Freshness::Live {
+            audit(AuditEvent::NotLive {
+                strategy_id: intent.strategy_id,
+                freshness: intent.freshness,
+            })?;
+            return Err(GatewayError::NotLiveData(intent.freshness));
         }
         let fresh = self
             .last_closed
@@ -459,6 +511,17 @@ impl OrderGateway {
         if !approved.is_valid_at(now_ms) {
             return Err(GatewayError::ApprovalExpired);
         }
+        // A live order needs the route, a parseable instrument and a tag
+        // before anything is put on the record.
+        let live = if live {
+            let route = self.live.clone().ok_or(GatewayError::NoRoute)?;
+            let id: InstrumentId = intent.symbol.parse().map_err(|_| GatewayError::NoRoute)?;
+            self.tag_seq = (self.tag_seq + 1).max(u64::try_from(now_ms / 1_000).unwrap_or(0));
+            let tag = OrderTag::new(intent.strategy_id, self.tag_seq)?;
+            Some((route, id, tag))
+        } else {
+            None
+        };
         // The routed order is on the record before it exists anywhere else.
         audit(AuditEvent::OrderRouted {
             strategy_id: intent.strategy_id,
@@ -467,22 +530,182 @@ impl OrderGateway {
             side: approved.side(),
             quantity: approved.quantity(),
             price: approved.price(),
-            route: "paper",
+            route: if live.is_some() { "live" } else { "paper" },
         })?;
         self.approvals.insert(0, now_ms);
         self.approvals.truncate(500);
         let decision_id = approved.decision_id();
-        self.queued.push(Queued {
-            strategy_id: intent.strategy_id,
-            order: approved,
-        });
+        match live {
+            Some((route, id, tag)) => self.dispatches.push(LiveDispatch::new(
+                route,
+                intent.strategy_id,
+                id,
+                approved,
+                tag,
+            )),
+            None => self.queued.push(Queued {
+                strategy_id: intent.strategy_id,
+                order: approved,
+            }),
+        }
         Ok(decision_id)
     }
 
-    /// Drops a strategy's queued orders and its streams (it stopped).
-    pub fn forget(&mut self, strategy_id: i64) {
+    /// Drops a strategy's queued orders and its streams, and disarms it
+    /// (it stopped, or restarted: a restart always comes up in paper).
+    pub fn forget(&mut self, strategy_id: i64, now_ms: i64) {
         self.queued.retain(|q| q.strategy_id != strategy_id);
+        self.dispatches.retain(|d| d.strategy_id() != strategy_id);
         self.last_closed.retain(|(id, _), _| *id != strategy_id);
+        self.disarm(strategy_id, "the strategy stopped", now_ms);
+    }
+
+    /// Live orders waiting to be sent. The harness takes them, releases its
+    /// lock and awaits [`LiveDispatch::send`] on each.
+    pub fn take_dispatches(&mut self) -> Vec<LiveDispatch> {
+        std::mem::take(&mut self.dispatches)
+    }
+
+    /// Whether the live-trading master switch is on.
+    pub fn live_enabled(&self) -> bool {
+        self.arming.enabled()
+    }
+
+    /// Turns the master switch on (audited first) or off (at once, and
+    /// disarming every strategy).
+    pub fn set_live_enabled(&mut self, on: bool, now_ms: i64) -> Result<(), GatewayError> {
+        if on == self.arming.enabled() {
+            return Ok(());
+        }
+        let event = AuditEvent::LiveSwitched { enabled: on };
+        if on {
+            self.audit
+                .record(now_ms, &event)
+                .map_err(GatewayError::AuditFailed)?;
+        } else {
+            self.disarm_all("live trading was switched off", now_ms);
+            let _ = self.audit.record(now_ms, &event);
+        }
+        self.arming.set_enabled(on);
+        Ok(())
+    }
+
+    /// Installs the broker that can trade (it connected).
+    pub fn install_live_route(&mut self, route: Arc<LiveRoute>) {
+        self.live = Some(route);
+    }
+
+    /// Removes the live route (the broker disconnected or logged out),
+    /// disarming every strategy and dropping unsent live orders.
+    pub fn remove_live_route(&mut self, now_ms: i64) -> Option<Arc<LiveRoute>> {
+        self.disarm_all("the broker disconnected", now_ms);
+        self.dispatches.clear();
+        self.live.take()
+    }
+
+    pub fn live_route(&self) -> Option<&Arc<LiveRoute>> {
+        self.live.as_ref()
+    }
+
+    /// Arms a strategy for live trading until the session's end. Every
+    /// precondition is checked here; the arming is audited before it takes
+    /// effect. `has_limits`: the strategy has limits of its own. `flat`:
+    /// it holds nothing and waits on nothing (a paper position must not
+    /// turn into a live one). Returns when the arming expires.
+    #[allow(clippy::too_many_arguments)]
+    pub fn arm(
+        &mut self,
+        strategy_id: i64,
+        name: &str,
+        typed: &str,
+        has_limits: bool,
+        flat: bool,
+        conditions: ArmConditions,
+        now_ms: i64,
+    ) -> Result<i64, GatewayError> {
+        if !self.arming.enabled() {
+            return Err(ArmError::MasterOff.into());
+        }
+        if self.kill.is_engaged() {
+            return Err(ArmError::KillEngaged.into());
+        }
+        if let Some(reason) = self.paused.get(&strategy_id) {
+            return Err(ArmError::Paused(reason.clone()).into());
+        }
+        if self.live.is_none() {
+            return Err(ArmError::NoLiveRoute.into());
+        }
+        if !conditions.broker_connected {
+            return Err(ArmError::BrokerDisconnected.into());
+        }
+        if conditions.data != Freshness::Live {
+            return Err(ArmError::DataNotLive(conditions.data).into());
+        }
+        if !has_limits {
+            return Err(ArmError::NoLimits.into());
+        }
+        if !flat || self.queued.iter().any(|q| q.strategy_id == strategy_id) {
+            return Err(ArmError::NotFlat.into());
+        }
+        let expires_ms = session_end_ms(now_ms);
+        if now_ms >= expires_ms {
+            return Err(ArmError::SessionOver.into());
+        }
+        let expected = arm_phrase(name);
+        if typed != expected {
+            return Err(ArmError::WrongPhrase { expected }.into());
+        }
+        self.audit
+            .record(
+                now_ms,
+                &AuditEvent::StrategyArmed {
+                    strategy_id,
+                    expires_ms,
+                },
+            )
+            .map_err(|e| GatewayError::Arm(ArmError::AuditFailed(e)))?;
+        self.arming.arm(strategy_id, expires_ms);
+        Ok(expires_ms)
+    }
+
+    /// Disarms a strategy at once (the audit record is best-effort: making
+    /// things safer never waits). Returns whether it was armed.
+    pub fn disarm(&mut self, strategy_id: i64, reason: &str, now_ms: i64) -> bool {
+        if !self.arming.disarm(strategy_id) {
+            return false;
+        }
+        let _ = self.audit.record(
+            now_ms,
+            &AuditEvent::StrategyDisarmed {
+                strategy_id,
+                reason: reason.to_owned(),
+            },
+        );
+        true
+    }
+
+    fn disarm_all(&mut self, reason: &str, now_ms: i64) {
+        for strategy_id in self.arming.armed() {
+            self.disarm(strategy_id, reason, now_ms);
+        }
+    }
+
+    /// Whether `strategy_id` is armed right now; an arming past the
+    /// session's end is dropped here (back to paper, audited).
+    fn armed_now(&mut self, strategy_id: i64, now_ms: i64) -> bool {
+        if self.arming.is_armed(strategy_id, now_ms) {
+            return true;
+        }
+        self.disarm(strategy_id, "the trading session ended", now_ms);
+        false
+    }
+
+    /// When `strategy_id`'s arming expires, if it is armed now.
+    pub fn armed_until(&self, strategy_id: i64, now_ms: i64) -> Option<i64> {
+        self.arming
+            .is_armed(strategy_id, now_ms)
+            .then(|| self.arming.expires(strategy_id))
+            .flatten()
     }
 
     /// Orders waiting to fill, for tests and the dashboard.
@@ -508,6 +731,7 @@ mod tests {
             quantity: qty,
             signal_price: 1_000.0,
             signal_bar_t: bar_t,
+            freshness: Freshness::Delayed,
         }
     }
 
@@ -625,7 +849,7 @@ mod tests {
                 .is_empty()
         );
         assert_eq!(gw.queued(), 1, "still waiting for a NEWER bar");
-        gw.forget(1);
+        gw.forget(1, NOW);
         assert_eq!(gw.queued(), 0);
         assert!(
             gw.on_closed_bar(1, "NSE:RELIANCE", bar(NOW + MIN, 1_000.0), NOW)

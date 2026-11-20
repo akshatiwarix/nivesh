@@ -8,7 +8,7 @@
 
 use std::sync::Mutex;
 
-use nivesh_core::Side;
+use nivesh_core::{Freshness, Side};
 use nivesh_risk::{RiskCheck, RiskRejection};
 
 use crate::kill::KillReason;
@@ -44,7 +44,7 @@ pub enum AuditEvent {
         side: Side,
         quantity: i64,
         price: Option<f64>,
-        /// `paper` until live routing exists.
+        /// `paper` or `live`.
         route: &'static str,
     },
     /// The order filled.
@@ -79,6 +79,34 @@ pub enum AuditEvent {
     StrategyResumed { strategy_id: i64 },
     /// An intent arrived from a paused strategy.
     PausedBlocked { strategy_id: i64 },
+    /// The live-trading master switch changed.
+    LiveSwitched { enabled: bool },
+    /// A strategy was armed for live trading until `expires_ms`.
+    StrategyArmed { strategy_id: i64, expires_ms: i64 },
+    /// A strategy was disarmed (the user, the kill switch, a pause, the
+    /// session's end).
+    StrategyDisarmed { strategy_id: i64, reason: String },
+    /// An armed strategy's intent came from data that is not LIVE.
+    NotLive {
+        strategy_id: i64,
+        freshness: Freshness,
+    },
+    /// The broker acknowledged a live order.
+    OrderAcked {
+        strategy_id: i64,
+        decision_id: u64,
+        tag: String,
+        broker_id: String,
+    },
+    /// A live order was not placed, or its outcome is unknown
+    /// (`ambiguous`: reconciled by its tag, never placed again).
+    OrderFailed {
+        strategy_id: i64,
+        decision_id: u64,
+        tag: String,
+        reason: String,
+        ambiguous: bool,
+    },
 }
 
 impl AuditEvent {
@@ -98,6 +126,15 @@ impl AuditEvent {
             Self::StrategyPaused { .. } => "strategy.paused",
             Self::StrategyResumed { .. } => "strategy.resumed",
             Self::PausedBlocked { .. } => "strategy.blocked",
+            Self::LiveSwitched { .. } => "live.switch",
+            Self::StrategyArmed { .. } => "strategy.armed",
+            Self::StrategyDisarmed { .. } => "strategy.disarmed",
+            Self::NotLive { .. } => "intent.not_live",
+            Self::OrderAcked { .. } => "order.acked",
+            Self::OrderFailed {
+                ambiguous: true, ..
+            } => "order.ambiguous",
+            Self::OrderFailed { .. } => "order.failed",
         }
     }
 
@@ -113,8 +150,16 @@ impl AuditEvent {
             | Self::KillBlocked { strategy_id }
             | Self::StrategyPaused { strategy_id, .. }
             | Self::StrategyResumed { strategy_id }
-            | Self::PausedBlocked { strategy_id } => Some(*strategy_id),
-            Self::KillEngaged { .. } | Self::OrdersCancelled { .. } | Self::KillReset => None,
+            | Self::PausedBlocked { strategy_id }
+            | Self::StrategyArmed { strategy_id, .. }
+            | Self::StrategyDisarmed { strategy_id, .. }
+            | Self::NotLive { strategy_id, .. }
+            | Self::OrderAcked { strategy_id, .. }
+            | Self::OrderFailed { strategy_id, .. } => Some(*strategy_id),
+            Self::KillEngaged { .. }
+            | Self::OrdersCancelled { .. }
+            | Self::KillReset
+            | Self::LiveSwitched { .. } => None,
         }
     }
 

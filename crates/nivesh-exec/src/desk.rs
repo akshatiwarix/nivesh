@@ -4,23 +4,28 @@
 //! owns the decisions. For each closed bar of a strategy's stream it
 //! settles that strategy's queued orders at the bar's open, lets the runner
 //! decide on the bar, and routes the resulting intent through
-//! [`OrderGateway::submit`]. Nothing here reaches a real broker: the only
-//! route is the paper fill model.
+//! [`OrderGateway::submit`]. Paper strategies fill through the paper fill
+//! model. An armed strategy's approved orders come back in the report as
+//! [`LiveDispatch`]es for the harness to send; the desk itself never
+//! awaits a broker.
 
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
-use nivesh_core::{Candle, Side};
+use nivesh_broker::OrderAck;
+use nivesh_core::{Candle, Freshness, Side};
 use nivesh_risk::{RiskEngine, RiskLimits, paise};
 use nivesh_strategy::{IntentSide, PaperRunner, PaperState};
 
+use crate::arming::{ArmConditions, ArmError};
 use crate::kill::{KillMonitor, KillReason, KillState, KillTriggers, Observation};
 use crate::{
-    AccountView, AuditSink, Fill, GatewayError, NextOpen, OrderGateway, OrderIntent, PaperBroker,
+    AccountView, AuditSink, Fill, GatewayError, LiveDispatch, LiveRoute, NextOpen, OrderGateway,
+    OrderIntent, PaperBroker,
 };
 
 /// What one closed bar did to one strategy.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug)]
 pub struct StepReport {
     /// Orders from earlier bars that filled at this bar's open.
     pub fills: Vec<Fill>,
@@ -32,6 +37,10 @@ pub struct StepReport {
     pub state: PaperState,
     /// Set when this bar engaged the kill switch: persist it.
     pub kill: Option<KillState>,
+    /// Live orders to send (armed strategies only): await each
+    /// [`LiveDispatch::send`] outside the desk's lock, then report the
+    /// outcome with [`PaperDesk::on_live_outcome`].
+    pub dispatches: Vec<LiveDispatch>,
 }
 
 pub struct PaperDesk {
@@ -142,16 +151,125 @@ impl PaperDesk {
         self.gateway.paused(strategy_id)
     }
 
-    /// Starts (or restarts) a strategy. Anything it had queued is dropped.
-    pub fn start(&mut self, strategy_id: i64, runner: PaperRunner) {
-        self.gateway.forget(strategy_id);
+    /// Starts (or restarts) a strategy, in paper. Anything it had queued
+    /// is dropped.
+    pub fn start(&mut self, strategy_id: i64, runner: PaperRunner, now_ms: i64) {
+        self.gateway.forget(strategy_id, now_ms);
         self.runners.insert(strategy_id, runner);
     }
 
-    /// Stops a strategy, dropping its queued orders. Returns its last state.
-    pub fn stop(&mut self, strategy_id: i64) -> Option<PaperState> {
-        self.gateway.forget(strategy_id);
+    /// Stops a strategy, dropping its queued orders and disarming it.
+    /// Returns its last state.
+    pub fn stop(&mut self, strategy_id: i64, now_ms: i64) -> Option<PaperState> {
+        self.gateway.forget(strategy_id, now_ms);
         self.runners.remove(&strategy_id).map(|r| r.state().clone())
+    }
+
+    /// Whether the live-trading master switch is on (never at startup).
+    pub fn live_enabled(&self) -> bool {
+        self.gateway.live_enabled()
+    }
+
+    /// Turns the master switch on (audited first) or off (disarming all).
+    pub fn set_live_enabled(&mut self, on: bool, now_ms: i64) -> Result<(), GatewayError> {
+        self.gateway.set_live_enabled(on, now_ms)
+    }
+
+    /// Installs the broker that can trade.
+    pub fn install_live_route(&mut self, route: Arc<LiveRoute>) {
+        self.gateway.install_live_route(route);
+    }
+
+    /// The live route, for reconciling its book.
+    pub fn live_route(&self) -> Option<&Arc<LiveRoute>> {
+        self.gateway.live_route()
+    }
+
+    /// The broker disconnected: every strategy is disarmed, and unsent live
+    /// orders are dropped (their runners go back to what they hold).
+    pub fn remove_live_route(&mut self, now_ms: i64) -> Option<Arc<LiveRoute>> {
+        let waiting: Vec<i64> = self
+            .gateway
+            .take_dispatches()
+            .iter()
+            .map(LiveDispatch::strategy_id)
+            .collect();
+        for id in waiting {
+            if let Some(runner) = self.runners.get_mut(&id) {
+                runner.on_rejected();
+            }
+        }
+        self.gateway.remove_live_route(now_ms)
+    }
+
+    /// Arms a running strategy for live trading until the session's end
+    /// (see [`OrderGateway::arm`]). It must have its own limits and be
+    /// flat. Returns when the arming expires.
+    pub fn arm(
+        &mut self,
+        strategy_id: i64,
+        name: &str,
+        typed: &str,
+        conditions: ArmConditions,
+        now_ms: i64,
+    ) -> Result<i64, GatewayError> {
+        let runner = self.runners.get(&strategy_id).ok_or(ArmError::NotRunning)?;
+        let flat = runner.state().position.is_none();
+        let has_limits = self.limits.contains_key(&strategy_id);
+        self.gateway.arm(
+            strategy_id,
+            name,
+            typed,
+            has_limits,
+            flat,
+            conditions,
+            now_ms,
+        )
+    }
+
+    /// Disarms a strategy at once. Returns whether it was armed.
+    pub fn disarm(&mut self, strategy_id: i64, now_ms: i64) -> bool {
+        self.gateway
+            .disarm(strategy_id, "disarmed by the user", now_ms)
+    }
+
+    /// When a strategy's arming expires, if it is armed now.
+    pub fn armed_until(&self, strategy_id: i64, now_ms: i64) -> Option<i64> {
+        self.gateway.armed_until(strategy_id, now_ms)
+    }
+
+    /// What became of a sent live order. A refusal returns the runner to
+    /// what it holds and counts toward the rejection storm; an ambiguous or
+    /// unaudited outcome pauses the strategy until it is reconciled.
+    /// Returns the kill switch's new state if this engaged it.
+    pub fn on_live_outcome(
+        &mut self,
+        strategy_id: i64,
+        outcome: &Result<OrderAck, GatewayError>,
+        now_ms: i64,
+    ) -> Option<KillState> {
+        match outcome {
+            Ok(_) => None,
+            Err(GatewayError::AmbiguousPlacement(tag)) => {
+                let reason = format!("order {tag} has an unknown outcome");
+                self.gateway.pause(strategy_id, &reason, now_ms);
+                None
+            }
+            // The broker took the order but the log missed its answer: the
+            // order exists, so the runner is not reset; the strategy waits
+            // for reconciliation.
+            Err(GatewayError::AuditFailed(err)) => {
+                let reason = format!("a live order's acknowledgement was not audited: {err}");
+                self.gateway.pause(strategy_id, &reason, now_ms);
+                None
+            }
+            Err(_) => {
+                if let Some(runner) = self.runners.get_mut(&strategy_id) {
+                    runner.on_rejected();
+                }
+                self.observe(Observation::Rejection, now_ms)
+            }
+        }
     }
 
     /// Sets (or clears) a strategy's own limits.
@@ -206,10 +324,13 @@ impl PaperDesk {
     }
 
     /// One closed bar of `strategy_id`'s stream. `None` if it isn't running.
+    /// `freshness` is the data the bar was built from: an armed strategy
+    /// trades only on LIVE.
     pub fn on_closed_bar(
         &mut self,
         strategy_id: i64,
         bar: Candle,
+        freshness: Freshness,
         now_ms: i64,
     ) -> Option<StepReport> {
         let runner = self.runners.get_mut(&strategy_id)?;
@@ -256,6 +377,7 @@ impl PaperDesk {
                 quantity: intent.quantity,
                 signal_price: intent.signal_price,
                 signal_bar_t: intent.signal_bar_t,
+                freshness,
             };
             match self.gateway.submit(&order, &account, now_ms) {
                 Ok(decision) => placed = Some(decision),
@@ -285,6 +407,7 @@ impl PaperDesk {
             refused,
             state: runner.state().clone(),
             kill,
+            dispatches: self.gateway.take_dispatches(),
         })
     }
 }
@@ -345,6 +468,7 @@ mod tests {
         desk.start(
             id,
             PaperRunner::new(set, "NSE:RELIANCE", 100_000.0).unwrap(),
+            0,
         );
         desk
     }
@@ -353,13 +477,13 @@ mod tests {
     fn a_signal_is_placed_then_filled_on_the_next_bar() {
         let mut desk = desk_with(7, always_in(1));
         let b0 = bar(0, 100.0, 100.0);
-        let r0 = desk.on_closed_bar(7, b0, b0.t).unwrap();
+        let r0 = desk.on_closed_bar(7, b0, Freshness::Delayed, b0.t).unwrap();
         assert!(r0.placed.is_some());
         assert!(r0.fills.is_empty());
         assert!(r0.state.position.is_none());
 
         let b1 = bar(1, 101.0, 102.0);
-        let r1 = desk.on_closed_bar(7, b1, b1.t).unwrap();
+        let r1 = desk.on_closed_bar(7, b1, Freshness::Delayed, b1.t).unwrap();
         assert_eq!(r1.fills.len(), 1);
         assert_eq!(r1.fills[0].price, 101.0);
         let pos = r1.state.position.unwrap();
@@ -372,13 +496,13 @@ mod tests {
         // 10,000 shares is over the 1,000-share cap.
         let mut desk = desk_with(7, always_in(10_000));
         let b0 = bar(0, 100.0, 100.0);
-        let r0 = desk.on_closed_bar(7, b0, b0.t).unwrap();
+        let r0 = desk.on_closed_bar(7, b0, Freshness::Delayed, b0.t).unwrap();
         assert!(
             matches!(&r0.refused[..], [GatewayError::RiskRejected(r)] if r.check == RiskCheck::Quantity)
         );
         assert!(r0.placed.is_none());
         let b1 = bar(1, 100.0, 100.0);
-        let r1 = desk.on_closed_bar(7, b1, b1.t).unwrap();
+        let r1 = desk.on_closed_bar(7, b1, Freshness::Delayed, b1.t).unwrap();
         assert!(r1.fills.is_empty());
         assert!(r1.state.position.is_none());
         assert_eq!(
@@ -410,17 +534,21 @@ mod tests {
             Arc::new(NextOpen::FREE),
             Arc::clone(&audit) as Arc<dyn AuditSink>,
         );
-        desk.start(1, PaperRunner::new(set, "NSE:RELIANCE", 100_000.0).unwrap());
-        desk.on_closed_bar(1, bar(0, 100.0, 100.0), T0);
+        desk.start(
+            1,
+            PaperRunner::new(set, "NSE:RELIANCE", 100_000.0).unwrap(),
+            0,
+        );
+        desk.on_closed_bar(1, bar(0, 100.0, 100.0), Freshness::Delayed, T0);
         let r = desk
-            .on_closed_bar(1, bar(1, 100.0, 100.0), T0 + DAY)
+            .on_closed_bar(1, bar(1, 100.0, 100.0), Freshness::Delayed, T0 + DAY)
             .unwrap();
         assert!(r.kill.is_none());
         let view = desk.account_view(1, "NSE:RELIANCE");
         assert_eq!((view.position_quantity, view.open_positions), (100, 1));
 
         let r = desk
-            .on_closed_bar(1, bar(2, 60.0, 50.0), T0 + 2 * DAY)
+            .on_closed_bar(1, bar(2, 60.0, 50.0), Freshness::Delayed, T0 + 2 * DAY)
             .unwrap();
         let view = desk.account_view(1, "NSE:RELIANCE");
         assert_eq!(view.day_pnl_paise, -5_000 * 100, "MTM at the 50 close");
@@ -443,7 +571,7 @@ mod tests {
         // Squaring off is a separate, confirmed action: the position stays,
         // and every new intent is refused.
         let r = desk
-            .on_closed_bar(1, bar(3, 51.0, 40.0), T0 + 3 * DAY)
+            .on_closed_bar(1, bar(3, 51.0, 40.0), Freshness::Delayed, T0 + 3 * DAY)
             .unwrap();
         assert!(r.fills.is_empty());
         assert_eq!(r.refused, vec![GatewayError::KillSwitchEngaged]);
@@ -457,7 +585,7 @@ mod tests {
         let mut kill = None;
         for i in 0..5 {
             let r = desk
-                .on_closed_bar(7, bar(i, 100.0, 100.0), T0 + i * 1_000)
+                .on_closed_bar(7, bar(i, 100.0, 100.0), Freshness::Delayed, T0 + i * 1_000)
                 .unwrap();
             kill = kill.or(r.kill);
         }
@@ -470,7 +598,7 @@ mod tests {
     #[test]
     fn the_kill_switch_survives_a_restart_and_resets_only_deliberately() {
         let mut desk = desk_with(7, always_in(1));
-        desk.on_closed_bar(7, bar(0, 100.0, 100.0), T0);
+        desk.on_closed_bar(7, bar(0, 100.0, 100.0), Freshness::Delayed, T0);
         assert_eq!(desk.queued(), 1);
         assert_eq!(
             desk.engage_kill(KillReason::Manual, "pressed", T0)
@@ -483,7 +611,7 @@ mod tests {
         let mut desk = desk_with(7, always_in(1));
         desk.restore_kill(saved);
         let r = desk
-            .on_closed_bar(7, bar(1, 100.0, 100.0), T0 + DAY)
+            .on_closed_bar(7, bar(1, 100.0, 100.0), Freshness::Delayed, T0 + DAY)
             .unwrap();
         assert_eq!(r.refused, vec![GatewayError::KillSwitchEngaged]);
         assert!(matches!(
@@ -496,7 +624,7 @@ mod tests {
         ));
         desk.reset_kill(crate::RESET_PHRASE, T0 + DAY).unwrap();
         let r = desk
-            .on_closed_bar(7, bar(2, 100.0, 100.0), T0 + 2 * DAY)
+            .on_closed_bar(7, bar(2, 100.0, 100.0), Freshness::Delayed, T0 + 2 * DAY)
             .unwrap();
         assert!(r.placed.is_some(), "trading again after the reset");
     }
@@ -530,13 +658,15 @@ mod tests {
                 ..RiskLimits::default()
             }),
         );
-        let r = desk.on_closed_bar(7, bar(0, 100.0, 100.0), T0).unwrap();
+        let r = desk
+            .on_closed_bar(7, bar(0, 100.0, 100.0), Freshness::Delayed, T0)
+            .unwrap();
         assert!(
             matches!(&r.refused[..], [GatewayError::RiskRejected(x)] if x.check == RiskCheck::Quantity)
         );
         desk.set_strategy_limits(7, None);
         let r = desk
-            .on_closed_bar(7, bar(1, 100.0, 100.0), T0 + DAY)
+            .on_closed_bar(7, bar(1, 100.0, 100.0), Freshness::Delayed, T0 + DAY)
             .unwrap();
         assert!(r.placed.is_some());
     }
@@ -544,7 +674,7 @@ mod tests {
     #[test]
     fn a_mismatch_pauses_the_strategy_until_it_is_resumed() {
         let mut desk = desk_with(7, always_in(1));
-        desk.on_closed_bar(7, bar(0, 100.0, 100.0), T0);
+        desk.on_closed_bar(7, bar(0, 100.0, 100.0), Freshness::Delayed, T0);
         assert_eq!(desk.queued(), 1);
         let found = crate::Reconciliation {
             mismatches: vec![crate::Mismatch::UnknownOutcome {
@@ -565,12 +695,12 @@ mod tests {
                 .is_some_and(|r| r.contains("unknown_outcome"))
         );
         let r = desk
-            .on_closed_bar(7, bar(1, 100.0, 100.0), T0 + DAY)
+            .on_closed_bar(7, bar(1, 100.0, 100.0), Freshness::Delayed, T0 + DAY)
             .unwrap();
         assert!(matches!(&r.refused[..], [GatewayError::StrategyPaused(_)]));
         desk.resume(7, T0 + DAY).unwrap();
         let r = desk
-            .on_closed_bar(7, bar(2, 100.0, 100.0), T0 + 2 * DAY)
+            .on_closed_bar(7, bar(2, 100.0, 100.0), Freshness::Delayed, T0 + 2 * DAY)
             .unwrap();
         assert!(r.placed.is_some());
     }
@@ -579,13 +709,13 @@ mod tests {
     fn stopping_drops_the_queued_order() {
         let mut desk = desk_with(7, always_in(1));
         let b0 = bar(0, 100.0, 100.0);
-        desk.on_closed_bar(7, b0, b0.t).unwrap();
+        desk.on_closed_bar(7, b0, Freshness::Delayed, b0.t).unwrap();
         assert_eq!(desk.queued(), 1);
-        assert!(desk.stop(7).is_some());
+        assert!(desk.stop(7, 0).is_some());
         assert_eq!(desk.queued(), 0);
         assert!(!desk.is_running(7));
         assert!(
-            desk.on_closed_bar(7, bar(1, 100.0, 100.0), T0 + DAY)
+            desk.on_closed_bar(7, bar(1, 100.0, 100.0), Freshness::Delayed, T0 + DAY)
                 .is_none()
         );
     }
@@ -605,7 +735,7 @@ mod tests {
         ];
         let mut last = None;
         for b in bars {
-            last = desk.on_closed_bar(1, b, b.t);
+            last = desk.on_closed_bar(1, b, Freshness::Delayed, b.t);
         }
         let state = last.unwrap().state;
         assert!(state.position.is_none());
