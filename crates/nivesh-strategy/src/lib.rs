@@ -4,6 +4,7 @@
 
 pub mod backtest;
 pub mod costs;
+pub mod decide;
 pub mod evaluate;
 pub mod paper;
 pub mod rules;
@@ -11,9 +12,11 @@ pub mod templates;
 pub mod walk_forward;
 
 pub use backtest::{
-    BacktestOptions, BacktestResult, BacktestTrade, CurvePoint, backtest, backtest_range,
+    BacktestOptions, BacktestResult, BacktestTrade, CurvePoint, backtest, backtest_decider,
+    backtest_range,
 };
 pub use costs::{ChargeSchedule, Charges, CostModel};
+pub use decide::Decide;
 pub use evaluate::{Evaluator, validate};
 pub use paper::{PaperFill, PaperPosition, PaperRunner, PaperState};
 pub use rules::{
