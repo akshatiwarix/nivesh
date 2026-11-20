@@ -1,0 +1,24 @@
+/* AUDIT: chain status and the selected record. */
+
+.audit__head {
+  display: flex;
+  gap: var(--pad-x);
+  align-items: center;
+  padding: var(--pad-y) var(--pad-x);
+}
+
+.audit__filter {
+  color: var(--c-fg-faint);
+  font-size: var(--fs-sm);
+}
+
+.audit__detail {
+  margin: 0;
+  padding: var(--pad-y) var(--pad-x);
+  max-height: 8em;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  font-size: var(--fs-sm);
+  border-top: 1px solid var(--c-fg-faint);
+}

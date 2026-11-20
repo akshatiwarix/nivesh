@@ -152,6 +152,13 @@ export const COMMANDS: readonly CommandDef[] = [
       "RISK [SET <QTY|VALUE|EXPOSURE|POSITIONS|OPM|OPD|LOSS|BAND> <N> [FOR <NAME>] | CLEAR <NAME>]",
   },
   {
+    id: "audit",
+    names: ["AUDIT"],
+    summary:
+      "The hash-chained audit log, newest first. AUDIT KIND order filters by kind, AUDIT FOR <NAME> by strategy; AUDIT VERIFY re-checks the chain; AUDIT EXPORT CSV|JSONL saves it to Downloads",
+    usage: "AUDIT [KIND <PREFIX>] [FOR <NAME>] | AUDIT VERIFY | AUDIT EXPORT CSV|JSONL",
+  },
+  {
     id: "kill",
     names: ["KILL"],
     summary:

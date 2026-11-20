@@ -1,4 +1,5 @@
 import type { Component, JSX } from "solid-js";
+import { AuditView } from "./audit/AuditView";
 import { BreadthView } from "./breadth/BreadthView";
 import {
   FundsView,
@@ -65,6 +66,8 @@ function renderView(view: View): JSX.Element {
       return <PaperDashboardView />;
     case "risk":
       return <RiskView />;
+    case "audit":
+      return <AuditView view={view} />;
   }
 }
 

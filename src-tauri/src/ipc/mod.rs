@@ -4,6 +4,7 @@
 //! [`crate::commands`]. Every type that crosses IPC derives `ts_rs::TS` and is
 //! listed in [`bindings::export`], which generates `ui/ipc/bindings`.
 
+pub mod audit;
 pub mod bindings;
 pub mod broker;
 pub mod chart;

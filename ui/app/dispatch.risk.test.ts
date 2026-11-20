@@ -115,3 +115,15 @@ describe("LIVE, ARM and DISARM", () => {
     expect(ipc.strategyDisarm).toHaveBeenCalledWith("TREND");
   });
 });
+
+describe("AUDIT", () => {
+  it("opens with filters, and refuses unknown words", async () => {
+    const ws = createWorkspace();
+    expect(await dispatch(parse("audit kind order for trend"), ws)).toBeUndefined();
+    expect(ws.currentView(0)).toEqual({ kind: "audit", filter: "order", strategy: "TREND" });
+    expect(await dispatch(parse("audit"), ws)).toBeUndefined();
+    expect(ws.currentView(0)).toEqual({ kind: "audit" });
+    expect(await dispatch(parse("audit since today"), ws)).toContain("AUDIT");
+    expect(await dispatch(parse("audit export pdf"), ws)).toContain("EXPORT CSV|JSONL");
+  });
+});

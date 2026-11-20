@@ -6,6 +6,9 @@
   "permissions": [
     "allow-all-indices",
     "allow-app-info",
+    "allow-audit-export",
+    "allow-audit-log",
+    "allow-audit-verify",
     "allow-backtest-result",
     "allow-backtest-strategy",
     "allow-kill-engage",
