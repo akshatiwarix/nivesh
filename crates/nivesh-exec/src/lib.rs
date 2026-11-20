@@ -30,9 +30,11 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 
-pub use arming::{ArmConditions, ArmError, Arming, arm_phrase, session_end_ms};
+pub use arming::{
+    ArmConditions, ArmError, Arming, LIVE_PHRASE, LOOSEN_PHRASE, arm_phrase, session_end_ms,
+};
 pub use audit::{AuditEvent, AuditSink, MemoryAudit};
-pub use desk::{PaperDesk, StepReport};
+pub use desk::{DeskUsage, PaperDesk, StepReport};
 pub use kill::{
     KillError, KillMonitor, KillReason, KillState, KillSwitch, KillTriggers, Observation,
     RESET_COOLDOWN_MS, RESET_PHRASE,
@@ -115,6 +117,9 @@ pub enum GatewayError {
     /// An armed strategy's intent came from data that is not LIVE.
     #[error("live strategies trade only on LIVE data; this signal came from {} data", .0.label())]
     NotLiveData(Freshness),
+    /// The action makes things riskier: it needs the typed phrase.
+    #[error("this needs confirmation: type {phrase}")]
+    NeedsConfirmation { phrase: String },
     /// The broker may or may not have the order: it is reconciled by its
     /// tag, never placed again.
     #[error("the outcome of order {0} is unknown; it will be reconciled, not retried")]
@@ -330,6 +335,50 @@ impl OrderGateway {
 
     pub fn risk_limits(&self) -> &RiskLimits {
         &self.engine.limits
+    }
+
+    /// Replaces the global limits. Tightening applies at once (audited
+    /// best-effort); loosening needs the typed [`LOOSEN_PHRASE`] and is
+    /// audited first. Returns whether it loosened.
+    pub fn set_risk_limits(
+        &mut self,
+        limits: RiskLimits,
+        typed: &str,
+        now_ms: i64,
+    ) -> Result<bool, GatewayError> {
+        let loosened = !limits.is_within(&self.engine.limits);
+        self.record_limits(None, loosened, Some(&limits), typed, now_ms)?;
+        self.engine.limits = limits;
+        Ok(loosened)
+    }
+
+    /// Audits a limit change: a loosening must carry the phrase and be on
+    /// the record before it applies; a tightening never waits.
+    pub(crate) fn record_limits(
+        &self,
+        strategy_id: Option<i64>,
+        loosened: bool,
+        limits: Option<&RiskLimits>,
+        typed: &str,
+        now_ms: i64,
+    ) -> Result<(), GatewayError> {
+        let event = AuditEvent::LimitsChanged {
+            strategy_id,
+            loosened,
+            limits: limits.cloned(),
+        };
+        if !loosened {
+            let _ = self.audit.record(now_ms, &event);
+            return Ok(());
+        }
+        if typed != LOOSEN_PHRASE {
+            return Err(GatewayError::NeedsConfirmation {
+                phrase: LOOSEN_PHRASE.to_owned(),
+            });
+        }
+        self.audit
+            .record(now_ms, &event)
+            .map_err(GatewayError::AuditFailed)
     }
 
     /// Engages the kill switch: from now on every intent is refused, and
@@ -571,14 +620,25 @@ impl OrderGateway {
         self.arming.enabled()
     }
 
-    /// Turns the master switch on (audited first) or off (at once, and
-    /// disarming every strategy).
-    pub fn set_live_enabled(&mut self, on: bool, now_ms: i64) -> Result<(), GatewayError> {
+    /// Turns the master switch on (with the typed [`LIVE_PHRASE`], audited
+    /// first) or off (at once, and disarming every strategy). `typed` is
+    /// ignored when switching off.
+    pub fn set_live_enabled(
+        &mut self,
+        on: bool,
+        typed: &str,
+        now_ms: i64,
+    ) -> Result<(), GatewayError> {
         if on == self.arming.enabled() {
             return Ok(());
         }
         let event = AuditEvent::LiveSwitched { enabled: on };
         if on {
+            if typed != LIVE_PHRASE {
+                return Err(GatewayError::NeedsConfirmation {
+                    phrase: LIVE_PHRASE.to_owned(),
+                });
+            }
             self.audit
                 .record(now_ms, &event)
                 .map_err(GatewayError::AuditFailed)?;
@@ -711,6 +771,14 @@ impl OrderGateway {
     /// Orders waiting to fill, for tests and the dashboard.
     pub fn queued(&self) -> usize {
         self.queued.len()
+    }
+
+    /// Orders approved at or after `since_ms` (the rate limits' usage).
+    pub fn orders_since(&self, since_ms: i64) -> usize {
+        self.approvals
+            .iter()
+            .take_while(|t| **t >= since_ms)
+            .count()
     }
 
     /// Count of approvals kept, for tests.

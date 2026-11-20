@@ -1,4 +1,5 @@
 export { appInfo } from "./app";
+export type { AlertLevel } from "./bindings/AlertLevel";
 export type { AppInfo } from "./bindings/AppInfo";
 export type { BacktestResultDto } from "./bindings/BacktestResultDto";
 export type { BacktestTradeDto } from "./bindings/BacktestTradeDto";
@@ -37,12 +38,18 @@ export type { ProgressDto } from "./bindings/ProgressDto";
 export type { ProvenanceDto } from "./bindings/ProvenanceDto";
 export type { ProviderStatusDto } from "./bindings/ProviderStatusDto";
 export type { QuoteDto } from "./bindings/QuoteDto";
+export type { RiskActionDto } from "./bindings/RiskActionDto";
+export type { RiskAlertDto } from "./bindings/RiskAlertDto";
+export type { RiskLimitsDto } from "./bindings/RiskLimitsDto";
+export type { RiskStatusDto } from "./bindings/RiskStatusDto";
+export type { RiskUsageDto } from "./bindings/RiskUsageDto";
 export type { SectorRowDto } from "./bindings/SectorRowDto";
 export type { SectorsDto } from "./bindings/SectorsDto";
 export type { SessionKind } from "./bindings/SessionKind";
 export type { SourcedIndexQuoteDto } from "./bindings/SourcedIndexQuoteDto";
 export type { SourcedQuoteDto } from "./bindings/SourcedQuoteDto";
 export type { StrategyDto } from "./bindings/StrategyDto";
+export type { StrategyRiskDto } from "./bindings/StrategyRiskDto";
 export type { TopicDto } from "./bindings/TopicDto";
 export type { TradeDto } from "./bindings/TradeDto";
 export type { UiState } from "./bindings/UiState";
@@ -81,7 +88,7 @@ export {
   setWindowVisible,
   subscribeQuotes,
 } from "./data";
-export { onMarketSession, onProviderStatus } from "./events";
+export { onKillSwitchChanged, onMarketSession, onProviderStatus, onRiskAlert } from "./events";
 export { marketStatus } from "./market";
 export {
   getBreadth,
@@ -91,7 +98,17 @@ export {
   getSectors,
   openNewsLink,
 } from "./markets";
-export { killEngage, killReset, killStatus } from "./risk";
+export {
+  killEngage,
+  killReset,
+  killStatus,
+  liveSwitch,
+  riskClearLimits,
+  riskSetLimit,
+  riskStatus,
+  strategyArm,
+  strategyDisarm,
+} from "./risk";
 export {
   backtestResult,
   backtestStrategy,

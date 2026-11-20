@@ -9,6 +9,7 @@ mod broker;
 mod commands;
 pub mod ipc;
 mod logging;
+mod notify;
 mod paper;
 pub mod services;
 mod window_state;
@@ -65,6 +66,7 @@ pub fn run() -> anyhow::Result<()> {
             // Paper strategies saved as running resume from their saved
             // state. Paper only: the desk has no route to a real broker.
             let paper = Arc::new(paper::PaperManager::new(Arc::clone(&store)));
+            paper.attach(app.handle().clone());
             {
                 let paper = Arc::clone(&paper);
                 let services = Arc::clone(&services);
@@ -102,6 +104,12 @@ pub fn run() -> anyhow::Result<()> {
             commands::risk::kill_engage,
             commands::risk::kill_reset,
             commands::risk::kill_status,
+            commands::risk::live_switch,
+            commands::risk::risk_clear_limits,
+            commands::risk::risk_set_limit,
+            commands::risk::risk_status,
+            commands::risk::strategy_arm,
+            commands::risk::strategy_disarm,
             commands::strategy::backtest_result,
             commands::strategy::backtest_strategy,
             commands::strategy::paper_start,

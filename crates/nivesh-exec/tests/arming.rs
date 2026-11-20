@@ -14,8 +14,8 @@ mod arming {
     };
     use nivesh_core::{Candle, Freshness};
     use nivesh_exec::{
-        ArmConditions, ArmError, AuditEvent, GatewayError, KillReason, LiveRoute, MemoryAudit,
-        NextOpen, PaperDesk, arm_phrase, session_end_ms,
+        ArmConditions, ArmError, AuditEvent, GatewayError, KillReason, LIVE_PHRASE, LOOSEN_PHRASE,
+        LiveRoute, MemoryAudit, NextOpen, PaperDesk, arm_phrase, session_end_ms,
     };
     use nivesh_risk::{ApprovedOrder, RiskEngine, RiskLimits};
     use nivesh_strategy::{PaperRunner, Rule, RuleSet, Sizing};
@@ -146,7 +146,7 @@ mod arming {
         let broker = MockBroker::new(answer);
         desk.install_live_route(Arc::new(LiveRoute::new(broker.clone(), log.clone())));
         if master {
-            desk.set_live_enabled(true, T0).unwrap();
+            desk.set_live_enabled(true, LIVE_PHRASE, T0).unwrap();
         }
         Harness { desk, log, broker }
     }
@@ -260,7 +260,7 @@ mod arming {
         let log = Arc::new(MemoryAudit::failing());
         let mut desk = PaperDesk::new(RiskEngine::new(RiskLimits::default()), log);
         assert!(matches!(
-            desk.set_live_enabled(true, T0),
+            desk.set_live_enabled(true, LIVE_PHRASE, T0),
             Err(GatewayError::AuditFailed(_))
         ));
         assert!(!desk.live_enabled(), "fail closed");
@@ -388,7 +388,7 @@ mod arming {
 
         let mut h = harness(true, Answer::Ack);
         arm(&mut h, T0).unwrap();
-        h.desk.set_live_enabled(false, T0).unwrap();
+        h.desk.set_live_enabled(false, "", T0).unwrap();
         assert!(disarmed(&h), "the master switch");
 
         let mut h = harness(true, Answer::Ack);
@@ -448,5 +448,115 @@ mod arming {
             e,
             AuditEvent::StrategyDisarmed { reason, .. } if reason.contains("session ended")
         )));
+    }
+
+    fn needs(phrase: &str, result: Result<impl std::fmt::Debug, GatewayError>) {
+        match result {
+            Err(GatewayError::NeedsConfirmation { phrase: p }) => assert_eq!(p, phrase),
+            other => panic!("expected a confirmation challenge, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn the_master_switch_needs_its_phrase() {
+        let mut h = harness(false, Answer::Ack);
+        needs(LIVE_PHRASE, h.desk.set_live_enabled(true, "yes", T0));
+        assert!(!h.desk.live_enabled());
+        h.desk.set_live_enabled(true, LIVE_PHRASE, T0).unwrap();
+        assert!(h.desk.live_enabled());
+        // Off needs nothing.
+        h.desk.set_live_enabled(false, "", T0).unwrap();
+        assert!(!h.desk.live_enabled());
+    }
+
+    #[test]
+    fn tightening_applies_at_once_and_loosening_needs_the_phrase() {
+        let mut h = harness(false, Answer::Ack);
+        let base = h.desk.risk_limits().clone();
+        let tighter = RiskLimits {
+            max_order_quantity: 10,
+            ..base.clone()
+        };
+        assert_eq!(
+            h.desk.change_risk_limits(tighter.clone(), "", T0),
+            Ok(false)
+        );
+        assert_eq!(h.desk.risk_limits(), &tighter);
+
+        needs(
+            LOOSEN_PHRASE,
+            h.desk.change_risk_limits(base.clone(), "", T0),
+        );
+        assert_eq!(h.desk.risk_limits(), &tighter, "unchanged");
+        assert_eq!(
+            h.desk.change_risk_limits(base.clone(), LOOSEN_PHRASE, T0),
+            Ok(true)
+        );
+        assert_eq!(h.desk.risk_limits(), &base);
+
+        let changes: Vec<bool> = h
+            .log
+            .events()
+            .into_iter()
+            .filter_map(|(_, e)| match e {
+                AuditEvent::LimitsChanged {
+                    strategy_id: None,
+                    loosened,
+                    ..
+                } => Some(loosened),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(changes, vec![false, true], "both on the record");
+    }
+
+    #[test]
+    fn removing_a_strategys_limits_is_a_loosening_and_disarms_it() {
+        let mut h = harness(true, Answer::Ack);
+        arm(&mut h, T0).unwrap();
+        let tighter = RiskLimits {
+            max_orders_per_day: 3,
+            ..RiskLimits::default()
+        };
+        assert_eq!(
+            h.desk
+                .change_strategy_limits(1, Some(tighter.clone()), "", T0),
+            Ok(false)
+        );
+        assert!(
+            h.desk.armed_until(1, T0).is_some(),
+            "tightening keeps it armed"
+        );
+        needs(
+            LOOSEN_PHRASE,
+            h.desk.change_strategy_limits(1, None, "", T0),
+        );
+        assert_eq!(h.desk.strategy_limits(1), Some(&tighter));
+        assert_eq!(
+            h.desk.change_strategy_limits(1, None, LOOSEN_PHRASE, T0),
+            Ok(true)
+        );
+        assert_eq!(h.desk.strategy_limits(1), None);
+        assert_eq!(h.desk.armed_until(1, T0), None);
+    }
+
+    #[test]
+    fn a_loosening_that_cannot_be_audited_does_not_happen() {
+        let mut desk = PaperDesk::new(
+            RiskEngine::new(RiskLimits::default()),
+            Arc::new(MemoryAudit::failing()),
+        );
+        let tighter = RiskLimits {
+            max_order_quantity: 10,
+            ..RiskLimits::default()
+        };
+        // Safer never waits on the log...
+        assert_eq!(desk.change_risk_limits(tighter.clone(), "", T0), Ok(false));
+        // ...riskier does.
+        assert!(matches!(
+            desk.change_risk_limits(RiskLimits::default(), LOOSEN_PHRASE, T0),
+            Err(GatewayError::AuditFailed(_))
+        ));
+        assert_eq!(desk.risk_limits(), &tighter);
     }
 }

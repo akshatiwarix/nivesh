@@ -9,7 +9,7 @@
 use std::sync::Mutex;
 
 use nivesh_core::{Freshness, Side};
-use nivesh_risk::{RiskCheck, RiskRejection};
+use nivesh_risk::{RiskCheck, RiskLimits, RiskRejection};
 
 use crate::kill::KillReason;
 use serde::Serialize;
@@ -81,6 +81,14 @@ pub enum AuditEvent {
     PausedBlocked { strategy_id: i64 },
     /// The live-trading master switch changed.
     LiveSwitched { enabled: bool },
+    /// Limits changed: the global ones (`strategy_id` none) or a
+    /// strategy's own (`limits` none: removed). `loosened` changes were
+    /// confirmed with the typed phrase.
+    LimitsChanged {
+        strategy_id: Option<i64>,
+        loosened: bool,
+        limits: Option<RiskLimits>,
+    },
     /// A strategy was armed for live trading until `expires_ms`.
     StrategyArmed { strategy_id: i64, expires_ms: i64 },
     /// A strategy was disarmed (the user, the kill switch, a pause, the
@@ -127,6 +135,7 @@ impl AuditEvent {
             Self::StrategyResumed { .. } => "strategy.resumed",
             Self::PausedBlocked { .. } => "strategy.blocked",
             Self::LiveSwitched { .. } => "live.switch",
+            Self::LimitsChanged { .. } => "limits.changed",
             Self::StrategyArmed { .. } => "strategy.armed",
             Self::StrategyDisarmed { .. } => "strategy.disarmed",
             Self::NotLive { .. } => "intent.not_live",
@@ -156,6 +165,7 @@ impl AuditEvent {
             | Self::NotLive { strategy_id, .. }
             | Self::OrderAcked { strategy_id, .. }
             | Self::OrderFailed { strategy_id, .. } => Some(*strategy_id),
+            Self::LimitsChanged { strategy_id, .. } => *strategy_id,
             Self::KillEngaged { .. }
             | Self::OrdersCancelled { .. }
             | Self::KillReset

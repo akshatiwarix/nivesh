@@ -177,6 +177,11 @@ impl KillMonitor {
         &self.triggers
     }
 
+    /// Follows a change of the daily-loss limit.
+    pub fn set_max_daily_loss(&mut self, paise: i64) {
+        self.triggers.max_daily_loss_paise = paise;
+    }
+
     /// The reason to engage, if `seen` calls for it.
     pub fn observe(&mut self, seen: Observation, now_ms: i64) -> Option<(KillReason, String)> {
         let t = &self.triggers;

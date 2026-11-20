@@ -1,5 +1,6 @@
 import type { Exchange, Parsed } from "../commands";
 import { describeError } from "../data/errors";
+import { confirmable } from "../data/risk";
 import {
   type ItemRef,
   parseItemRef,
@@ -12,8 +13,13 @@ import {
   brokerLogin,
   brokerLogout,
   inTauri,
+  liveSwitch,
   paperStart,
   paperStop,
+  riskClearLimits,
+  riskSetLimit,
+  strategyArm,
+  strategyDisarm,
   strategySave,
 } from "../ipc";
 import { DEFAULT_UNIVERSE, findUniverse } from "../lib/universe";
@@ -203,6 +209,32 @@ export function runCommand(
         }
       })();
     }
+    case "risk":
+      return runRisk(args, ws);
+    case "live": {
+      const sub = args[0]?.toUpperCase();
+      if (sub !== "ON" && sub !== "OFF") return "LIVE ON or LIVE OFF.";
+      if (!inTauri()) return "Live trading is controlled in the Nivesh app.";
+      openRisk(ws);
+      return confirmable("switch live trading on", (typed) => liveSwitch(sub === "ON", typed));
+    }
+    case "arm": {
+      const name = args[0];
+      if (name === undefined) return "ARM <NAME>: which strategy?";
+      if (!inTauri()) return "Arming runs in the Nivesh app.";
+      openRisk(ws);
+      return confirmable(`arm ${name} for live trading`, (typed) => strategyArm(name, typed));
+    }
+    case "disarm": {
+      const name = args[0];
+      if (name === undefined) return "DISARM <NAME>: which strategy?";
+      if (!inTauri()) return "Arming runs in the Nivesh app.";
+      openRisk(ws);
+      return confirmable(`disarm ${name}`, async () => {
+        await strategyDisarm(name);
+        return { done: true, confirm: null };
+      });
+    }
     case "login": {
       // LOGIN DEMO starts the demo broker; LOGIN starts the Kite login whose
       // URL the backend already opened in the system browser.
@@ -329,4 +361,44 @@ function runWatchlist(
     default:
       return WL_USAGE;
   }
+}
+
+/** Opens RISK in the focused panel unless it is already there. */
+function openRisk(ws: Workspace): void {
+  if (ws.currentView(ws.state.focused).kind !== "risk") ws.open({ kind: "risk" });
+}
+
+const RISK_USAGE =
+  "RISK, RISK SET <QTY|VALUE|EXPOSURE|POSITIONS|OPM|OPD|LOSS|BAND> <N> [FOR <NAME>], or RISK CLEAR <NAME>.";
+
+/** RISK [SET <FIELD> <N> [FOR <NAME>] | CLEAR <NAME>]. */
+function runRisk(args: readonly string[], ws: Workspace): CommandResult {
+  const sub = args[0]?.toUpperCase();
+  if (sub === undefined) {
+    openRisk(ws);
+    return undefined;
+  }
+  if (sub === "SET") {
+    const [, field, raw, forWord, name, extra] = args;
+    const value = Number(raw?.replace(/,/g, ""));
+    if (field === undefined || raw === undefined || !Number.isFinite(value)) return RISK_USAGE;
+    if (forWord !== undefined && (forWord.toUpperCase() !== "FOR" || name === undefined)) {
+      return RISK_USAGE;
+    }
+    if (extra !== undefined) return RISK_USAGE;
+    if (!inTauri()) return "The risk controls are in the Nivesh app.";
+    openRisk(ws);
+    const target = name === undefined ? "the global" : `${name}'s`;
+    return confirmable(`loosen ${target} ${field.toUpperCase()} limit`, (typed) =>
+      riskSetLimit(field, value, name, typed),
+    );
+  }
+  if (sub === "CLEAR") {
+    const name = args[1];
+    if (name === undefined || args.length > 2) return RISK_USAGE;
+    if (!inTauri()) return "The risk controls are in the Nivesh app.";
+    openRisk(ws);
+    return confirmable(`remove ${name}'s own limits`, (typed) => riskClearLimits(name, typed));
+  }
+  return RISK_USAGE;
 }

@@ -290,7 +290,10 @@ fn paper_dto(name: &str, running: bool, record: &PaperRecord) -> PaperStateDto {
 /// Fills per strategy on the dashboard.
 const DASHBOARD_FILLS: usize = 20;
 
-fn strategy_named(store: &Store, name: &str) -> Result<nivesh_store::StrategyRow, IpcError> {
+pub(crate) fn strategy_named(
+    store: &Store,
+    name: &str,
+) -> Result<nivesh_store::StrategyRow, IpcError> {
     store
         .strategies()?
         .into_iter()

@@ -27,6 +27,12 @@ use nivesh_risk::TradingWindow;
 const IST_OFFSET_MS: i64 = 19_800_000;
 const DAY_MS: i64 = 86_400_000;
 
+/// The phrase that turns the live-trading master switch on.
+pub const LIVE_PHRASE: &str = "ENABLE LIVE TRADING";
+
+/// The phrase that confirms loosening a limit.
+pub const LOOSEN_PHRASE: &str = "LOOSEN LIMITS";
+
 /// The phrase that arms `name`: `ARM <NAME> LIVE`, the name upper-cased.
 pub fn arm_phrase(name: &str) -> String {
     format!("ARM {} LIVE", name.trim().to_uppercase())
