@@ -1,4 +1,5 @@
 import type { Exchange, Parsed } from "../commands";
+import { setBtRun } from "../data/backtest";
 import { describeError } from "../data/errors";
 import { askChallenge, confirmable, engageKill, riskChanged, setKill } from "../data/risk";
 import {
@@ -178,14 +179,21 @@ export function runCommand(
         rest[0] !== undefined && parseInterval(rest[0]) === undefined ? rest.shift() : undefined;
       const interval = rest[0]?.toUpperCase() ?? "1D";
       const range = rest[1]?.toUpperCase() ?? "1Y";
+      if (!inTauri()) {
+        ws.open({ kind: "bt", name });
+        return undefined;
+      }
+      setBtRun(name, { state: "running" });
       ws.open({ kind: "bt", name });
-      if (!inTauri()) return undefined;
       return (async () => {
         try {
           await backtestStrategy(name, interval, range, symbol);
+          setBtRun(name, { state: "done", at: Date.now() });
           return undefined;
         } catch (err) {
-          return describeError(err);
+          const error = describeError(err);
+          setBtRun(name, { state: "failed", error });
+          return error;
         }
       })();
     }

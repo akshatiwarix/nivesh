@@ -30,7 +30,13 @@ import {
   saveChartIndicators,
   subscribeFormingBar,
 } from "../../ipc";
-import { changeTone, formatCount, formatMovePct, formatPrice } from "../../lib/format";
+import {
+  changeTone,
+  formatCount,
+  formatMovePct,
+  formatPrice,
+  formatVolumeShort,
+} from "../../lib/format";
 import { useViewCommands, useViewOps } from "../context";
 import type { View } from "../types";
 import "./ChartView.css";
@@ -196,7 +202,12 @@ export const ChartView: Component<{ view: ChartViewDef }> = (props) => {
     });
     const volume = chart.addSeries(
       lib.HistogramSeries,
-      { priceFormat: { type: "volume" }, priceLineVisible: false, lastValueVisible: false },
+      {
+        // Its own formatter: the chart-wide one gives prices two decimals.
+        priceFormat: { type: "custom", formatter: formatVolumeShort, minMove: 1 },
+        priceLineVisible: false,
+        lastValueVisible: false,
+      },
       1,
     );
     chart.panes()[1]?.setStretchFactor(0.22);

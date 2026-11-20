@@ -28,7 +28,7 @@ import "./broker.css";
 export const BrokerBadge: Component<{ session: BrokerSessionDto | undefined }> = (props) => {
   const session = () => props.session;
   return (
-    <Show when={session() && session()?.broker} fallback={<Badge tone="neutral">NO BROKER</Badge>}>
+    <Show when={session()?.broker} fallback={<Badge tone="neutral">NO BROKER</Badge>}>
       <Badge tone={session()?.broker === "demo" ? "paper" : "live"}>
         {session()?.broker === "demo" ? "DEMO" : `${session()?.broker?.toUpperCase()} CONNECTED`}
       </Badge>

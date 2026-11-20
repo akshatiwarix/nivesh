@@ -9,6 +9,7 @@ import {
   formatPct,
   formatPrice,
   formatRange,
+  formatVolumeShort,
   rangePosition,
 } from "./format";
 import { formatAge, formatAsOf } from "./time";
@@ -86,5 +87,15 @@ describe("as-of formatting", () => {
       "1d",
     ]);
     expect(formatAge(-5)).toBe("0s");
+  });
+});
+
+describe("formatVolumeShort", () => {
+  it("uses Indian units", () => {
+    expect(formatVolumeShort(950)).toBe("950");
+    expect(formatVolumeShort(12_500)).toBe("12.5K");
+    expect(formatVolumeShort(3_782_534)).toBe("37.8L");
+    expect(formatVolumeShort(100_000_000)).toBe("10Cr");
+    expect(formatVolumeShort(null)).toBe("—");
   });
 });
