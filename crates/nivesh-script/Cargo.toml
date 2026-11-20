@@ -1,0 +1,21 @@
+[package]
+name = "nivesh-script"
+description = "Sandboxed Rhai strategy scripts for Nivesh: a small API (bars, indicators, buy/sell), hard operation, time, depth and size limits, no filesystem, network, modules or eval. Scripts decide like rule strategies and trade only through the same backtester and gateway."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+nivesh-core = { path = "../nivesh-core" }
+nivesh-indicators = { path = "../nivesh-indicators" }
+nivesh-strategy = { path = "../nivesh-strategy" }
+rhai.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+
+[lints]
+workspace = true
