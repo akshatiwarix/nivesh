@@ -43,6 +43,24 @@ pub struct StepReport {
     pub dispatches: Vec<LiveDispatch>,
 }
 
+/// The account's usage against the limits, for the RISK view.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct DeskUsage {
+    /// Today's P&L, realised plus MTM, paise.
+    pub day_pnl_paise: i64,
+    pub open_positions: usize,
+    /// The largest notional held in one symbol, paise.
+    pub largest_exposure_paise: i64,
+    /// Orders approved since IST midnight.
+    pub orders_today: usize,
+    /// Orders approved in the last minute.
+    pub orders_last_minute: usize,
+}
+
+/// IST is UTC+05:30.
+const IST_OFFSET_MS: i64 = 19_800_000;
+const DAY_MS: i64 = 86_400_000;
+
 pub struct PaperDesk {
     gateway: OrderGateway,
     runners: BTreeMap<i64, PaperRunner>,
@@ -170,9 +188,15 @@ impl PaperDesk {
         self.gateway.live_enabled()
     }
 
-    /// Turns the master switch on (audited first) or off (disarming all).
-    pub fn set_live_enabled(&mut self, on: bool, now_ms: i64) -> Result<(), GatewayError> {
-        self.gateway.set_live_enabled(on, now_ms)
+    /// Turns the master switch on (typed phrase, audited first) or off
+    /// (disarming all).
+    pub fn set_live_enabled(
+        &mut self,
+        on: bool,
+        typed: &str,
+        now_ms: i64,
+    ) -> Result<(), GatewayError> {
+        self.gateway.set_live_enabled(on, typed, now_ms)
     }
 
     /// Installs the broker that can trade.
@@ -272,12 +296,66 @@ impl PaperDesk {
         }
     }
 
-    /// Sets (or clears) a strategy's own limits.
+    /// Sets (or clears) a strategy's own limits as saved, without an
+    /// audit record: for restoring them at start. Changes go through
+    /// [`Self::change_strategy_limits`].
     pub fn set_strategy_limits(&mut self, strategy_id: i64, limits: Option<RiskLimits>) {
         match limits {
             Some(l) => self.limits.insert(strategy_id, l),
             None => self.limits.remove(&strategy_id),
         };
+    }
+
+    /// The global limits.
+    pub fn risk_limits(&self) -> &RiskLimits {
+        self.gateway.risk_limits()
+    }
+
+    /// A strategy's own limits, if it has any.
+    pub fn strategy_limits(&self, strategy_id: i64) -> Option<&RiskLimits> {
+        self.limits.get(&strategy_id)
+    }
+
+    /// Changes the global limits (see [`OrderGateway::set_risk_limits`]);
+    /// the kill switch's daily-loss trigger follows. Returns whether it
+    /// loosened.
+    pub fn change_risk_limits(
+        &mut self,
+        limits: RiskLimits,
+        typed: &str,
+        now_ms: i64,
+    ) -> Result<bool, GatewayError> {
+        let loss = limits.max_daily_loss_paise;
+        let loosened = self.gateway.set_risk_limits(limits, typed, now_ms)?;
+        self.monitor.set_max_daily_loss(loss);
+        Ok(loosened)
+    }
+
+    /// Changes (or, with `None`, removes) a strategy's own limits. Adding
+    /// or tightening applies at once; loosening or removing needs the
+    /// typed phrase and is audited first. A strategy left without limits
+    /// is disarmed. Returns whether it loosened.
+    pub fn change_strategy_limits(
+        &mut self,
+        strategy_id: i64,
+        limits: Option<RiskLimits>,
+        typed: &str,
+        now_ms: i64,
+    ) -> Result<bool, GatewayError> {
+        let loosened = match (&limits, self.limits.get(&strategy_id)) {
+            (Some(new), Some(old)) => !new.is_within(old),
+            (Some(_), None) => false,
+            (None, Some(_)) => true,
+            (None, None) => return Ok(false),
+        };
+        self.gateway
+            .record_limits(Some(strategy_id), loosened, limits.as_ref(), typed, now_ms)?;
+        if limits.is_none() {
+            self.gateway
+                .disarm(strategy_id, "its limits were removed", now_ms);
+        }
+        self.set_strategy_limits(strategy_id, limits);
+        Ok(loosened)
     }
 
     /// The account as the risk check sees it for `strategy_id` on `symbol`:
@@ -308,6 +386,35 @@ impl PaperDesk {
         }
         view.day_pnl_paise = paise(day_pnl);
         view
+    }
+
+    /// The account's usage now, marked at the latest closes.
+    pub fn usage(&self, now_ms: i64) -> DeskUsage {
+        let mut exposure: HashMap<&str, i64> = HashMap::new();
+        for state in self.runners.values().map(PaperRunner::state) {
+            if let Some(pos) = &state.position {
+                let mark = self
+                    .marks
+                    .get(&pos.symbol)
+                    .copied()
+                    .unwrap_or(pos.entry_price);
+                *exposure.entry(&pos.symbol).or_default() += paise(mark) * pos.quantity;
+            }
+        }
+        let ist = now_ms + IST_OFFSET_MS;
+        let midnight = ist - ist.rem_euclid(DAY_MS) - IST_OFFSET_MS;
+        DeskUsage {
+            // The account view's P&L is account-wide whatever it is asked.
+            day_pnl_paise: self.account_view(0, "").day_pnl_paise,
+            open_positions: self
+                .runners
+                .values()
+                .filter(|r| r.state().position.is_some())
+                .count(),
+            largest_exposure_paise: exposure.values().copied().max().unwrap_or(0),
+            orders_today: self.gateway.orders_since(midnight),
+            orders_last_minute: self.gateway.orders_since(now_ms - 60_000),
+        }
     }
 
     pub fn is_running(&self, strategy_id: i64) -> bool {
@@ -489,6 +596,14 @@ mod tests {
         let pos = r1.state.position.unwrap();
         assert_eq!((pos.quantity, pos.entry_price), (1, 101.0));
         assert!(r1.placed.is_none(), "no pyramiding");
+
+        let usage = desk.usage(b1.t);
+        assert_eq!(usage.open_positions, 1);
+        assert_eq!(usage.orders_today, 0, "the order was yesterday's");
+        assert_eq!(desk.usage(b0.t).orders_last_minute, 1);
+        // One share marked at the 102 close.
+        assert_eq!(usage.largest_exposure_paise, 10_200);
+        assert_eq!(usage.day_pnl_paise, 100, "₹1 of MTM");
     }
 
     #[test]
