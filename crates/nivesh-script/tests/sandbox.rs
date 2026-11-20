@@ -31,12 +31,37 @@ mod sandbox {
 
     #[test]
     fn an_infinite_loop_is_stopped_by_the_operation_limit() {
-        let started = Instant::now();
-        let (_, r) = run("fn on_bar(bar) { loop { } }");
-        assert_eq!(r, Err(ScriptError::TooManyOperations(200_000)));
-        assert!(started.elapsed() < Duration::from_secs(1));
+        // A generous clock, so only the operation budget can stop it (on a
+        // slow machine the default 50 ms could otherwise win the race).
+        let limits = ScriptLimits {
+            max_time: Duration::from_secs(10),
+            ..ScriptLimits::default()
+        };
+        for source in [
+            "fn on_bar(bar) { loop { } }",
+            "fn on_bar(bar) { let i = 0; while true { i += 1; } }",
+        ] {
+            let mut s = Script::new(source, limits).unwrap();
+            let started = Instant::now();
+            assert_eq!(
+                s.decide(&bar(0, 100.0)),
+                Err(ScriptError::TooManyOperations(200_000)),
+                "{source}"
+            );
+            assert!(started.elapsed() < Duration::from_secs(1));
+        }
+    }
+
+    #[test]
+    fn with_default_limits_a_runaway_loop_is_stopped_either_way() {
         let (_, r) = run("fn on_bar(bar) { let i = 0; while true { i += 1; } }");
-        assert!(matches!(r, Err(ScriptError::TooManyOperations(_))));
+        assert!(
+            matches!(
+                r,
+                Err(ScriptError::TooManyOperations(_) | ScriptError::TooSlow(_))
+            ),
+            "{r:?}"
+        );
     }
 
     #[test]
