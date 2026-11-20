@@ -193,7 +193,10 @@ nivesh/
   `OrderGateway`. Command handlers stay short: parse arguments, call a service,
   map the error.
 - **Bundles:**
-  - macOS `.dmg`: aarch64 in PR CI, universal for releases.
+  - macOS `.dmg`: aarch64 in PR CI, universal for releases. Until the
+    universal build exists, `release.yml` publishes the aarch64 `.dmg` on
+    every `v*` tag as `Nivesh_aarch64.dmg`, the file the landing page in
+    `site/` links to.
   - Linux `.deb` and `.AppImage`, built on Ubuntu 22.04 with
     `libwebkit2gtk-4.1-dev`.
   - Windows later.
