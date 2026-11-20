@@ -7,6 +7,7 @@
 mod audit;
 mod broker;
 mod commands;
+mod fatal;
 pub mod ipc;
 mod logging;
 mod notify;
@@ -24,6 +25,63 @@ use tauri::{AppHandle, Manager as _};
 /// Label of the single main window (see `tauri.conf.json`).
 pub const MAIN_WINDOW: &str = "main";
 
+/// Everything the app needs before its window shows.
+fn start(app: &mut tauri::App) -> anyhow::Result<()> {
+    let guard = logging::init(app.handle()).context("initialising logging")?;
+    app.manage(guard);
+    tracing::info!(
+        version = env!("CARGO_PKG_VERSION"),
+        debug = cfg!(debug_assertions),
+        "nivesh starting"
+    );
+
+    let db_path = app
+        .path()
+        .app_data_dir()
+        .context("resolving app data directory")?
+        .join("nivesh.db");
+    let store = Arc::new(Store::open(&db_path).context("opening database")?);
+    app.manage(Arc::clone(&store));
+
+    // The window is created hidden so it can be positioned before it
+    // is first painted.
+    let window = app
+        .get_webview_window(MAIN_WINDOW)
+        .context("main window missing from tauri.conf.json")?;
+    let services = tauri::async_runtime::block_on(async {
+        services::build(Arc::clone(&store), &services::Overrides::from_env())
+    })
+    .map(Arc::new)
+    .context("starting market data")?;
+    services.spawn_background_tasks();
+    services.spawn_event_bridges(app.handle());
+
+    // Paper strategies saved as running resume from their saved
+    // state. Paper only: the desk has no route to a real broker.
+    let paper = Arc::new(paper::PaperManager::new(Arc::clone(&store)));
+    paper.attach(app.handle().clone());
+    {
+        let paper = Arc::clone(&paper);
+        let services = Arc::clone(&services);
+        tauri::async_runtime::spawn(async move { paper.resume_all(&services).await });
+    }
+    app.manage(paper);
+    app.manage(services);
+
+    // Broker wiring: restore a stored session so LIVE data works
+    // after a restart until the daily flush.
+    let broker = Arc::new(broker::BrokerManager::new(Arc::clone(&store)));
+    if let Err(err) = tauri::async_runtime::block_on(broker.restore()) {
+        tracing::warn!(error = %err, "restoring the broker session failed");
+    }
+    app.manage(broker);
+
+    window_state::restore(&window, &store);
+    window_state::track(&window, store);
+    window.show().context("showing main window")?;
+    Ok(())
+}
+
 /// Builds and runs the app. Returns when the app exits.
 pub fn run() -> anyhow::Result<()> {
     commands::app::mark_process_start();
@@ -38,56 +96,17 @@ pub fn run() -> anyhow::Result<()> {
             focus_main_window(app);
         }))
         .setup(|app| {
-            let guard = logging::init(app.handle()).context("initialising logging")?;
-            app.manage(guard);
-            tracing::info!(
-                version = env!("CARGO_PKG_VERSION"),
-                debug = cfg!(debug_assertions),
-                "nivesh starting"
-            );
-
-            let db_path = app
-                .path()
-                .app_data_dir()
-                .context("resolving app data directory")?
-                .join("nivesh.db");
-            let store = Arc::new(Store::open(&db_path).context("opening database")?);
-            app.manage(Arc::clone(&store));
-
-            // The window is created hidden so it can be positioned before it
-            // is first painted.
-            let window = app
-                .get_webview_window(MAIN_WINDOW)
-                .context("main window missing from tauri.conf.json")?;
-            let services = tauri::async_runtime::block_on(async { services::build(Arc::clone(&store), &services::Overrides::from_env()) })
-                .map(Arc::new)
-                .context("starting market data")?;
-            services.spawn_background_tasks();
-            services.spawn_event_bridges(app.handle());
-
-            // Paper strategies saved as running resume from their saved
-            // state. Paper only: the desk has no route to a real broker.
-            let paper = Arc::new(paper::PaperManager::new(Arc::clone(&store)));
-            paper.attach(app.handle().clone());
-            {
-                let paper = Arc::clone(&paper);
-                let services = Arc::clone(&services);
-                tauri::async_runtime::spawn(async move { paper.resume_all(&services).await });
+            // A failed start must not escape setup: on macOS that aborts
+            // inside the launch event, and the OS reports "quit
+            // unexpectedly" on every reopen with no reason given. Say why
+            // and quit cleanly instead.
+            if let Err(err) = start(app) {
+                let message = format!("{err:#}");
+                tracing::error!(error = %message, "nivesh could not start");
+                eprintln!("nivesh: fatal: {message}");
+                fatal::show(&message);
+                app.handle().exit(1);
             }
-            app.manage(paper);
-            app.manage(services);
-
-            // Broker wiring: restore a stored session so LIVE data works
-            // after a restart until the daily flush.
-            let broker = Arc::new(broker::BrokerManager::new(Arc::clone(&store)));
-            if let Err(err) = tauri::async_runtime::block_on(broker.restore()) {
-                tracing::warn!(error = %err, "restoring the broker session failed");
-            }
-            app.manage(broker);
-
-            window_state::restore(&window, &store);
-            window_state::track(&window, store);
-            window.show().context("showing main window")?;
             Ok(())
         })
         // Keep in sync with COMMANDS in build.rs.
